@@ -1,0 +1,28 @@
+[package]
+name = "trueno-zram-core"
+description = "SIMD-accelerated LZ4/ZSTD compression for memory pages"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "compression"
+harness = false
+
+[features]
+default = ["std"]
+std = []
+# Enable nightly-only SIMD features
+nightly = []
