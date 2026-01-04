@@ -1,14 +1,16 @@
 //! Device module - ublk device management
 //!
 //! Provides abstraction over libublk for managing trueno-ublk devices.
+//! Also provides a pure Rust `BlockDevice` for testing without kernel dependencies.
 
+use crate::daemon::PageStore;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
-use trueno_zram_core::{CompressorBuilder, PageCompressor};
+use trueno_zram_core::{CompressorBuilder, PageCompressor, PAGE_SIZE};
 
 /// Device configuration
 #[derive(Clone, Debug)]
@@ -407,6 +409,224 @@ fn detect_simd_backend() -> String {
     }
 
     "scalar".to_string()
+}
+
+// ============================================================================
+// BlockDevice - Pure Rust block device abstraction for testing
+// ============================================================================
+
+/// Statistics for BlockDevice
+#[derive(Clone, Debug, Default)]
+pub struct BlockDeviceStats {
+    pub pages_stored: u64,
+    pub bytes_written: u64,
+    pub bytes_read: u64,
+    pub bytes_compressed: u64,
+    pub zero_pages: u64,
+    pub gpu_pages: u64,
+    pub simd_pages: u64,
+    pub scalar_pages: u64,
+}
+
+impl BlockDeviceStats {
+    /// Calculate compression ratio (original / compressed)
+    pub fn compression_ratio(&self) -> f64 {
+        if self.bytes_compressed > 0 {
+            self.bytes_written as f64 / self.bytes_compressed as f64
+        } else {
+            1.0
+        }
+    }
+}
+
+/// Pure Rust block device abstraction for testing without kernel dependencies.
+///
+/// This provides a simple in-memory block device that compresses pages using
+/// trueno-zram-core. It can be used for:
+/// - Unit testing compression roundtrips
+/// - Benchmarking throughput
+/// - Validating correctness before kernel integration
+///
+/// # Example
+///
+/// ```ignore
+/// use trueno_zram_core::{Algorithm, CompressorBuilder};
+/// use trueno_ublk::device::BlockDevice;
+///
+/// let compressor = CompressorBuilder::new()
+///     .algorithm(Algorithm::Lz4)
+///     .build()
+///     .unwrap();
+///
+/// let mut device = BlockDevice::new(1 << 30, compressor); // 1GB
+///
+/// // Write data
+/// let data = vec![0xAB; 4096];
+/// device.write(0, &data).unwrap();
+///
+/// // Read back
+/// let mut buf = vec![0u8; 4096];
+/// device.read(0, &mut buf).unwrap();
+/// assert_eq!(data, buf);
+/// ```
+pub struct BlockDevice {
+    store: PageStore,
+    size: u64,
+    block_size: u32,
+    bytes_written: AtomicU64,
+    bytes_read: AtomicU64,
+}
+
+impl BlockDevice {
+    /// Create a new block device with the given size and compressor.
+    ///
+    /// # Arguments
+    /// * `size` - Total device size in bytes
+    /// * `compressor` - The compressor to use for page compression
+    pub fn new(size: u64, compressor: Box<dyn PageCompressor>) -> Self {
+        Self {
+            store: PageStore::new(Arc::from(compressor), 7.5), // Default entropy threshold
+            size,
+            block_size: PAGE_SIZE as u32,
+            bytes_written: AtomicU64::new(0),
+            bytes_read: AtomicU64::new(0),
+        }
+    }
+
+    /// Create a new block device with custom entropy threshold.
+    pub fn with_entropy_threshold(
+        size: u64,
+        compressor: Box<dyn PageCompressor>,
+        entropy_threshold: f64,
+    ) -> Self {
+        Self {
+            store: PageStore::new(Arc::from(compressor), entropy_threshold),
+            size,
+            block_size: PAGE_SIZE as u32,
+            bytes_written: AtomicU64::new(0),
+            bytes_read: AtomicU64::new(0),
+        }
+    }
+
+    /// Get the device size in bytes.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Get the block size in bytes.
+    pub fn block_size(&self) -> u32 {
+        self.block_size
+    }
+
+    /// Read data from the device at the given byte offset.
+    ///
+    /// # Arguments
+    /// * `offset` - Byte offset to read from (must be page-aligned)
+    /// * `buf` - Buffer to read into (length must be multiple of PAGE_SIZE)
+    pub fn read(&self, offset: u64, buf: &mut [u8]) -> Result<()> {
+        self.validate_io(offset, buf.len())?;
+
+        let pages = buf.len() / PAGE_SIZE;
+        for i in 0..pages {
+            let sector = self.offset_to_sector(offset + (i * PAGE_SIZE) as u64);
+            let page_buf = &mut buf[i * PAGE_SIZE..(i + 1) * PAGE_SIZE];
+            self.store.load(sector, page_buf)?;
+        }
+
+        self.bytes_read
+            .fetch_add(buf.len() as u64, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Write data to the device at the given byte offset.
+    ///
+    /// # Arguments
+    /// * `offset` - Byte offset to write to (must be page-aligned)
+    /// * `data` - Data to write (length must be multiple of PAGE_SIZE)
+    pub fn write(&mut self, offset: u64, data: &[u8]) -> Result<()> {
+        self.validate_io(offset, data.len())?;
+
+        let pages = data.len() / PAGE_SIZE;
+        for i in 0..pages {
+            let sector = self.offset_to_sector(offset + (i * PAGE_SIZE) as u64);
+            let page_data = &data[i * PAGE_SIZE..(i + 1) * PAGE_SIZE];
+            self.store.store(sector, page_data)?;
+        }
+
+        self.bytes_written
+            .fetch_add(data.len() as u64, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Discard data at the given byte offset.
+    ///
+    /// # Arguments
+    /// * `offset` - Byte offset to discard from (must be page-aligned)
+    /// * `len` - Length to discard in bytes (must be multiple of PAGE_SIZE)
+    pub fn discard(&mut self, offset: u64, len: u64) -> Result<()> {
+        self.validate_io(offset, len as usize)?;
+
+        let pages = len as usize / PAGE_SIZE;
+        for i in 0..pages {
+            let sector = self.offset_to_sector(offset + (i * PAGE_SIZE) as u64);
+            self.store.remove(sector);
+        }
+
+        Ok(())
+    }
+
+    /// Sync all data to storage (no-op for in-memory device).
+    pub fn sync(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get device statistics.
+    pub fn stats(&self) -> BlockDeviceStats {
+        let store_stats = self.store.stats();
+        BlockDeviceStats {
+            pages_stored: store_stats.pages_stored,
+            bytes_written: self.bytes_written.load(Ordering::Relaxed),
+            bytes_read: self.bytes_read.load(Ordering::Relaxed),
+            bytes_compressed: store_stats.bytes_compressed,
+            zero_pages: store_stats.zero_pages,
+            gpu_pages: store_stats.gpu_pages,
+            simd_pages: store_stats.simd_pages,
+            scalar_pages: store_stats.scalar_pages,
+        }
+    }
+
+    // Private helpers
+
+    fn validate_io(&self, offset: u64, len: usize) -> Result<()> {
+        if offset % PAGE_SIZE as u64 != 0 {
+            anyhow::bail!(
+                "Offset {} is not page-aligned (PAGE_SIZE={})",
+                offset,
+                PAGE_SIZE
+            );
+        }
+        if len % PAGE_SIZE != 0 {
+            anyhow::bail!(
+                "Length {} is not a multiple of PAGE_SIZE ({})",
+                len,
+                PAGE_SIZE
+            );
+        }
+        if offset + len as u64 > self.size {
+            anyhow::bail!(
+                "I/O extends beyond device size: offset={}, len={}, size={}",
+                offset,
+                len,
+                self.size
+            );
+        }
+        Ok(())
+    }
+
+    fn offset_to_sector(&self, offset: u64) -> u64 {
+        // Sector size is 512 bytes, so divide by 512 to get sector number
+        offset / 512
+    }
 }
 
 #[cfg(test)]
