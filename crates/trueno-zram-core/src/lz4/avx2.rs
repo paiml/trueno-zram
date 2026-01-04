@@ -1,7 +1,7 @@
 //! AVX2-accelerated LZ4 implementation.
 //!
 //! This module provides AVX2 (256-bit SIMD) optimized LZ4 compression
-//! and decompression for x86_64 CPUs.
+//! and decompression for `x86_64` CPUs.
 
 use crate::{Result, PAGE_SIZE};
 
@@ -28,7 +28,7 @@ pub unsafe fn decompress_avx2(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> Res
     decompress_avx2_impl(input, output)
 }
 
-/// Fast decompression - just call scalar with target_feature for auto-vectorization.
+/// Fast decompression - just call scalar with `target_feature` for auto-vectorization.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn decompress_avx2_impl(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> Result<usize> {

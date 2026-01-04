@@ -70,13 +70,12 @@ pub fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
 
     for path_str in &config_paths {
         let path = Path::new(path_str);
-        if path.exists() {
-            if path.is_file() {
+        if path.exists()
+            && path.is_file() {
                 let content = std::fs::read_to_string(path)?;
                 return Ok(toml::from_str(&content)?);
             }
             // Handle .d directories later
-        }
     }
 
     // Return default configuration if no config found

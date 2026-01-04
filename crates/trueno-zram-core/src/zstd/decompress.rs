@@ -137,8 +137,8 @@ fn read_frame_header(input: &[u8], pos: &mut usize) -> Result<FrameHeader> {
         }
         let wd = input[*pos];
         *pos += 1;
-        let exponent = (wd >> 3) as u64;
-        let mantissa = (wd & 0x07) as u64;
+        let exponent = u64::from(wd >> 3);
+        let mantissa = u64::from(wd & 0x07);
         (1u64 << (10 + exponent)) + (mantissa << (7 + exponent))
     };
 
@@ -149,7 +149,7 @@ fn read_frame_header(input: &[u8], pos: &mut usize) -> Result<FrameHeader> {
             if *pos >= input.len() {
                 return Err(Error::CorruptedData("missing dict id".to_string()));
             }
-            let id = input[*pos] as u32;
+            let id = u32::from(input[*pos]);
             *pos += 1;
             Some(id)
         }
@@ -157,7 +157,7 @@ fn read_frame_header(input: &[u8], pos: &mut usize) -> Result<FrameHeader> {
             if *pos + 2 > input.len() {
                 return Err(Error::CorruptedData("missing dict id".to_string()));
             }
-            let id = u16::from_le_bytes([input[*pos], input[*pos + 1]]) as u32;
+            let id = u32::from(u16::from_le_bytes([input[*pos], input[*pos + 1]]));
             *pos += 2;
             Some(id)
         }
@@ -185,7 +185,7 @@ fn read_frame_header(input: &[u8], pos: &mut usize) -> Result<FrameHeader> {
                     "missing frame content size".to_string(),
                 ));
             }
-            let size = input[*pos] as u64;
+            let size = u64::from(input[*pos]);
             *pos += 1;
             Some(size)
         }
@@ -196,7 +196,7 @@ fn read_frame_header(input: &[u8], pos: &mut usize) -> Result<FrameHeader> {
                     "missing frame content size".to_string(),
                 ));
             }
-            let size = u16::from_le_bytes([input[*pos], input[*pos + 1]]) as u64 + 256;
+            let size = u64::from(u16::from_le_bytes([input[*pos], input[*pos + 1]])) + 256;
             *pos += 2;
             Some(size)
         }
@@ -206,12 +206,12 @@ fn read_frame_header(input: &[u8], pos: &mut usize) -> Result<FrameHeader> {
                     "missing frame content size".to_string(),
                 ));
             }
-            let size = u32::from_le_bytes([
+            let size = u64::from(u32::from_le_bytes([
                 input[*pos],
                 input[*pos + 1],
                 input[*pos + 2],
                 input[*pos + 3],
-            ]) as u64;
+            ]));
             *pos += 4;
             Some(size)
         }
@@ -252,7 +252,7 @@ fn read_block_header(input: &[u8], pos: &mut usize) -> Result<BlockHeader> {
     }
 
     let header =
-        (input[*pos] as u32) | ((input[*pos + 1] as u32) << 8) | ((input[*pos + 2] as u32) << 16);
+        u32::from(input[*pos]) | (u32::from(input[*pos + 1]) << 8) | (u32::from(input[*pos + 2]) << 16);
     *pos += 3;
 
     let last_block = (header & 0x01) != 0;

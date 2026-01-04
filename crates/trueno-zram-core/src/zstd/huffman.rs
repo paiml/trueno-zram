@@ -78,6 +78,7 @@ impl HuffmanTable {
 
     /// Decode one symbol.
     #[inline]
+    #[must_use] 
     pub fn decode(&self, bits: u64, bit_pos: usize) -> (u8, u8) {
         let index = ((bits >> bit_pos) as usize) & ((1 << self.table_log) - 1);
         let entry = &self.entries[index];
@@ -102,7 +103,7 @@ pub fn read_weights(data: &[u8]) -> Result<(Vec<u8>, usize)> {
     } else {
         // Direct representation
         let num_symbols = (header - 127) as usize;
-        let bytes_needed = (num_symbols + 1) / 2;
+        let bytes_needed = num_symbols.div_ceil(2);
 
         if data.len() < 1 + bytes_needed {
             return Err(Error::CorruptedData(

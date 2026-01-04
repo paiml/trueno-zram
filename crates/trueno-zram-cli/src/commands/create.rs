@@ -44,21 +44,21 @@ pub fn create(args: CreateArgs) -> Result<(), Box<dyn std::error::Error>> {
     let size_bytes = parse_size(&args.size)?;
 
     // Configure algorithm
-    let algo_path = format!("{}/comp_algorithm", sys_path);
+    let algo_path = format!("{sys_path}/comp_algorithm");
     if Path::new(&algo_path).exists() {
         fs::write(&algo_path, &args.algorithm)?;
     }
 
     // Configure streams
     if args.streams > 0 {
-        let streams_path = format!("{}/max_comp_streams", sys_path);
+        let streams_path = format!("{sys_path}/max_comp_streams");
         if Path::new(&streams_path).exists() {
             fs::write(&streams_path, args.streams.to_string())?;
         }
     }
 
     // Set size (this activates the device)
-    let disksize_path = format!("{}/disksize", sys_path);
+    let disksize_path = format!("{sys_path}/disksize");
     fs::write(&disksize_path, size_bytes.to_string())?;
 
     println!(

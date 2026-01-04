@@ -9,9 +9,9 @@ mod decompress;
 #[cfg(target_arch = "x86_64")]
 pub mod avx2;
 #[cfg(target_arch = "x86_64")]
-mod avx512;
+pub mod avx512;
 #[cfg(target_arch = "aarch64")]
-mod neon;
+pub mod neon;
 
 pub use compress::compress;
 pub use decompress::decompress;
@@ -20,18 +20,46 @@ use crate::{Result, PAGE_SIZE};
 
 /// Decompress with automatic SIMD dispatch.
 ///
-/// Uses AVX2 when available, otherwise falls back to scalar.
+/// Selects the best available SIMD implementation at runtime:
+/// - AVX-512 on `x86_64` with AVX-512 support
+/// - AVX2 on `x86_64` with AVX2 support
+/// - NEON on `AArch64`
+/// - Scalar fallback on other platforms
 pub fn decompress_simd(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> Result<usize> {
     #[cfg(target_arch = "x86_64")]
     {
+        // Prefer AVX-512 if available (≥5 GB/s target)
+        if std::arch::is_x86_feature_detected!("avx512f")
+            && std::arch::is_x86_feature_detected!("avx512bw")
+        {
+            // SAFETY: We just checked that AVX-512 is available
+            return unsafe { avx512::decompress_avx512(input, output) };
+        }
+        // Fall back to AVX2 (≥4 GB/s target)
         if std::arch::is_x86_feature_detected!("avx2") {
             // SAFETY: We just checked that AVX2 is available
             return unsafe { avx2::decompress_avx2(input, output) };
         }
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        // Use NEON on ARM (≥4 GB/s target)
+        // SAFETY: NEON is always available on AArch64
+        return unsafe { neon::decompress_neon(input, output) };
+    }
+
     // Fallback to scalar
+    #[allow(unreachable_code)]
     decompress(input, output)
+}
+
+/// Compress with automatic SIMD dispatch.
+///
+/// Note: Compression is hash-table bound and benefits less from SIMD than decompression.
+/// All backends currently use the optimized scalar implementation.
+pub fn compress_simd(input: &[u8; PAGE_SIZE]) -> Result<Vec<u8>> {
+    compress(input)
 }
 
 /// LZ4 block format constants.

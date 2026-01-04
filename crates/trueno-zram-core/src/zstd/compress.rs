@@ -3,7 +3,7 @@
 //! Implements a simplified Zstandard compressor suitable for page compression.
 
 use super::{BlockType, ZSTD_MAGIC};
-use crate::{Error, Result};
+use crate::Result;
 
 /// Compress data using Zstandard format.
 ///
@@ -113,7 +113,7 @@ fn compress_block(output: &mut Vec<u8>, input: &[u8], is_last: bool, level: i32)
         _ => data.len(),
     };
 
-    let header = ((is_last as u32) << 0) | ((block_type as u32) << 1) | ((block_size as u32) << 3);
+    let header = u32::from(is_last) | ((block_type as u32) << 1) | ((block_size as u32) << 3);
 
     output.push((header & 0xFF) as u8);
     output.push(((header >> 8) & 0xFF) as u8);
@@ -141,7 +141,7 @@ fn compress_sequences(input: &[u8], _level: i32) -> Result<Vec<u8>> {
 
     if lit_size < 32 {
         // Size format 0: 5 bits size
-        output.push(((lit_size as u8) << 3) | 0);
+        output.push((lit_size as u8) << 3);
     } else if lit_size < 4096 {
         // Size format 1: 12 bits size
         let header = ((lit_size as u16) << 4) | 0x01;

@@ -37,7 +37,7 @@ pub fn remove(args: RemoveArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Reset the device (disables it)
-    let reset_path = format!("{}/reset", sys_path);
+    let reset_path = format!("{sys_path}/reset");
     fs::write(&reset_path, "1")?;
 
     // Optionally hot-remove the device

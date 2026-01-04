@@ -39,10 +39,12 @@ use std::time::Instant;
 
 /// Compression algorithm selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum Algorithm {
     /// No compression (store as-is).
     None,
     /// LZ4 fast compression.
+    #[default]
     Lz4,
     /// LZ4-HC high compression (not yet implemented).
     Lz4Hc,
@@ -55,11 +57,6 @@ pub enum Algorithm {
     Adaptive,
 }
 
-impl Default for Algorithm {
-    fn default() -> Self {
-        Self::Lz4
-    }
-}
 
 /// SIMD implementation backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

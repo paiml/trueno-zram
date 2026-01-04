@@ -2,8 +2,8 @@
 //!
 //! High-performance LZ4 block format compression using unsafe pointer arithmetic.
 
-use super::constants::*;
-use crate::{Error, Result};
+use super::constants::{MF_LIMIT, LAST_LITERALS, MAX_DISTANCE, MIN_MATCH};
+use crate::Result;
 
 /// Hash table size (64KB = 16384 entries of 4 bytes each).
 const HASH_LOG: usize = 14;
@@ -36,25 +36,25 @@ impl HashTable {
 /// Read u32 from unaligned pointer.
 #[inline(always)]
 unsafe fn read_u32(ptr: *const u8) -> u32 {
-    std::ptr::read_unaligned(ptr as *const u32)
+    std::ptr::read_unaligned(ptr.cast::<u32>())
 }
 
 /// Read u64 from unaligned pointer.
 #[inline(always)]
 unsafe fn read_u64(ptr: *const u8) -> u64 {
-    std::ptr::read_unaligned(ptr as *const u64)
+    std::ptr::read_unaligned(ptr.cast::<u64>())
 }
 
 /// Write u16 to unaligned pointer.
 #[inline(always)]
 unsafe fn write_u16(ptr: *mut u8, val: u16) {
-    std::ptr::write_unaligned(ptr as *mut u16, val);
+    std::ptr::write_unaligned(ptr.cast::<u16>(), val);
 }
 
 /// Copy 8 bytes (wildcard copy).
 #[inline(always)]
 unsafe fn copy_8(dst: *mut u8, src: *const u8) {
-    std::ptr::write_unaligned(dst as *mut u64, std::ptr::read_unaligned(src as *const u64));
+    std::ptr::write_unaligned(dst.cast::<u64>(), std::ptr::read_unaligned(src.cast::<u64>()));
 }
 
 /// Count matching bytes using 64-bit comparisons.
@@ -136,7 +136,6 @@ unsafe fn compress_fast(input: &[u8], output: &mut Vec<u8>) {
 
     loop {
         let mut match_ptr: *const u8;
-        let mut token_pos: *const u8;
 
         // Find a match
         loop {
@@ -159,7 +158,6 @@ unsafe fn compress_fast(input: &[u8], output: &mut Vec<u8>) {
                 && ip as usize - match_ptr as usize <= MAX_DISTANCE
                 && match_ptr >= base
             {
-                token_pos = ip;
                 break;
             }
 
@@ -177,7 +175,7 @@ unsafe fn compress_fast(input: &[u8], output: &mut Vec<u8>) {
         let literal_len = ip as usize - anchor as usize;
 
         // Reserve space in output
-        let out_start = output.len();
+        let _out_start = output.len();
         output.reserve(literal_len + 16);
 
         // Emit token

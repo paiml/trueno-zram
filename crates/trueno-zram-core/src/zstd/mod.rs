@@ -5,11 +5,13 @@
 
 mod compress;
 mod decompress;
-mod fse;
-mod huffman;
+
+// FSE and Huffman are public for advanced use and testing
+pub mod fse;
+pub mod huffman;
 
 #[cfg(target_arch = "x86_64")]
-mod avx2;
+pub mod avx2;
 
 pub use compress::compress;
 pub use decompress::decompress;

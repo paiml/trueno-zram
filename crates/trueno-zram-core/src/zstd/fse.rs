@@ -3,7 +3,7 @@
 //! FSE is an entropy coding method used by Zstandard for sequences.
 //! It's based on Asymmetric Numeral Systems (ANS).
 
-use crate::{Error, Result};
+use crate::Result;
 
 /// Maximum accuracy log for FSE tables.
 pub const FSE_MAX_ACCURACY_LOG: u8 = 9;
@@ -41,7 +41,7 @@ pub struct FseEntry {
 pub struct FseTable {
     /// Table entries indexed by state.
     pub entries: Vec<FseEntry>,
-    /// Accuracy log (table size = 1 << accuracy_log).
+    /// Accuracy log (table size = 1 << `accuracy_log`).
     pub accuracy_log: u8,
 }
 
@@ -108,7 +108,7 @@ impl FseTable {
         // Read bits for next state
         let add_bits = (*bits >> *bit_pos) & ((1 << entry.bits) - 1);
         *bit_pos += entry.bits as usize;
-        *state = entry.baseline as u32 + add_bits as u32;
+        *state = u32::from(entry.baseline) + add_bits as u32;
 
         symbol
     }

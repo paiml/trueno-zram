@@ -23,10 +23,10 @@ trueno-zram-core = { path = "crates/trueno-zram-core" }
 trueno-zram-adaptive = { path = "crates/trueno-zram-adaptive" }
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 
 # CLI
-clap = { version = "4.4", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -34,11 +34,11 @@ serde_json = "1.0"
 toml = "0.8"
 
 # Testing
-proptest = "1.4"
+proptest = "1.6"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 # Async (for CLI)
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.44", features = ["full"] }
 
 [profile.release]
 lto = true

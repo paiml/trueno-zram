@@ -10,7 +10,7 @@ pub const PAGE_SIZE: usize = 4096;
 pub struct CompressedPage {
     /// Compressed data bytes.
     pub data: Vec<u8>,
-    /// Original uncompressed size (always PAGE_SIZE for valid pages).
+    /// Original uncompressed size (always `PAGE_SIZE` for valid pages).
     pub original_size: usize,
     /// Algorithm used for compression.
     pub algorithm: Algorithm,
@@ -21,7 +21,7 @@ impl CompressedPage {
     ///
     /// # Errors
     ///
-    /// Returns an error if the original size is not PAGE_SIZE.
+    /// Returns an error if the original size is not `PAGE_SIZE`.
     pub fn new(data: Vec<u8>, original_size: usize, algorithm: Algorithm) -> Result<Self> {
         if original_size != PAGE_SIZE {
             return Err(Error::InvalidInput(format!(

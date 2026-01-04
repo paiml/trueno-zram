@@ -2,31 +2,32 @@
 //!
 //! High-performance LZ4 block format decompression using unsafe pointer arithmetic.
 
-use super::constants::*;
+use super::constants::MIN_MATCH;
 use crate::{Error, Result};
 
 /// Read u16 from unaligned pointer.
 #[inline(always)]
 unsafe fn read_u16_le(ptr: *const u8) -> u16 {
-    std::ptr::read_unaligned(ptr as *const u16)
+    std::ptr::read_unaligned(ptr.cast::<u16>())
 }
 
 /// Read u32 from unaligned pointer.
+#[allow(dead_code)] // Reserved for future optimizations
 #[inline(always)]
 unsafe fn read_u32(ptr: *const u8) -> u32 {
-    std::ptr::read_unaligned(ptr as *const u32)
+    std::ptr::read_unaligned(ptr.cast::<u32>())
 }
 
 /// Read u64 from unaligned pointer.
 #[inline(always)]
 unsafe fn read_u64(ptr: *const u8) -> u64 {
-    std::ptr::read_unaligned(ptr as *const u64)
+    std::ptr::read_unaligned(ptr.cast::<u64>())
 }
 
 /// Write u64 to unaligned pointer.
 #[inline(always)]
 unsafe fn write_u64(ptr: *mut u8, val: u64) {
-    std::ptr::write_unaligned(ptr as *mut u64, val);
+    std::ptr::write_unaligned(ptr.cast::<u64>(), val);
 }
 
 /// Copy 8 bytes unconditionally (wildcard copy).
@@ -90,7 +91,7 @@ unsafe fn decompress_fast(input: &[u8], output: &mut [u8]) -> Result<usize> {
     let op_end = op.add(output.len());
 
     // We need headroom for wildcard copies
-    let op_safe_end = if output.len() >= 16 {
+    let _op_safe_end = if output.len() >= 16 {
         op_end.sub(16)
     } else {
         op_start
@@ -219,7 +220,7 @@ unsafe fn decompress_fast(input: &[u8], output: &mut [u8]) -> Result<usize> {
         } else if offset == 1 && op.add(match_len + 8) <= op_end {
             // RLE (repeat single byte) - optimized path
             let byte = *match_src;
-            let pattern = 0x0101010101010101u64 * (byte as u64);
+            let pattern = 0x0101010101010101u64 * u64::from(byte);
             let mut dst = op;
             let end = op.add(match_len);
             while dst < end {
