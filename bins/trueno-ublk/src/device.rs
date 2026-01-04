@@ -15,6 +15,8 @@ use trueno_zram_core::{CompressorBuilder, PageCompressor, PAGE_SIZE};
 /// Device configuration
 #[derive(Clone, Debug)]
 pub struct DeviceConfig {
+    /// Device ID to use (-1 for auto-assign)
+    pub dev_id: i32,
     pub size: u64,
     pub algorithm: trueno_zram_core::Algorithm,
     pub streams: usize,
@@ -24,6 +26,7 @@ pub struct DeviceConfig {
     pub writeback_limit: Option<u64>,
     pub entropy_skip_threshold: f64,
     pub gpu_batch_size: usize,
+    pub foreground: bool,
 }
 
 /// Device statistics (zram-compatible)
@@ -131,13 +134,21 @@ pub struct UblkDevice {
 
 impl UblkDevice {
     /// Create a new device with the given configuration
+    #[cfg(not(test))]
     pub fn create(config: DeviceConfig) -> Result<Self> {
-        let id = Self::next_free_id()?;
+        let id = if config.dev_id >= 0 {
+            config.dev_id as u32
+        } else {
+            Self::next_free_id()?
+        };
 
         // Initialize compressor using CompressorBuilder
         let compressor = CompressorBuilder::new()
             .algorithm(config.algorithm)
             .build()?;
+
+        // Start ublk daemon (needs config before we move it)
+        Self::start_ublk_daemon(id, &config)?;
 
         let inner = Arc::new(DeviceInner {
             id,
@@ -151,9 +162,6 @@ impl UblkDevice {
             let mut devices = DEVICES.write().unwrap();
             devices.insert(id, inner.clone());
         }
-
-        // Start ublk daemon in background
-        Self::start_ublk_daemon(id)?;
 
         Ok(Self { inner })
     }
@@ -373,39 +381,80 @@ impl UblkDevice {
         }
     }
 
+    #[cfg(not(test))]
     fn start_ublk_daemon(id: u32, config: &DeviceConfig) -> Result<()> {
-        use crate::ublk_target::{start_daemon, TargetConfig};
+        use crate::ublk::{run_daemon, DaemonError};
+        use nix::libc;
+        use std::sync::atomic::AtomicBool;
 
-        let target_config = TargetConfig {
-            size: config.size,
-            algorithm: config.algorithm,
-            nr_queues: config.streams.max(1) as u16,
-            queue_depth: 128,
-            entropy_threshold: config.entropy_skip_threshold,
-            name: format!("trueno{}", id),
-        };
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_clone = stop.clone();
 
-        // Fork daemon process
+        // Setup signal handler for graceful shutdown
+        ctrlc::set_handler(move || {
+            stop_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+        })
+        .ok();
+
+        // Foreground mode - run directly
+        if config.foreground {
+            tracing::info!("Running in foreground mode");
+            return run_daemon(id as i32, config.size, config.algorithm, stop, None)
+                .map_err(|e| anyhow::anyhow!("Daemon failed: {}", e));
+        }
+
+        // Create eventfd for synchronization
+        let efd = unsafe { libc::eventfd(0, 0) };
+        if efd < 0 {
+            anyhow::bail!("Failed to create eventfd");
+        }
+
+        // Fork for daemon mode
         match unsafe { libc::fork() } {
-            -1 => anyhow::bail!("Failed to fork daemon process"),
+            -1 => {
+                unsafe { libc::close(efd) };
+                anyhow::bail!("Fork failed");
+            }
             0 => {
                 // Child process - run daemon
-                if let Err(e) = start_daemon(id as i32, target_config, false) {
-                    tracing::error!("Daemon failed: {}", e);
-                    std::process::exit(1);
+                unsafe { libc::setsid() };
+
+                // Daemon will signal readiness via efd
+                match run_daemon(id as i32, config.size, config.algorithm, stop, Some(efd)) {
+                    Ok(()) | Err(DaemonError::Stopped) => {
+                        unsafe { libc::close(efd) };
+                        std::process::exit(0);
+                    }
+                    Err(e) => {
+                        tracing::error!("Daemon failed: {}", e);
+                        unsafe {
+                            // Signal failure with 0
+                            libc::write(efd, &0u64 as *const u64 as *const libc::c_void, 8);
+                            libc::close(efd);
+                        }
+                        std::process::exit(1);
+                    }
                 }
-                std::process::exit(0);
             }
             _pid => {
-                // Parent process - wait briefly for device to appear
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                Ok(())
+                // Parent process - wait for device ID
+                let mut val: u64 = 0;
+                let n = unsafe { libc::read(efd, &mut val as *mut u64 as *mut libc::c_void, 8) };
+                unsafe { libc::close(efd) };
+
+                if n == 8 && val > 0 {
+                    tracing::info!("Device created with ID: {}", (val - 1) as i64);
+                    Ok(())
+                } else {
+                    anyhow::bail!("Failed to read device ID from daemon")
+                }
             }
         }
     }
 
-    fn stop_ublk_daemon(id: u32) -> Result<()> {
-        crate::ublk_target::stop_device(id as i32)
+    fn stop_ublk_daemon(_id: u32) -> Result<()> {
+        // Device cleanup is handled by UblkCtrl::drop
+        Ok(())
     }
 }
 
@@ -506,7 +555,7 @@ impl BlockDevice {
     /// * `compressor` - The compressor to use for page compression
     pub fn new(size: u64, compressor: Box<dyn PageCompressor>) -> Self {
         Self {
-            store: PageStore::new(Arc::from(compressor), 7.5), // Default entropy threshold
+            store: PageStore::with_compressor(Arc::from(compressor), 7.5),
             size,
             block_size: PAGE_SIZE as u32,
             bytes_written: AtomicU64::new(0),
@@ -521,7 +570,7 @@ impl BlockDevice {
         entropy_threshold: f64,
     ) -> Self {
         Self {
-            store: PageStore::new(Arc::from(compressor), entropy_threshold),
+            store: PageStore::with_compressor(Arc::from(compressor), entropy_threshold),
             size,
             block_size: PAGE_SIZE as u32,
             bytes_written: AtomicU64::new(0),

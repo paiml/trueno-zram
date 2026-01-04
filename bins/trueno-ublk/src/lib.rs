@@ -43,6 +43,10 @@
 pub mod daemon;
 pub mod device;
 pub mod stats;
+pub mod ublk;
 
 // Re-export commonly used types
 pub use device::{BlockDevice, BlockDeviceStats, DeviceConfig, DeviceStats, UblkDevice};
+pub use ublk::{DaemonError, UblkCtrl, UblkDaemon};
+#[cfg(not(test))]
+pub use ublk::run_daemon;

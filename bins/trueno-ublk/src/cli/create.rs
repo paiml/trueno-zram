@@ -28,6 +28,7 @@ pub fn run(args: CreateArgs) -> Result<()> {
     );
 
     let config = crate::device::DeviceConfig {
+        dev_id: args.dev_id,
         size,
         algorithm: args.algorithm.to_trueno(),
         streams,
@@ -37,6 +38,7 @@ pub fn run(args: CreateArgs) -> Result<()> {
         writeback_limit,
         entropy_skip_threshold: args.entropy_skip,
         gpu_batch_size: args.gpu_batch,
+        foreground: args.foreground,
     };
 
     let device = UblkDevice::create(config)?;

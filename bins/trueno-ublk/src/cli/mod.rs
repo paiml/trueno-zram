@@ -94,6 +94,10 @@ impl Algorithm {
 /// Create command arguments
 #[derive(Parser, Debug)]
 pub struct CreateArgs {
+    /// Device ID to use (-1 for auto-assign)
+    #[arg(long, default_value = "-1")]
+    pub dev_id: i32,
+
     /// Device size (e.g., 1T, 256G, 1024M)
     #[arg(short, long)]
     pub size: String,
@@ -129,6 +133,10 @@ pub struct CreateArgs {
     /// GPU batch size threshold
     #[arg(long, default_value = "1000")]
     pub gpu_batch: usize,
+
+    /// Run in foreground (don't daemonize)
+    #[arg(short = 'f', long)]
+    pub foreground: bool,
 }
 
 /// List command arguments

@@ -24,7 +24,7 @@ mod daemon;
 mod device;
 mod stats;
 mod tui;
-mod ublk_target;
+mod ublk;
 
 use clap::Parser;
 use cli::{Cli, Commands};

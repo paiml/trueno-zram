@@ -2,6 +2,30 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Critical Rules
+
+### ⛔ ABSOLUTE PROHIBITION: NO REBOOTING ⛔
+
+**NEVER, EVER reboot the machine under ANY circumstances.**
+
+This is a HARD BLOCK. Do NOT:
+- Run `sudo reboot`
+- Run `sudo shutdown`
+- Run `systemctl reboot`
+- Run `init 6`
+- Run ANY command that causes a system restart
+- SUGGEST rebooting to the user
+
+If kernel modules are stuck or processes are in D-state:
+1. Try a different device ID (e.g., `--id 1` instead of `--id 0`)
+2. Wait for kernel timeout (may take minutes)
+3. Try `sudo rmmod -f module_name` (force unload)
+4. Ask the user for help
+5. Continue with other tasks
+6. **NEVER REBOOT**
+
+Violation of this rule wastes user time and destroys unsaved work.
+
 ## Project Overview
 
 trueno-zram is a SIMD-accelerated memory compression library for Linux systems, part of the PAIML "Batuta Stack" (trueno + bashrs + aprender). It provides userspace Rust implementations of LZ4 and ZSTD compression that leverage modern CPU vector instructions (AVX2, AVX-512, NEON) to replace kernel-level compression.

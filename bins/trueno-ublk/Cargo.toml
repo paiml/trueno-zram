@@ -49,8 +49,9 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 anyhow = "1.0"
 
-# ublk bindings
-libublk = "0.4"
+# ublk (zero deps - direct kernel interface)
+io-uring = "0.7"
+ctrlc = "3.4"
 
 # TUI
 ratatui = "0.29"
@@ -61,8 +62,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # System info
-nix = { version = "0.29", features = ["fs", "mount"] }
+nix = { version = "0.29", features = ["fs", "mount", "event", "ioctl", "mman"] }
 procfs = "0.17"
+libublk = "0.4.5"
 
 [dev-dependencies]
 proptest = { workspace = true }
