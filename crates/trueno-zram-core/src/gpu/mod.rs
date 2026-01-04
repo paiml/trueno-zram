@@ -6,6 +6,10 @@
 //!
 //! For 4KB pages, this means batching 1000+ pages to amortize PCIe overhead.
 
+pub mod batch;
+
+pub use batch::{BatchResult, GpuBatchCompressor, GpuBatchConfig, GpuBatchStats};
+
 use crate::{Algorithm, CompressedPage, Error, Result, PAGE_SIZE};
 
 /// GPU backend type for compression acceleration.
