@@ -80,7 +80,7 @@ pub enum Algorithm {
 }
 
 impl Algorithm {
-    pub fn to_trueno(&self) -> trueno_zram_core::Algorithm {
+    pub fn to_trueno(self) -> trueno_zram_core::Algorithm {
         match self {
             Algorithm::Lz4 => trueno_zram_core::Algorithm::Lz4,
             Algorithm::Lz4hc => trueno_zram_core::Algorithm::Lz4Hc,
