@@ -209,6 +209,29 @@ mod tests {
     }
 
     #[test]
+    fn test_zram_config_clone() {
+        let config = ZramConfig {
+            device: 5,
+            size: 1024,
+            algorithm: "zstd".to_string(),
+            streams: 4,
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.device, 5);
+        assert_eq!(cloned.size, 1024);
+        assert_eq!(cloned.algorithm, "zstd");
+        assert_eq!(cloned.streams, 4);
+    }
+
+    #[test]
+    fn test_zram_config_debug() {
+        let config = ZramConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("ZramConfig"));
+        assert!(debug.contains("lz4"));
+    }
+
+    #[test]
     fn test_zram_status_ratio() {
         let status = ZramStatus {
             device: 0,
@@ -230,11 +253,97 @@ mod tests {
     }
 
     #[test]
+    fn test_zram_status_clone() {
+        let status = ZramStatus {
+            device: 1,
+            disksize: 2048,
+            orig_data_size: 1000,
+            compr_data_size: 500,
+            mem_used_total: 600,
+            algorithm: "zstd".to_string(),
+        };
+        let cloned = status.clone();
+        assert_eq!(cloned.device, 1);
+        assert_eq!(cloned.disksize, 2048);
+    }
+
+    #[test]
+    fn test_zram_status_debug() {
+        let status = ZramStatus::default();
+        let debug = format!("{status:?}");
+        assert!(debug.contains("ZramStatus"));
+    }
+
+    #[test]
     fn test_zram_device_paths() {
         let dev = ZramDevice::new(5);
         assert_eq!(dev.device, 5);
         assert_eq!(dev.sys_path(), "/sys/block/zram5");
         assert_eq!(dev.dev_path(), "/dev/zram5");
+    }
+
+    #[test]
+    fn test_zram_device_debug() {
+        let dev = ZramDevice::new(0);
+        let debug = format!("{dev:?}");
+        assert!(debug.contains("ZramDevice"));
+        assert!(debug.contains("zram0"));
+    }
+
+    #[test]
+    fn test_zram_device_nonexistent() {
+        // Device 99 shouldn't exist
+        let dev = ZramDevice::new(99);
+        assert!(!dev.exists());
+    }
+
+    #[test]
+    fn test_zram_device_read_attr_nonexistent() {
+        let dev = ZramDevice::new(99);
+        let result = dev.read_attr_u64("disksize");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("I/O error"));
+    }
+
+    #[test]
+    fn test_zram_device_read_attr_str_nonexistent() {
+        let dev = ZramDevice::new(99);
+        let result = dev.read_attr_str("comp_algorithm");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_zram_device_write_attr_nonexistent() {
+        let dev = ZramDevice::new(99);
+        let result = dev.write_attr("disksize", "1024");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_zram_device_status_nonexistent() {
+        let dev = ZramDevice::new(99);
+        let result = dev.status();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_zram_device_configure_nonexistent() {
+        let dev = ZramDevice::new(99);
+        let config = ZramConfig::default();
+        let result = dev.configure(&config);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_zram_device_reset_nonexistent() {
+        let dev = ZramDevice::new(99);
+        let result = dev.reset();
+        assert!(result.is_err());
     }
 
     #[test]
@@ -250,5 +359,35 @@ mod tests {
         let s = format!("{status}");
         assert!(s.contains("zram0"));
         assert!(s.contains("lz4"));
+        assert!(s.contains("2.00x"));
+    }
+
+    #[test]
+    fn test_zram_status_display_zero_compression() {
+        let status = ZramStatus {
+            device: 1,
+            disksize: 1024,
+            orig_data_size: 0,
+            compr_data_size: 0,
+            mem_used_total: 0,
+            algorithm: "zstd".to_string(),
+        };
+        let s = format!("{status}");
+        assert!(s.contains("zram1"));
+        assert!(s.contains("0.00x"));
+    }
+
+    #[test]
+    fn test_zram_status_high_ratio() {
+        let status = ZramStatus {
+            device: 0,
+            disksize: 1024 * 1024,
+            orig_data_size: 10000,
+            compr_data_size: 100,
+            mem_used_total: 150,
+            algorithm: "lz4".to_string(),
+        };
+        assert!((status.compression_ratio() - 100.0).abs() < 0.001);
+        assert!((status.space_savings() - 99.0).abs() < 0.001);
     }
 }

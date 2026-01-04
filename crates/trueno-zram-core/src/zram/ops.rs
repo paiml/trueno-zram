@@ -163,6 +163,45 @@ mod tests {
         let _ = ops.is_available();
     }
 
+    #[test]
+    fn test_sysfs_ops_debug() {
+        let ops = SysfsOps::new();
+        let debug = format!("{ops:?}");
+        assert!(debug.contains("SysfsOps"));
+    }
+
+    #[test]
+    fn test_remove_nonexistent_device() {
+        let ops = SysfsOps::new();
+        let result = ops.remove(99, false);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_status_nonexistent_device() {
+        let ops = SysfsOps::new();
+        let result = ops.status(99);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_list_devices() {
+        let ops = SysfsOps::new();
+        // This should always work, even if no devices exist
+        let result = ops.list();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_is_swap_active() {
+        let ops = SysfsOps::new();
+        // Device 99 shouldn't be active as swap
+        let active = ops.is_swap_active(99);
+        assert!(!active);
+    }
+
     // Integration tests that require root and zram module
     // These are gated by a feature or run conditionally
 
