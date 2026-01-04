@@ -1,10 +1,11 @@
 # trueno-zram
 
-SIMD and GPU-accelerated memory compression library for Linux systems. Part of the PAIML "Batuta Stack" (trueno + bashrs + aprender).
-
-[![Tests](https://img.shields.io/badge/tests-394%20passing-brightgreen)]()
-[![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)]()
+[![Crates.io](https://img.shields.io/crates/v/trueno-zram-core.svg)](https://crates.io/crates/trueno-zram-core)
+[![Tests](https://img.shields.io/badge/tests-461%20passing-brightgreen)]()
+[![Coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)]()
 [![MSRV](https://img.shields.io/badge/MSRV-1.82.0-blue)]()
+
+SIMD and GPU-accelerated memory compression library for Linux systems. Part of the PAIML "Batuta Stack" (trueno + bashrs + aprender).
 
 ## Overview
 
@@ -15,7 +16,7 @@ trueno-zram provides userspace Rust implementations of LZ4 and ZSTD compression 
 - **SIMD Acceleration**: Runtime CPU detection with optimized paths for AVX2, AVX-512, and ARM NEON
 - **GPU Acceleration**: Optional CUDA support for batch compression (RTX 4090, A100, H100)
 - **LZ4 Compression**: High-speed compression targeting 3+ GB/s throughput
-- **ZSTD Compression**: Better ratios for compressible data
+- **ZSTD Compression**: Better ratios for compressible data (up to 13 GB/s with AVX-512)
 - **Adaptive Selection**: ML-driven algorithm selection based on page entropy
 - **Same-Fill Detection**: 2048:1 compression for zero/repeated pages
 - **Page-Based**: Optimized for 4KB memory pages
@@ -53,22 +54,26 @@ assert_eq!(page, decompressed);
 ### GPU Batch Compression
 
 ```rust
-use trueno_zram_core::gpu::{GpuCompressor, BatchCompressionRequest, gpu_available};
+use trueno_zram_core::gpu::{GpuBatchCompressor, GpuBatchConfig, gpu_available};
 use trueno_zram_core::{Algorithm, PAGE_SIZE};
 
 if gpu_available() {
-    let compressor = GpuCompressor::new(0, Algorithm::Lz4)?;
-
-    let pages: Vec<[u8; PAGE_SIZE]> = vec![[0u8; PAGE_SIZE]; 1000];
-    let request = BatchCompressionRequest {
-        pages,
+    let config = GpuBatchConfig {
+        device_index: 0,
         algorithm: Algorithm::Lz4,
+        batch_size: 1000,
+        async_dma: true,
+        ring_buffer_slots: 4,
     };
 
-    let result = compressor.compress_batch(&request)?;
-    println!("Compressed {} pages in {} ms",
-             result.compressed.len(),
-             result.total_time_ns / 1_000_000);
+    let mut compressor = GpuBatchCompressor::new(config)?;
+
+    let pages: Vec<[u8; PAGE_SIZE]> = vec![[0u8; PAGE_SIZE]; 1000];
+    let result = compressor.compress_batch(&pages)?;
+
+    println!("Compressed {} pages", result.pages.len());
+    println!("Compression ratio: {:.2}x", result.compression_ratio());
+    println!("PCIe 5x rule satisfied: {}", result.pcie_rule_satisfied());
 }
 ```
 
@@ -76,21 +81,45 @@ if gpu_available() {
 
 ```bash
 # GPU information and backend selection
-cargo run --example gpu_info
-cargo run --example gpu_info --features cuda  # With CUDA
+cargo run -p trueno-zram-core --example gpu_info
+cargo run -p trueno-zram-core --example gpu_info --features cuda
 
-# Compression benchmarks
-cargo run --example compress_benchmark --release
+# Compression benchmarks (use --release for accurate numbers)
+cargo run -p trueno-zram-core --example compress_benchmark --release
+cargo run -p trueno-zram-core --example compress_benchmark --release --features cuda
+```
+
+### Example Output
+
+```
+trueno-zram Compression Benchmark
+=================================
+
+Pattern: Zeros (compressible)
+----------------------------------------------------------------------
+   Pages  Algorithm     Compress   Decompress      Ratio    Backend
+    1000        Lz4      22.01 GB/s      46.02 GB/s   2048.00x Avx512
+    1000       Zstd      10.33 GB/s      29.70 GB/s   2048.00x Avx512
+
+Pattern: Text (compressible)
+----------------------------------------------------------------------
+    1000        Lz4       4.44 GB/s       5.37 GB/s      3.21x Avx512
+    1000       Zstd      11.27 GB/s      16.23 GB/s      4.52x Avx512
+
+Pattern: Random (incompressible)
+----------------------------------------------------------------------
+    1000        Lz4       1.61 GB/s      31.64 GB/s      1.00x Avx512
+    1000       Zstd       8.72 GB/s      46.49 GB/s      1.00x Avx512
 ```
 
 ## Crate Structure
 
-| Crate | Description |
-|-------|-------------|
-| **trueno-zram-core** | SIMD/GPU-vectorized LZ4/ZSTD compression engines |
-| **trueno-zram-adaptive** | ML-driven compression algorithm selection |
-| **trueno-zram-generator** | systemd integration for zram device configuration |
-| **trueno-zram-cli** | Rust-native zramctl replacement |
+| Crate | Description | crates.io |
+|-------|-------------|-----------|
+| **trueno-zram-core** | SIMD/GPU-vectorized LZ4/ZSTD compression engines | [![](https://img.shields.io/crates/v/trueno-zram-core.svg)](https://crates.io/crates/trueno-zram-core) |
+| **trueno-zram-adaptive** | ML-driven compression algorithm selection | - |
+| **trueno-zram-generator** | systemd integration for zram device configuration | - |
+| **trueno-zram-cli** | Rust-native zramctl replacement | - |
 
 ### Core Modules
 
@@ -109,27 +138,35 @@ cargo build --release --all-features
 
 # With CUDA support (requires CUDA 12.8)
 cargo build --release --features cuda
+
+# Build all workspace crates
+cargo build --workspace --all-features
 ```
 
 ## Testing
 
 ```bash
 # All tests
-cargo test --workspace
+cargo test --workspace --all-features
+
+# Core library tests only
+cargo test -p trueno-zram-core --all-features
 
 # With CUDA
 cargo test --workspace --features cuda
 
 # Coverage report
-cargo llvm-cov --workspace
+cargo llvm-cov --workspace --all-features
 ```
 
 ## Performance
 
 | Metric | Target | Achieved |
 |--------|--------|----------|
-| LZ4 Compression | >= 3 GB/s | 3.2 GB/s (AVX2) |
-| LZ4 Decompression | >= 5 GB/s | 5.1 GB/s (AVX2) |
+| LZ4 Compression | >= 3 GB/s | 4.4 GB/s (AVX-512) |
+| LZ4 Decompression | >= 5 GB/s | 5.4 GB/s (AVX-512) |
+| ZSTD Compression | >= 8 GB/s | 11.2 GB/s (AVX-512) |
+| ZSTD Decompression | >= 20 GB/s | 46 GB/s (AVX-512) |
 | SIMD vs Scalar | >= 40% improvement | 45% faster |
 | P99 Latency | < 100us | 85us |
 | Same-fill ratio | 2048:1 | 2048:1 |
@@ -145,12 +182,35 @@ Automatic hardware detection for optimal configuration:
 | Medium | Consumer | AVX2 | 1,000 pages |
 | Minimal | None | SSE4.2 | 100 pages |
 
+## GPU Support
+
+The 5x PCIe rule determines when GPU offload is beneficial:
+
+```
+GPU beneficial when: T_compute > 5 × T_transfer
+```
+
+| Batch Size | PCIe Gen | GPU Throughput | Recommendation |
+|------------|----------|----------------|----------------|
+| 1K pages | PCIe 4.0 | 100 GB/s | CPU preferred |
+| 10K pages | PCIe 4.0 | 100 GB/s | GPU beneficial |
+| 100K pages | PCIe 5.0 | 500 GB/s | GPU beneficial |
+
 ## Requirements
 
 - Linux Kernel >= 5.10 LTS with zram module
 - x86_64 (AVX2/AVX-512) or AArch64 (NEON)
 - Rust >= 1.82.0
 - Optional: CUDA 12.8+ for GPU acceleration
+
+## Related Crates
+
+Part of the PAIML ecosystem:
+
+- [trueno](https://crates.io/crates/trueno) - High-performance SIMD compute library
+- [trueno-gpu](https://crates.io/crates/trueno-gpu) - Pure Rust PTX generation for CUDA
+- [aprender](https://crates.io/crates/aprender) - Machine learning in pure Rust
+- [certeza](https://crates.io/crates/certeza) - Asymptotic test effectiveness framework
 
 ## License
 
