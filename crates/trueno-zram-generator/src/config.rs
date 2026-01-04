@@ -91,6 +91,9 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.devices.len(), 1);
         assert_eq!(config.devices[0].algorithm, "lz4");
+        assert_eq!(config.devices[0].streams, 0); // Auto-detect
+        assert_eq!(config.devices[0].priority, 100);
+        assert_eq!(config.devices[0].size, "ram/2");
     }
 
     #[test]
@@ -108,5 +111,130 @@ mod tests {
         assert_eq!(config.devices.len(), 1);
         assert_eq!(config.devices[0].size, "4G");
         assert_eq!(config.devices[0].algorithm, "zstd");
+    }
+
+    #[test]
+    fn test_parse_config_multiple_devices() {
+        let toml = r#"
+            [[devices]]
+            device = 0
+            size = "2G"
+
+            [[devices]]
+            device = 1
+            size = "2G"
+            algorithm = "zstd"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.devices.len(), 2);
+        assert_eq!(config.devices[0].device, 0);
+        assert_eq!(config.devices[1].device, 1);
+        assert_eq!(config.devices[0].algorithm, "lz4"); // Default
+        assert_eq!(config.devices[1].algorithm, "zstd");
+    }
+
+    #[test]
+    fn test_parse_config_defaults() {
+        let toml = r#"
+            [[devices]]
+            size = "1G"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.devices.len(), 1);
+        assert_eq!(config.devices[0].device, 0); // Default
+        assert_eq!(config.devices[0].algorithm, "lz4"); // Default
+        assert_eq!(config.devices[0].streams, 0); // Default (auto)
+        assert_eq!(config.devices[0].priority, 100); // Default
+    }
+
+    #[test]
+    fn test_parse_empty_devices() {
+        let toml = r#"
+            devices = []
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.devices.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_config_negative_priority() {
+        let toml = r#"
+            [[devices]]
+            size = "1G"
+            priority = -10
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.devices[0].priority, -10);
+    }
+
+    #[test]
+    fn test_default_algorithm_function() {
+        assert_eq!(default_algorithm(), "lz4");
+    }
+
+    #[test]
+    fn test_default_streams_function() {
+        assert_eq!(default_streams(), 0);
+    }
+
+    #[test]
+    fn test_default_priority_function() {
+        assert_eq!(default_priority(), 100);
+    }
+
+    #[test]
+    fn test_load_config_no_file() {
+        // When no config file exists, should return default
+        let config = load_config().unwrap();
+        assert_eq!(config.devices.len(), 1);
+        assert_eq!(config.devices[0].algorithm, "lz4");
+    }
+
+    #[test]
+    fn test_zram_config_clone() {
+        let config = ZramConfig {
+            device: 1,
+            size: "2G".to_string(),
+            algorithm: "zstd".to_string(),
+            streams: 4,
+            priority: 50,
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.device, 1);
+        assert_eq!(cloned.size, "2G");
+        assert_eq!(cloned.algorithm, "zstd");
+    }
+
+    #[test]
+    fn test_config_clone() {
+        let config = Config::default();
+        let cloned = config.clone();
+        assert_eq!(cloned.devices.len(), config.devices.len());
+    }
+
+    #[test]
+    fn test_zram_config_debug() {
+        let config = ZramConfig {
+            device: 0,
+            size: "1G".to_string(),
+            algorithm: "lz4".to_string(),
+            streams: 2,
+            priority: 100,
+        };
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("ZramConfig"));
+        assert!(debug_str.contains("1G"));
+    }
+
+    #[test]
+    fn test_config_debug() {
+        let config = Config::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("Config"));
+        assert!(debug_str.contains("devices"));
     }
 }

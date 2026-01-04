@@ -387,8 +387,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_empty_input() {
+        let mut output = [0u8; 100];
+        let result = decompress(&[], &mut output);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
     fn test_invalid_magic() {
         let input = [0x00, 0x00, 0x00, 0x00, 0x00];
+        let mut output = [0u8; 100];
+        let result = decompress(&input, &mut output);
+        assert!(result.is_err());
+        match result {
+            Err(Error::CorruptedData(msg)) => assert!(msg.contains("magic")),
+            _ => panic!("expected corrupted data error"),
+        }
+    }
+
+    #[test]
+    fn test_input_too_short() {
+        let input = [0x28, 0xB5, 0x2F]; // Only 3 bytes of magic
         let mut output = [0u8; 100];
         let result = decompress(&input, &mut output);
         assert!(result.is_err());
@@ -403,5 +423,319 @@ mod tests {
         assert!(header.last_block);
         assert_eq!(header.block_type, BlockType::Raw);
         assert_eq!(header.block_size, 100);
+    }
+
+    #[test]
+    fn test_read_block_header_rle() {
+        // Not last block, RLE type, size 50
+        let input = [0x92, 0x01, 0x00]; // 0 | (1 << 1) | (50 << 3)
+        let mut pos = 0;
+        let header = read_block_header(&input, &mut pos).unwrap();
+        assert!(!header.last_block);
+        assert_eq!(header.block_type, BlockType::Rle);
+        assert_eq!(header.block_size, 50);
+    }
+
+    #[test]
+    fn test_read_block_header_compressed() {
+        // Last block, compressed type, size 200
+        let input = [0x45, 0x06, 0x00]; // 1 | (2 << 1) | (200 << 3)
+        let mut pos = 0;
+        let header = read_block_header(&input, &mut pos).unwrap();
+        assert!(header.last_block);
+        assert_eq!(header.block_type, BlockType::Compressed);
+        assert_eq!(header.block_size, 200);
+    }
+
+    #[test]
+    fn test_read_block_header_reserved() {
+        // Last block, reserved type, size 10
+        let input = [0x57, 0x00, 0x00]; // 1 | (3 << 1) | (10 << 3)
+        let mut pos = 0;
+        let header = read_block_header(&input, &mut pos).unwrap();
+        assert!(header.last_block);
+        assert_eq!(header.block_type, BlockType::Reserved);
+    }
+
+    #[test]
+    fn test_read_block_header_truncated() {
+        let input = [0x21, 0x03]; // Only 2 bytes
+        let mut pos = 0;
+        let result = read_block_header(&input, &mut pos);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_literals_header_1byte() {
+        // size_format=0 or 1 means 1-byte header
+        // Byte format: [size(5 bits)][size_format(2 bits)][lit_type(2 bits)]
+        // For size=8, size_format=0, lit_type=0: (8 << 3) | (0 << 2) | 0 = 0x40
+        let input = [0x40]; // size=8, size_format=0, type=0
+        let result = read_literals_header(&input);
+        assert!(result.is_ok());
+        let (lit_type, size, header_size) = result.unwrap();
+        assert_eq!(lit_type, 0);
+        assert_eq!(size, 8);
+        assert_eq!(header_size, 1);
+    }
+
+    #[test]
+    fn test_read_literals_header_2byte() {
+        // size_format = 2 (2-byte header)
+        // First byte: [size_high(4 bits)][size_format(2 bits)][lit_type(2 bits)]
+        // size_format = 2 = 0b10
+        let input = [0b00001000, 0x10]; // size_format=2, type=0
+        let result = read_literals_header(&input);
+        assert!(result.is_ok());
+        let (lit_type, _size, header_size) = result.unwrap();
+        assert_eq!(lit_type, 0);
+        assert_eq!(header_size, 2);
+    }
+
+    #[test]
+    fn test_read_literals_header_3byte() {
+        // size_format = 3 (3-byte header)
+        let input = [0b00001100, 0x10, 0x00]; // size_format=3, type=0
+        let result = read_literals_header(&input);
+        assert!(result.is_ok());
+        let (_, _, header_size) = result.unwrap();
+        assert_eq!(header_size, 3);
+    }
+
+    #[test]
+    fn test_read_literals_header_truncated_2byte() {
+        let input = [0b00001000]; // 2-byte header but only 1 byte
+        let result = read_literals_header(&input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_literals_header_truncated_3byte() {
+        let input = [0b00001100, 0x10]; // 3-byte header but only 2 bytes
+        let result = read_literals_header(&input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_literals_header_empty() {
+        let input: [u8; 0] = [];
+        let result = read_literals_header(&input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decompress_block_empty() {
+        let input: [u8; 0] = [];
+        let mut output = [0u8; 100];
+        let result = decompress_block(&input, &mut output);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_decompress_block_raw_literals() {
+        // Raw literals (type=0), size=4
+        let input = [0b00100000, b'T', b'E', b'S', b'T'];
+        let mut output = [0u8; 100];
+        let result = decompress_block(&input, &mut output);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 4);
+        assert_eq!(&output[..4], b"TEST");
+    }
+
+    #[test]
+    fn test_decompress_block_rle_literals() {
+        // RLE literals (type=1), size=4, byte=0xAA
+        let input = [0b00100001, 0xAA];
+        let mut output = [0u8; 100];
+        let result = decompress_block(&input, &mut output);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 4);
+        assert_eq!(output[..4], [0xAA, 0xAA, 0xAA, 0xAA]);
+    }
+
+    #[test]
+    fn test_decompress_block_buffer_too_small() {
+        // Raw literals, size=10
+        let input = [0b01010000, b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J'];
+        let mut output = [0u8; 5]; // Too small
+        let result = decompress_block(&input, &mut output);
+        assert!(matches!(result, Err(Error::BufferTooSmall { .. })));
+    }
+
+    #[test]
+    fn test_decompress_block_literals_past_input() {
+        // Raw literals, claims size=100 but input is short
+        let header = (100usize << 3) as u8;
+        let input = [header, b'A', b'B'];
+        let mut output = [0u8; 200];
+        let result = decompress_block(&input, &mut output);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_frame_header_with_window_descriptor() {
+        // Valid magic + descriptor with window
+        let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
+        input.push(0x00); // Descriptor: fcs_flag=0, single_segment=0, checksum=0, dict_id_flag=0
+        input.push(0x10); // Window descriptor
+        input.push(0x01); // Block header (minimal)
+        input.push(0x00);
+        input.push(0x00);
+
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_ok());
+        let header = result.unwrap();
+        assert!(!header.single_segment);
+        assert!(!header.checksum);
+        assert!(header.window_size > 0);
+    }
+
+    #[test]
+    fn test_read_frame_header_single_segment_with_fcs() {
+        // Valid magic + descriptor with single segment and FCS
+        let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
+        input.push(0x20); // Descriptor: fcs_flag=0, single_segment=1
+        input.push(0x10); // FCS (1 byte when single_segment && fcs_flag==0)
+
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_ok());
+        let header = result.unwrap();
+        assert!(header.single_segment);
+        assert_eq!(header.frame_content_size, Some(0x10));
+    }
+
+    #[test]
+    fn test_read_frame_header_fcs_2bytes() {
+        // Valid magic + descriptor with 2-byte FCS
+        let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
+        input.push(0x40); // Descriptor: fcs_flag=1 (2 bytes)
+        input.push(0x10); // Window descriptor
+        input.push(0x00); // FCS low byte
+        input.push(0x01); // FCS high byte
+
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_ok());
+        let header = result.unwrap();
+        // FCS = 0x0100 + 256 = 512
+        assert_eq!(header.frame_content_size, Some(512));
+    }
+
+    #[test]
+    fn test_read_frame_header_dict_id_1byte() {
+        // Valid magic + descriptor with 1-byte dict ID
+        let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
+        input.push(0x01); // Descriptor: dict_id_flag=1
+        input.push(0x10); // Window descriptor
+        input.push(0xAB); // Dict ID (1 byte)
+
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_ok());
+        let header = result.unwrap();
+        assert_eq!(header.dictionary_id, Some(0xAB));
+    }
+
+    #[test]
+    fn test_read_frame_header_dict_id_2bytes() {
+        // Valid magic + descriptor with 2-byte dict ID
+        let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
+        input.push(0x02); // Descriptor: dict_id_flag=2
+        input.push(0x10); // Window descriptor
+        input.push(0xCD); // Dict ID low
+        input.push(0xAB); // Dict ID high
+
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_ok());
+        let header = result.unwrap();
+        assert_eq!(header.dictionary_id, Some(0xABCD));
+    }
+
+    #[test]
+    fn test_read_frame_header_dict_id_4bytes() {
+        // Valid magic + descriptor with 4-byte dict ID
+        let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
+        input.push(0x03); // Descriptor: dict_id_flag=3
+        input.push(0x10); // Window descriptor
+        input.push(0x78); // Dict ID bytes
+        input.push(0x56);
+        input.push(0x34);
+        input.push(0x12);
+
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_ok());
+        let header = result.unwrap();
+        assert_eq!(header.dictionary_id, Some(0x12345678));
+    }
+
+    #[test]
+    fn test_read_frame_header_fcs_4bytes() {
+        // Valid magic + descriptor with 4-byte FCS
+        let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
+        input.push(0x80); // Descriptor: fcs_flag=2 (4 bytes)
+        input.push(0x10); // Window descriptor
+        input.push(0x00); // FCS bytes
+        input.push(0x10);
+        input.push(0x00);
+        input.push(0x00);
+
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_ok());
+        let header = result.unwrap();
+        assert_eq!(header.frame_content_size, Some(0x00001000));
+    }
+
+    #[test]
+    fn test_read_frame_header_fcs_8bytes() {
+        // Valid magic + descriptor with 8-byte FCS
+        let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
+        input.push(0xC0); // Descriptor: fcs_flag=3 (8 bytes)
+        input.push(0x10); // Window descriptor
+        // 8 bytes of FCS
+        input.extend_from_slice(&[0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_ok());
+        let header = result.unwrap();
+        assert_eq!(header.frame_content_size, Some(0x1000));
+    }
+
+    #[test]
+    fn test_read_frame_header_missing_window() {
+        // Valid magic + descriptor but missing window
+        let input = vec![0x28, 0xB5, 0x2F, 0xFD, 0x00]; // Magic + descriptor only
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_frame_header_missing_fcs() {
+        // Valid magic + single_segment descriptor but missing FCS
+        let input = vec![0x28, 0xB5, 0x2F, 0xFD, 0x20]; // Magic + single_segment=1
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_frame_header_checksum_flag() {
+        // Valid magic + descriptor with checksum flag
+        let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
+        input.push(0x24); // Descriptor: checksum=1, single_segment=1
+        input.push(0x10); // FCS (1 byte)
+
+        let mut pos = 0;
+        let result = read_frame_header(&input, &mut pos);
+        assert!(result.is_ok());
+        let header = result.unwrap();
+        assert!(header.checksum);
     }
 }

@@ -371,6 +371,131 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_huffman_avx2_large_input() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            println!("Skipping: AVX2 not available");
+            return;
+        }
+
+        // Create simple Huffman table with 2-bit codes
+        let weights = vec![2, 2, 2, 2];
+        let table = super::super::huffman::HuffmanTable::from_weights(&weights, 2).unwrap();
+
+        // Large input to trigger batch processing
+        let input = [0xAA; 64]; // 64 bytes
+        let mut output = [0u8; 256];
+
+        let result = unsafe { decode_huffman_avx2(&input, &mut output, &table) };
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_huffman_avx2_batch_path() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            println!("Skipping: AVX2 not available");
+            return;
+        }
+
+        // Small table (table_log <= 4) triggers PSHUFB path
+        // Weights must be <= max_bits (4), use 1s and 2s
+        let weights = vec![1, 1, 2, 2];
+        let table = super::super::huffman::HuffmanTable::from_weights(&weights, 4).unwrap();
+
+        // Large enough input to trigger batch processing
+        let input = [0x55; 64]; // 64 bytes
+        let mut output = [0u8; 256];
+
+        let result = unsafe { decode_huffman_avx2(&input, &mut output, &table) };
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_fse_avx2_small_input() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            println!("Skipping: AVX2 not available");
+            return;
+        }
+
+        // Use smaller accuracy_log to avoid overflow
+        let table = super::super::fse::FseTable::from_distribution(
+            &[1, 1, 1, 1],
+            2, // accuracy_log = 2
+        )
+        .unwrap();
+
+        let input = [0xAA, 0x55, 0xAA, 0x55];
+        let mut output = [0u8; 16];
+
+        let result = unsafe { decode_fse_avx2(&input, &mut output, &table) };
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_fse_avx2_medium_input() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            println!("Skipping: AVX2 not available");
+            return;
+        }
+
+        // Use valid distribution with larger accuracy_log for more table entries
+        let table = super::super::fse::FseTable::from_distribution(
+            &[1, 1, 1, 1],
+            2, // accuracy_log = 2
+        )
+        .unwrap();
+
+        // Use medium input to exercise paths without overflowing bit_pos
+        let input = [0xAA; 8];
+        let mut output = [0u8; 16];
+
+        let result = unsafe { decode_fse_avx2(&input, &mut output, &table) };
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_huffman_avx2_large_table() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            println!("Skipping: AVX2 not available");
+            return;
+        }
+
+        // Create table with valid weights (weights must be <= max_bits)
+        // Use weights in range 1-5 for max_bits=5
+        let weights = vec![1, 2, 3, 4, 5, 1, 2, 3];
+
+        let table = super::super::huffman::HuffmanTable::from_weights(&weights, 5).unwrap();
+
+        let input = [0xAA; 64];
+        let mut output = [0u8; 256];
+
+        let result = unsafe { decode_huffman_avx2(&input, &mut output, &table) };
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_huffman_avx2_small_output() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            println!("Skipping: AVX2 not available");
+            return;
+        }
+
+        let weights = vec![2, 2, 2, 2];
+        let table = super::super::huffman::HuffmanTable::from_weights(&weights, 2).unwrap();
+
+        let input = [0xAA; 64];
+        let mut output = [0u8; 16]; // Small output
+
+        let result = unsafe { decode_huffman_avx2(&input, &mut output, &table) };
+        assert!(result.is_ok());
+    }
+
     // Cross-platform test
     #[test]
     fn test_avx2_module_compiles() {
