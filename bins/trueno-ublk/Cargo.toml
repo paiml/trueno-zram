@@ -10,9 +10,25 @@ description = "GPU-accelerated ZRAM replacement using ublk"
 keywords = ["ublk", "zram", "compression", "gpu", "block-device"]
 categories = ["command-line-utilities", "compression", "filesystem"]
 
+[lib]
+name = "trueno_ublk"
+path = "src/lib.rs"
+
 [[bin]]
 name = "trueno-ublk"
 path = "src/main.rs"
+
+[[example]]
+name = "block_device"
+path = "examples/block_device.rs"
+
+[[example]]
+name = "compression_stats"
+path = "examples/compression_stats.rs"
+
+[[example]]
+name = "entropy_routing"
+path = "examples/entropy_routing.rs"
 
 [dependencies]
 # Internal crates

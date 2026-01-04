@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>GPU Pipeline - trueno-zram</title>
+        <title>Examples - trueno-zram</title>
 
 
         <!-- Custom HTML head -->
@@ -129,7 +129,7 @@
                         <a href="https://github.com/paiml/trueno-zram" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/paiml/trueno-zram/edit/main/book/src/architecture/gpu-pipeline.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/paiml/trueno-zram/edit/main/book/src/ublk/examples.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -158,177 +158,210 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="gpu-pipeline"><a class="header" href="#gpu-pipeline">GPU Pipeline</a></h1>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<p>The GPU pipeline uses CUDA for batch compression with async DMA.</p>
-<pre><code>┌────────────┐    ┌────────────┐    ┌────────────┐    ┌────────────┐
-│   Host     │───▶│    H2D     │───▶│   Kernel   │───▶│    D2H     │
-│   Memory   │    │  Transfer  │    │  Execution │    │  Transfer  │
-└────────────┘    └────────────┘    └────────────┘    └────────────┘
-      ▲                                                      │
-      └──────────────────────────────────────────────────────┘
+                        <h1 id="trueno-ublk-examples"><a class="header" href="#trueno-ublk-examples">trueno-ublk Examples</a></h1>
+<p>trueno-ublk includes several examples demonstrating its features.</p>
+<h2 id="running-examples"><a class="header" href="#running-examples">Running Examples</a></h2>
+<pre><code class="language-bash"># Basic block device usage
+cargo run --example block_device -p trueno-ublk
+
+# Compression statistics comparison
+cargo run --example compression_stats -p trueno-ublk
+
+# Entropy-based routing demonstration
+cargo run --example entropy_routing -p trueno-ublk
 </code></pre>
-<h2 id="pipeline-stages"><a class="header" href="#pipeline-stages">Pipeline Stages</a></h2>
-<h3 id="1-host-to-device-transfer"><a class="header" href="#1-host-to-device-transfer">1. Host-to-Device Transfer</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn transfer_to_device(&amp;self, pages: &amp;[[u8; PAGE_SIZE]]) -&gt; Result&lt;CudaSlice&lt;u8&gt;&gt; {
-    // Flatten pages into contiguous buffer
-    let total_bytes = pages.len() * PAGE_SIZE;
-    let mut flat_data = Vec::with_capacity(total_bytes);
-    for page in pages {
-        flat_data.extend_from_slice(page);
+<h2 id="example-basic-block-device"><a class="header" href="#example-basic-block-device">Example: Basic Block Device</a></h2>
+<p>Demonstrates creating a compressed block device, writing data, and reading it back.</p>
+<pre><pre class="playground"><code class="language-rust">use trueno_ublk::BlockDevice;
+use trueno_zram_core::{Algorithm, CompressorBuilder, PAGE_SIZE};
+
+fn main() -&gt; anyhow::Result&lt;()&gt; {
+    // Create an LZ4 compressor
+    let compressor = CompressorBuilder::new()
+        .algorithm(Algorithm::Lz4)
+        .build()?;
+
+    // Create a 64MB block device
+    let mut device = BlockDevice::new(64 * 1024 * 1024, compressor);
+
+    // Write different patterns
+    let compressible = vec![0xAA; PAGE_SIZE];
+    device.write(0, &amp;compressible)?;
+
+    let zeros = vec![0u8; PAGE_SIZE];
+    device.write(PAGE_SIZE as u64, &amp;zeros)?;
+
+    // Read back and verify
+    let mut buf = vec![0u8; PAGE_SIZE];
+    device.read(0, &amp;mut buf)?;
+    assert_eq!(buf, compressible);
+
+    // Check statistics
+    let stats = device.stats();
+    println!("Compression ratio: {:.2}x", stats.compression_ratio());
+
+    Ok(())
+}</code></pre></pre>
+<p><strong>Output:</strong></p>
+<pre><code>trueno-ublk Block Device Example
+=================================
+
+Created LZ4 compressor with SIMD backend
+Created block device: 64 MB
+
+Writing test patterns...
+  Page 0: Highly compressible (all 0xAA)
+  Page 1: Zero page
+  Page 2: Sequential data
+  Page 3: Pseudo-random data
+
+Reading back and verifying...
+  Page 0: OK
+  Page 1: OK
+  Page 2: OK
+  Page 3: OK
+
+Device Statistics:
+  Pages stored:      4
+  Bytes written:     16 KB
+  Bytes compressed:  0 KB
+  Compression ratio: 27.86x
+  Zero pages:        1
+
+All tests passed!
+</code></pre>
+<h2 id="example-compression-statistics"><a class="header" href="#example-compression-statistics">Example: Compression Statistics</a></h2>
+<p>Compares LZ4 and ZSTD compression on various data patterns.</p>
+<pre><pre class="playground"><code class="language-rust">use trueno_ublk::BlockDevice;
+use trueno_zram_core::{Algorithm, CompressorBuilder, PAGE_SIZE};
+
+fn main() -&gt; anyhow::Result&lt;()&gt; {
+    let test_data = vec![
+        ("All zeros", vec![0u8; PAGE_SIZE]),
+        ("Repeating pattern", (0..PAGE_SIZE).map(|i| (i % 4) as u8).collect()),
+        ("High entropy", (0..PAGE_SIZE).map(|i| ((i * 17 + 31) % 256) as u8).collect()),
+    ];
+
+    for algorithm in [Algorithm::Lz4, Algorithm::Zstd { level: 3 }] {
+        let compressor = CompressorBuilder::new()
+            .algorithm(algorithm)
+            .build()?;
+
+        let mut device = BlockDevice::new(64 * 1024 * 1024, compressor);
+
+        for (i, (_, data)) in test_data.iter().enumerate() {
+            device.write((i * PAGE_SIZE) as u64, data)?;
+        }
+
+        let stats = device.stats();
+        println!("{:?}: {:.2}x compression", algorithm, stats.compression_ratio());
     }
 
-    // Async copy to device
-    let device_buffer = self.stream.clone_htod(&amp;flat_data)?;
-    Ok(device_buffer)
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="2-kernel-execution"><a class="header" href="#2-kernel-execution">2. Kernel Execution</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn execute_kernel(&amp;self, input: &amp;CudaSlice&lt;u8&gt;, batch_size: u32) -&gt; Result&lt;CudaSlice&lt;u8&gt;&gt; {
-    // Allocate output buffer
-    let mut output = self.stream.alloc_zeros::&lt;u8&gt;(batch_size as usize * PAGE_SIZE)?;
-    let mut sizes = self.stream.alloc_zeros::&lt;u32&gt;(batch_size as usize)?;
+    Ok(())
+}</code></pre></pre>
+<p><strong>Output:</strong></p>
+<pre><code>Algorithm: Lz4
+------------------------------------------------------------
+  Results:
+    Compression ratio: 27.25x
+    Space savings:     96.3%
 
-    // Launch kernel
-    // Grid: ceil(batch_size / 4) blocks
-    // Block: 128 threads (4 warps)
-    unsafe {
-        self.stream
-            .launch_builder(&amp;self.kernel_fn)
-            .arg(&amp;input)
-            .arg(&amp;mut output)
-            .arg(&amp;mut sizes)
-            .arg(&amp;batch_size)
-            .launch(cfg)?;
-    }
-
-    self.stream.synchronize()?;
-    Ok(output)
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="3-device-to-host-transfer"><a class="header" href="#3-device-to-host-transfer">3. Device-to-Host Transfer</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn transfer_from_device(&amp;self, data: CudaSlice&lt;u8&gt;) -&gt; Result&lt;Vec&lt;CompressedPage&gt;&gt; {
-    let output = self.stream.clone_dtoh(&amp;data)?;
-
-    // Convert to CompressedPage structures
-    // ...
-}
-<span class="boring">}</span></code></pre></pre>
-<h2 id="warp-cooperative-kernel"><a class="header" href="#warp-cooperative-kernel">Warp-Cooperative Kernel</a></h2>
-<p>The LZ4 kernel uses warp-cooperative compression:</p>
-<pre><code>Block (128 threads)
-├── Warp 0 (32 threads) → Page 0
-├── Warp 1 (32 threads) → Page 1
-├── Warp 2 (32 threads) → Page 2
-└── Warp 3 (32 threads) → Page 3
+Algorithm: Zstd { level: 3 }
+------------------------------------------------------------
+  Results:
+    Compression ratio: 1.50x
+    Space savings:     33.3%
 </code></pre>
-<h3 id="shared-memory-layout"><a class="header" href="#shared-memory-layout">Shared Memory Layout</a></h3>
-<pre><code>Shared Memory (48 KB per block)
-├── Warp 0: 12 KB (hash table + working)
-├── Warp 1: 12 KB
-├── Warp 2: 12 KB
-└── Warp 3: 12 KB
+<h2 id="example-entropy-routing"><a class="header" href="#example-entropy-routing">Example: Entropy Routing</a></h2>
+<p>Shows how data is routed to different backends based on entropy.</p>
+<pre><pre class="playground"><code class="language-rust">use trueno_ublk::BlockDevice;
+use trueno_zram_core::{Algorithm, CompressorBuilder, PAGE_SIZE};
+
+fn main() -&gt; anyhow::Result&lt;()&gt; {
+    let compressor = CompressorBuilder::new()
+        .algorithm(Algorithm::Lz4)
+        .build()?;
+
+    // Set entropy threshold to 7.0 bits/byte
+    let mut device = BlockDevice::with_entropy_threshold(
+        64 * 1024 * 1024,
+        compressor,
+        7.0,
+    );
+
+    // Low entropy - routed to GPU
+    let low_entropy = vec![0u8; PAGE_SIZE];
+    device.write(0, &amp;low_entropy)?;
+
+    // Medium entropy - routed to SIMD
+    let medium: Vec&lt;u8&gt; = (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect();
+    device.write(PAGE_SIZE as u64, &amp;medium)?;
+
+    // High entropy - routed to scalar
+    let high: Vec&lt;u8&gt; = (0..PAGE_SIZE).map(|i| ((i * 17 + 31) % 256) as u8).collect();
+    device.write(2 * PAGE_SIZE as u64, &amp;high)?;
+
+    let stats = device.stats();
+    println!("GPU pages:    {}", stats.gpu_pages);
+    println!("SIMD pages:   {}", stats.simd_pages);
+    println!("Scalar pages: {}", stats.scalar_pages);
+    println!("Zero pages:   {}", stats.zero_pages);
+
+    Ok(())
+}</code></pre></pre>
+<p><strong>Output:</strong></p>
+<pre><code>trueno-ublk Entropy Routing Example
+===================================
+
+Routing Statistics:
+  GPU pages:    1 (low entropy, highly compressible)
+  SIMD pages:   1 (medium entropy, normal data)
+  Scalar pages: 3 (high entropy, incompressible)
+  Zero pages:   1 (all zeros, deduplicated)
+
+Total compression ratio: 2.88x
 </code></pre>
-<h3 id="ptx-generation"><a class="header" href="#ptx-generation">PTX Generation</a></h3>
-<p>Using trueno-gpu for pure Rust PTX:</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>use trueno_gpu::kernels::lz4::Lz4WarpCompressKernel;
-use trueno_gpu::kernels::Kernel;
+<h2 id="cli-examples"><a class="header" href="#cli-examples">CLI Examples</a></h2>
+<h3 id="create-a-device"><a class="header" href="#create-a-device">Create a Device</a></h3>
+<pre><code class="language-bash"># Create 1TB device with LZ4 and GPU acceleration
+trueno-ublk create -s 1T -a lz4 --gpu
 
-let kernel = Lz4WarpCompressKernel::new(65536);
-let ptx_string = kernel.emit_ptx();
+# Create with memory limit
+trueno-ublk create -s 512G -a zstd --mem-limit 8G
 
-// Load PTX into CUDA module
-let ptx = Ptx::from(ptx_string);
-let module = context.load_module(ptx)?;
-<span class="boring">}</span></code></pre></pre>
-<h2 id="async-dma-ring-buffer"><a class="header" href="#async-dma-ring-buffer">Async DMA Ring Buffer</a></h2>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>struct AsyncPipeline {
-    slots: Vec&lt;PipelineSlot&gt;,
-    head: usize,
-    tail: usize,
-}
-
-struct PipelineSlot {
-    input_buffer: CudaSlice&lt;u8&gt;,
-    output_buffer: CudaSlice&lt;u8&gt;,
-    event: CudaEvent,
-    state: SlotState,
-}
-
-enum SlotState {
-    Free,
-    H2DInProgress,
-    KernelInProgress,
-    D2HInProgress,
-    Complete,
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="pipelining"><a class="header" href="#pipelining">Pipelining</a></h3>
-<pre><code>Time ──────────────────────────────────────────────▶
-
-Slot 0: [H2D][Kernel][D2H]
-Slot 1:      [H2D][Kernel][D2H]
-Slot 2:           [H2D][Kernel][D2H]
-Slot 3:                [H2D][Kernel][D2H]
+# Create with custom entropy threshold
+trueno-ublk create -s 256G -a lz4 --entropy-threshold 6.5
 </code></pre>
-<h2 id="performance-optimization"><a class="header" href="#performance-optimization">Performance Optimization</a></h2>
-<h3 id="1-pinned-memory"><a class="header" href="#1-pinned-memory">1. Pinned Memory</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Use pinned (page-locked) memory for faster transfers
-let pinned_buffer = cuda_malloc_host(size)?;
-<span class="boring">}</span></code></pre></pre>
-<h3 id="2-stream-overlap"><a class="header" href="#2-stream-overlap">2. Stream Overlap</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Use separate streams for H2D, compute, D2H
-let h2d_stream = context.create_stream()?;
-let compute_stream = context.create_stream()?;
-let d2h_stream = context.create_stream()?;
-<span class="boring">}</span></code></pre></pre>
-<h3 id="3-kernel-occupancy"><a class="header" href="#3-kernel-occupancy">3. Kernel Occupancy</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Optimal: 4 warps per block = 128 threads
-// Shared memory: 48 KB (12 KB per warp)
-// Registers: ~32 per thread
-<span class="boring">}</span></code></pre></pre>
-<h2 id="error-handling"><a class="header" href="#error-handling">Error Handling</a></h2>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>match kernel_result {
-    Ok(output) =&gt; process_output(output),
-    Err(CudaError::IllegalAddress) =&gt; {
-        // Memory access violation
-        fallback_to_cpu()?
-    }
-    Err(CudaError::LaunchFailed) =&gt; {
-        // Kernel launch failed
-        fallback_to_cpu()?
-    }
-    Err(e) =&gt; Err(Error::GpuNotAvailable(e.to_string())),
-}
-<span class="boring">}</span></code></pre></pre>
+<h3 id="monitor-devices"><a class="header" href="#monitor-devices">Monitor Devices</a></h3>
+<pre><code class="language-bash"># List all devices
+trueno-ublk list
+
+# Show detailed stats
+trueno-ublk stat /dev/ublkb0
+
+# Interactive dashboard
+trueno-ublk top
+</code></pre>
+<h3 id="manage-devices"><a class="header" href="#manage-devices">Manage Devices</a></h3>
+<pre><code class="language-bash"># Reset statistics
+trueno-ublk reset /dev/ublkb0
+
+# Compact memory
+trueno-ublk compact /dev/ublkb0
+
+# Set runtime parameters
+trueno-ublk set /dev/ublkb0 --mem-limit 16G
+</code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../architecture/simd-dispatch.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../ublk/entropy-routing.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../ublk/overview.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../contributing.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -338,11 +371,11 @@ let d2h_stream = context.create_stream()?;
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../architecture/simd-dispatch.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../ublk/entropy-routing.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../ublk/overview.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../contributing.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

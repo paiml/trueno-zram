@@ -33,6 +33,13 @@
 - [SIMD Dispatch](./architecture/simd-dispatch.md)
 - [GPU Pipeline](./architecture/gpu-pipeline.md)
 
+# trueno-ublk
+
+- [Overview](./ublk/overview.md)
+- [Block Device API](./ublk/block-device.md)
+- [Entropy Routing](./ublk/entropy-routing.md)
+- [Examples](./ublk/examples.md)
+
 ---
 
 [Contributing](./contributing.md)

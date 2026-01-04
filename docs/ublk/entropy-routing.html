@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>GPU Pipeline - trueno-zram</title>
+        <title>Entropy Routing - trueno-zram</title>
 
 
         <!-- Custom HTML head -->
@@ -129,7 +129,7 @@
                         <a href="https://github.com/paiml/trueno-zram" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/paiml/trueno-zram/edit/main/book/src/architecture/gpu-pipeline.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/paiml/trueno-zram/edit/main/book/src/ublk/entropy-routing.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -158,177 +158,137 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="gpu-pipeline"><a class="header" href="#gpu-pipeline">GPU Pipeline</a></h1>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<p>The GPU pipeline uses CUDA for batch compression with async DMA.</p>
-<pre><code>┌────────────┐    ┌────────────┐    ┌────────────┐    ┌────────────┐
-│   Host     │───▶│    H2D     │───▶│   Kernel   │───▶│    D2H     │
-│   Memory   │    │  Transfer  │    │  Execution │    │  Transfer  │
-└────────────┘    └────────────┘    └────────────┘    └────────────┘
-      ▲                                                      │
-      └──────────────────────────────────────────────────────┘
+                        <h1 id="entropy-routing"><a class="header" href="#entropy-routing">Entropy Routing</a></h1>
+<p>trueno-ublk uses Shannon entropy analysis to route data to the optimal compression backend.</p>
+<h2 id="shannon-entropy"><a class="header" href="#shannon-entropy">Shannon Entropy</a></h2>
+<p>Shannon entropy measures the information density of data in bits per byte. The formula is:</p>
+<pre><code>H(X) = -Σ p(x) * log2(p(x))
 </code></pre>
-<h2 id="pipeline-stages"><a class="header" href="#pipeline-stages">Pipeline Stages</a></h2>
-<h3 id="1-host-to-device-transfer"><a class="header" href="#1-host-to-device-transfer">1. Host-to-Device Transfer</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn transfer_to_device(&amp;self, pages: &amp;[[u8; PAGE_SIZE]]) -&gt; Result&lt;CudaSlice&lt;u8&gt;&gt; {
-    // Flatten pages into contiguous buffer
-    let total_bytes = pages.len() * PAGE_SIZE;
-    let mut flat_data = Vec::with_capacity(total_bytes);
-    for page in pages {
-        flat_data.extend_from_slice(page);
-    }
-
-    // Async copy to device
-    let device_buffer = self.stream.clone_htod(&amp;flat_data)?;
-    Ok(device_buffer)
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="2-kernel-execution"><a class="header" href="#2-kernel-execution">2. Kernel Execution</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn execute_kernel(&amp;self, input: &amp;CudaSlice&lt;u8&gt;, batch_size: u32) -&gt; Result&lt;CudaSlice&lt;u8&gt;&gt; {
-    // Allocate output buffer
-    let mut output = self.stream.alloc_zeros::&lt;u8&gt;(batch_size as usize * PAGE_SIZE)?;
-    let mut sizes = self.stream.alloc_zeros::&lt;u32&gt;(batch_size as usize)?;
-
-    // Launch kernel
-    // Grid: ceil(batch_size / 4) blocks
-    // Block: 128 threads (4 warps)
-    unsafe {
-        self.stream
-            .launch_builder(&amp;self.kernel_fn)
-            .arg(&amp;input)
-            .arg(&amp;mut output)
-            .arg(&amp;mut sizes)
-            .arg(&amp;batch_size)
-            .launch(cfg)?;
-    }
-
-    self.stream.synchronize()?;
-    Ok(output)
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="3-device-to-host-transfer"><a class="header" href="#3-device-to-host-transfer">3. Device-to-Host Transfer</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn transfer_from_device(&amp;self, data: CudaSlice&lt;u8&gt;) -&gt; Result&lt;Vec&lt;CompressedPage&gt;&gt; {
-    let output = self.stream.clone_dtoh(&amp;data)?;
-
-    // Convert to CompressedPage structures
-    // ...
-}
-<span class="boring">}</span></code></pre></pre>
-<h2 id="warp-cooperative-kernel"><a class="header" href="#warp-cooperative-kernel">Warp-Cooperative Kernel</a></h2>
-<p>The LZ4 kernel uses warp-cooperative compression:</p>
-<pre><code>Block (128 threads)
-├── Warp 0 (32 threads) → Page 0
-├── Warp 1 (32 threads) → Page 1
-├── Warp 2 (32 threads) → Page 2
-└── Warp 3 (32 threads) → Page 3
+<p>Where p(x) is the probability of each byte value occurring.</p>
+<div class="table-wrapper"><table><thead><tr><th>Entropy (bits/byte)</th><th>Data Type</th><th>Compressibility</th></tr></thead><tbody>
+<tr><td>0.0</td><td>All same value</td><td>Extremely high</td></tr>
+<tr><td>1.0-3.0</td><td>Simple patterns</td><td>Very high</td></tr>
+<tr><td>4.0-6.0</td><td>Text, code</td><td>Good</td></tr>
+<tr><td>7.0-7.5</td><td>Compressed data</td><td>Poor</td></tr>
+<tr><td>8.0</td><td>Random/encrypted</td><td>None</td></tr>
+</tbody></table>
+</div>
+<h2 id="routing-strategy"><a class="header" href="#routing-strategy">Routing Strategy</a></h2>
+<p>trueno-ublk routes pages based on their entropy:</p>
+<pre><code>┌──────────────────────────────────────────────────────────┐
+│                    Incoming Page                          │
+│                         │                                 │
+│                    Calculate Entropy                      │
+│                         │                                 │
+│           ┌─────────────┼─────────────┐                  │
+│           ▼             ▼             ▼                  │
+│      entropy &lt; 4.0  4.0 ≤ e ≤ 7.0  entropy &gt; 7.0        │
+│           │             │             │                  │
+│           ▼             ▼             ▼                  │
+│      GPU Batch      SIMD Path    Scalar/Skip            │
+│    (highly comp.)  (normal data)  (incompress.)         │
+└──────────────────────────────────────────────────────────┘
 </code></pre>
-<h3 id="shared-memory-layout"><a class="header" href="#shared-memory-layout">Shared Memory Layout</a></h3>
-<pre><code>Shared Memory (48 KB per block)
-├── Warp 0: 12 KB (hash table + working)
-├── Warp 1: 12 KB
-├── Warp 2: 12 KB
-└── Warp 3: 12 KB
+<h3 id="gpu-batch-path-entropy--40"><a class="header" href="#gpu-batch-path-entropy--40">GPU Batch Path (entropy &lt; 4.0)</a></h3>
+<ul>
+<li>Used for highly compressible data</li>
+<li>Benefits from GPU parallelism</li>
+<li>Batches multiple pages for efficiency</li>
+<li>Best for: zeros, repeating patterns, sparse data</li>
+</ul>
+<h3 id="simd-path-40--entropy--70"><a class="header" href="#simd-path-40--entropy--70">SIMD Path (4.0 ≤ entropy ≤ 7.0)</a></h3>
+<ul>
+<li>Used for typical data</li>
+<li>AVX2/AVX-512/NEON acceleration</li>
+<li>Single-page processing</li>
+<li>Best for: text, code, structured data</li>
+</ul>
+<h3 id="scalarskip-path-entropy--70"><a class="header" href="#scalarskip-path-entropy--70">Scalar/Skip Path (entropy &gt; 7.0)</a></h3>
+<ul>
+<li>Used for incompressible data</li>
+<li>Avoids wasting CPU cycles</li>
+<li>May store uncompressed</li>
+<li>Best for: encrypted data, already-compressed media</li>
+</ul>
+<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
+<p>Set the entropy threshold when creating a device:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_ublk::BlockDevice;
+use trueno_zram_core::{Algorithm, CompressorBuilder};
+
+let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+
+// Lower threshold = more aggressive SIMD usage
+let device = BlockDevice::with_entropy_threshold(
+    1 &lt;&lt; 30,    // Size
+    compressor,
+    6.5,        // Custom threshold (default is 7.0)
+);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="monitoring-entropy"><a class="header" href="#monitoring-entropy">Monitoring Entropy</a></h2>
+<p>Use the CLI to analyze device entropy:</p>
+<pre><code class="language-bash"># Show entropy distribution
+trueno-ublk entropy /dev/ublkb0
+
+# Output:
+# Entropy Distribution:
+#   0.0-2.0 bits: ████████████████████ 45% (GPU)
+#   2.0-4.0 bits: ████████ 18% (GPU)
+#   4.0-6.0 bits: ██████████ 22% (SIMD)
+#   6.0-7.0 bits: ████ 10% (SIMD)
+#   7.0-8.0 bits: ██ 5% (Scalar)
+#
+# Average entropy: 3.2 bits/byte
+# Recommended threshold: 7.0
 </code></pre>
-<h3 id="ptx-generation"><a class="header" href="#ptx-generation">PTX Generation</a></h3>
-<p>Using trueno-gpu for pure Rust PTX:</p>
+<h2 id="statistics"><a class="header" href="#statistics">Statistics</a></h2>
+<p>Track routing decisions via stats:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>use trueno_gpu::kernels::lz4::Lz4WarpCompressKernel;
-use trueno_gpu::kernels::Kernel;
+</span>let stats = device.stats();
 
-let kernel = Lz4WarpCompressKernel::new(65536);
-let ptx_string = kernel.emit_ptx();
+println!("Routing Statistics:");
+println!("  GPU pages:    {} ({:.1}%)",
+    stats.gpu_pages,
+    100.0 * stats.gpu_pages as f64 / stats.pages_stored as f64);
+println!("  SIMD pages:   {} ({:.1}%)",
+    stats.simd_pages,
+    100.0 * stats.simd_pages as f64 / stats.pages_stored as f64);
+println!("  Scalar pages: {} ({:.1}%)",
+    stats.scalar_pages,
+    100.0 * stats.scalar_pages as f64 / stats.pages_stored as f64);
+println!("  Zero pages:   {} ({:.1}%)",
+    stats.zero_pages,
+    100.0 * stats.zero_pages as f64 / stats.pages_stored as f64);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="zero-page-optimization"><a class="header" href="#zero-page-optimization">Zero-Page Optimization</a></h2>
+<p>All-zero pages receive special handling regardless of entropy:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Zero pages are detected and deduplicated
+let zeros = vec![0u8; PAGE_SIZE];
+device.write(0, &amp;zeros)?;
+device.write(PAGE_SIZE as u64, &amp;zeros)?;
+device.write(2 * PAGE_SIZE as u64, &amp;zeros)?;
 
-// Load PTX into CUDA module
-let ptx = Ptx::from(ptx_string);
-let module = context.load_module(ptx)?;
+let stats = device.stats();
+// All three pages share the same zero-page representation
+assert_eq!(stats.zero_pages, 3);
 <span class="boring">}</span></code></pre></pre>
-<h2 id="async-dma-ring-buffer"><a class="header" href="#async-dma-ring-buffer">Async DMA Ring Buffer</a></h2>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>struct AsyncPipeline {
-    slots: Vec&lt;PipelineSlot&gt;,
-    head: usize,
-    tail: usize,
-}
-
-struct PipelineSlot {
-    input_buffer: CudaSlice&lt;u8&gt;,
-    output_buffer: CudaSlice&lt;u8&gt;,
-    event: CudaEvent,
-    state: SlotState,
-}
-
-enum SlotState {
-    Free,
-    H2DInProgress,
-    KernelInProgress,
-    D2HInProgress,
-    Complete,
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="pipelining"><a class="header" href="#pipelining">Pipelining</a></h3>
-<pre><code>Time ──────────────────────────────────────────────▶
-
-Slot 0: [H2D][Kernel][D2H]
-Slot 1:      [H2D][Kernel][D2H]
-Slot 2:           [H2D][Kernel][D2H]
-Slot 3:                [H2D][Kernel][D2H]
-</code></pre>
-<h2 id="performance-optimization"><a class="header" href="#performance-optimization">Performance Optimization</a></h2>
-<h3 id="1-pinned-memory"><a class="header" href="#1-pinned-memory">1. Pinned Memory</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Use pinned (page-locked) memory for faster transfers
-let pinned_buffer = cuda_malloc_host(size)?;
-<span class="boring">}</span></code></pre></pre>
-<h3 id="2-stream-overlap"><a class="header" href="#2-stream-overlap">2. Stream Overlap</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Use separate streams for H2D, compute, D2H
-let h2d_stream = context.create_stream()?;
-let compute_stream = context.create_stream()?;
-let d2h_stream = context.create_stream()?;
-<span class="boring">}</span></code></pre></pre>
-<h3 id="3-kernel-occupancy"><a class="header" href="#3-kernel-occupancy">3. Kernel Occupancy</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Optimal: 4 warps per block = 128 threads
-// Shared memory: 48 KB (12 KB per warp)
-// Registers: ~32 per thread
-<span class="boring">}</span></code></pre></pre>
-<h2 id="error-handling"><a class="header" href="#error-handling">Error Handling</a></h2>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>match kernel_result {
-    Ok(output) =&gt; process_output(output),
-    Err(CudaError::IllegalAddress) =&gt; {
-        // Memory access violation
-        fallback_to_cpu()?
-    }
-    Err(CudaError::LaunchFailed) =&gt; {
-        // Kernel launch failed
-        fallback_to_cpu()?
-    }
-    Err(e) =&gt; Err(Error::GpuNotAvailable(e.to_string())),
-}
-<span class="boring">}</span></code></pre></pre>
+<p>This achieves effective 2048:1 compression for sparse data like freshly-allocated memory.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../architecture/simd-dispatch.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../ublk/block-device.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../ublk/overview.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../ublk/examples.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -338,11 +298,11 @@ let d2h_stream = context.create_stream()?;
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../architecture/simd-dispatch.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../ublk/block-device.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../ublk/overview.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../ublk/examples.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>GPU Pipeline - trueno-zram</title>
+        <title>Overview - trueno-zram</title>
 
 
         <!-- Custom HTML head -->
@@ -129,7 +129,7 @@
                         <a href="https://github.com/paiml/trueno-zram" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/paiml/trueno-zram/edit/main/book/src/architecture/gpu-pipeline.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/paiml/trueno-zram/edit/main/book/src/ublk/overview.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
 
@@ -158,177 +158,94 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="gpu-pipeline"><a class="header" href="#gpu-pipeline">GPU Pipeline</a></h1>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<p>The GPU pipeline uses CUDA for batch compression with async DMA.</p>
-<pre><code>┌────────────┐    ┌────────────┐    ┌────────────┐    ┌────────────┐
-│   Host     │───▶│    H2D     │───▶│   Kernel   │───▶│    D2H     │
-│   Memory   │    │  Transfer  │    │  Execution │    │  Transfer  │
-└────────────┘    └────────────┘    └────────────┘    └────────────┘
-      ▲                                                      │
-      └──────────────────────────────────────────────────────┘
+                        <h1 id="trueno-ublk-overview"><a class="header" href="#trueno-ublk-overview">trueno-ublk Overview</a></h1>
+<p>trueno-ublk is a GPU-accelerated ZRAM replacement that uses the Linux ublk interface to provide a high-performance compressed block device in userspace.</p>
+<h2 id="what-is-ublk"><a class="header" href="#what-is-ublk">What is ublk?</a></h2>
+<p>ublk (userspace block device) is a Linux kernel interface that allows implementing block devices entirely in userspace. It uses io_uring for efficient I/O handling, avoiding the overhead of kernel context switches.</p>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<pre><code>┌─────────────────────────────────────────────────────────┐
+│                    Applications                          │
+├─────────────────────────────────────────────────────────┤
+│                    Filesystem                            │
+├─────────────────────────────────────────────────────────┤
+│                /dev/ublkbN block device                  │
+├─────────────────────────────────────────────────────────┤
+│                    Linux Kernel                          │
+│                   (ublk driver)                          │
+├─────────────────────────────────────────────────────────┤
+│                    io_uring                              │
+├─────────────────────────────────────────────────────────┤
+│                  trueno-ublk                             │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │              Entropy Router                        │  │
+│  │  ┌─────────┐  ┌─────────┐  ┌─────────────────┐   │  │
+│  │  │  GPU    │  │  SIMD   │  │     Scalar      │   │  │
+│  │  │ (batch) │  │ (AVX2)  │  │ (incompressible)│   │  │
+│  │  └─────────┘  └─────────┘  └─────────────────┘   │  │
+│  └───────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │          trueno-zram-core (LZ4/ZSTD)              │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
 </code></pre>
-<h2 id="pipeline-stages"><a class="header" href="#pipeline-stages">Pipeline Stages</a></h2>
-<h3 id="1-host-to-device-transfer"><a class="header" href="#1-host-to-device-transfer">1. Host-to-Device Transfer</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn transfer_to_device(&amp;self, pages: &amp;[[u8; PAGE_SIZE]]) -&gt; Result&lt;CudaSlice&lt;u8&gt;&gt; {
-    // Flatten pages into contiguous buffer
-    let total_bytes = pages.len() * PAGE_SIZE;
-    let mut flat_data = Vec::with_capacity(total_bytes);
-    for page in pages {
-        flat_data.extend_from_slice(page);
-    }
+<h2 id="features"><a class="header" href="#features">Features</a></h2>
+<h3 id="simd-accelerated-compression"><a class="header" href="#simd-accelerated-compression">SIMD-Accelerated Compression</a></h3>
+<p>Uses trueno-zram-core for vectorized LZ4/ZSTD compression:</p>
+<ul>
+<li>AVX2 (256-bit) on modern x86_64</li>
+<li>AVX-512 (512-bit) on supported CPUs</li>
+<li>NEON (128-bit) on ARM64</li>
+</ul>
+<h3 id="gpu-batch-compression"><a class="header" href="#gpu-batch-compression">GPU Batch Compression</a></h3>
+<p>Offloads compression to CUDA GPUs when beneficial:</p>
+<ul>
+<li>Warp-cooperative LZ4 kernel</li>
+<li>PCIe 5x rule evaluation</li>
+<li>Async DMA for overlap</li>
+</ul>
+<h3 id="entropy-based-routing"><a class="header" href="#entropy-based-routing">Entropy-Based Routing</a></h3>
+<p>Analyzes data entropy to choose the optimal compression path:</p>
+<ul>
+<li>Low entropy (&lt; 4.0 bits): GPU batch compression</li>
+<li>Medium entropy (4-7 bits): SIMD compression</li>
+<li>High entropy (&gt; 7.0 bits): Scalar or skip compression</li>
+</ul>
+<h3 id="zero-page-deduplication"><a class="header" href="#zero-page-deduplication">Zero-Page Deduplication</a></h3>
+<p>Automatically detects and deduplicates all-zero pages, achieving 2048:1 compression for sparse data.</p>
+<h3 id="zram-compatible-statistics"><a class="header" href="#zram-compatible-statistics">zram-Compatible Statistics</a></h3>
+<p>Exports statistics in the same format as kernel zram, enabling drop-in monitoring compatibility.</p>
+<h2 id="cli-usage"><a class="header" href="#cli-usage">CLI Usage</a></h2>
+<pre><code class="language-bash"># Create a 1TB compressed RAM disk
+trueno-ublk create -s 1T -a lz4 --gpu
 
-    // Async copy to device
-    let device_buffer = self.stream.clone_htod(&amp;flat_data)?;
-    Ok(device_buffer)
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="2-kernel-execution"><a class="header" href="#2-kernel-execution">2. Kernel Execution</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn execute_kernel(&amp;self, input: &amp;CudaSlice&lt;u8&gt;, batch_size: u32) -&gt; Result&lt;CudaSlice&lt;u8&gt;&gt; {
-    // Allocate output buffer
-    let mut output = self.stream.alloc_zeros::&lt;u8&gt;(batch_size as usize * PAGE_SIZE)?;
-    let mut sizes = self.stream.alloc_zeros::&lt;u32&gt;(batch_size as usize)?;
+# List devices
+trueno-ublk list
 
-    // Launch kernel
-    // Grid: ceil(batch_size / 4) blocks
-    // Block: 128 threads (4 warps)
-    unsafe {
-        self.stream
-            .launch_builder(&amp;self.kernel_fn)
-            .arg(&amp;input)
-            .arg(&amp;mut output)
-            .arg(&amp;mut sizes)
-            .arg(&amp;batch_size)
-            .launch(cfg)?;
-    }
+# Show statistics
+trueno-ublk stat /dev/ublkb0
 
-    self.stream.synchronize()?;
-    Ok(output)
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="3-device-to-host-transfer"><a class="header" href="#3-device-to-host-transfer">3. Device-to-Host Transfer</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn transfer_from_device(&amp;self, data: CudaSlice&lt;u8&gt;) -&gt; Result&lt;Vec&lt;CompressedPage&gt;&gt; {
-    let output = self.stream.clone_dtoh(&amp;data)?;
+# Interactive dashboard
+trueno-ublk top
 
-    // Convert to CompressedPage structures
-    // ...
-}
-<span class="boring">}</span></code></pre></pre>
-<h2 id="warp-cooperative-kernel"><a class="header" href="#warp-cooperative-kernel">Warp-Cooperative Kernel</a></h2>
-<p>The LZ4 kernel uses warp-cooperative compression:</p>
-<pre><code>Block (128 threads)
-├── Warp 0 (32 threads) → Page 0
-├── Warp 1 (32 threads) → Page 1
-├── Warp 2 (32 threads) → Page 2
-└── Warp 3 (32 threads) → Page 3
+# Analyze data entropy
+trueno-ublk entropy /dev/ublkb0
 </code></pre>
-<h3 id="shared-memory-layout"><a class="header" href="#shared-memory-layout">Shared Memory Layout</a></h3>
-<pre><code>Shared Memory (48 KB per block)
-├── Warp 0: 12 KB (hash table + working)
-├── Warp 1: 12 KB
-├── Warp 2: 12 KB
-└── Warp 3: 12 KB
-</code></pre>
-<h3 id="ptx-generation"><a class="header" href="#ptx-generation">PTX Generation</a></h3>
-<p>Using trueno-gpu for pure Rust PTX:</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>use trueno_gpu::kernels::lz4::Lz4WarpCompressKernel;
-use trueno_gpu::kernels::Kernel;
-
-let kernel = Lz4WarpCompressKernel::new(65536);
-let ptx_string = kernel.emit_ptx();
-
-// Load PTX into CUDA module
-let ptx = Ptx::from(ptx_string);
-let module = context.load_module(ptx)?;
-<span class="boring">}</span></code></pre></pre>
-<h2 id="async-dma-ring-buffer"><a class="header" href="#async-dma-ring-buffer">Async DMA Ring Buffer</a></h2>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>struct AsyncPipeline {
-    slots: Vec&lt;PipelineSlot&gt;,
-    head: usize,
-    tail: usize,
-}
-
-struct PipelineSlot {
-    input_buffer: CudaSlice&lt;u8&gt;,
-    output_buffer: CudaSlice&lt;u8&gt;,
-    event: CudaEvent,
-    state: SlotState,
-}
-
-enum SlotState {
-    Free,
-    H2DInProgress,
-    KernelInProgress,
-    D2HInProgress,
-    Complete,
-}
-<span class="boring">}</span></code></pre></pre>
-<h3 id="pipelining"><a class="header" href="#pipelining">Pipelining</a></h3>
-<pre><code>Time ──────────────────────────────────────────────▶
-
-Slot 0: [H2D][Kernel][D2H]
-Slot 1:      [H2D][Kernel][D2H]
-Slot 2:           [H2D][Kernel][D2H]
-Slot 3:                [H2D][Kernel][D2H]
-</code></pre>
-<h2 id="performance-optimization"><a class="header" href="#performance-optimization">Performance Optimization</a></h2>
-<h3 id="1-pinned-memory"><a class="header" href="#1-pinned-memory">1. Pinned Memory</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Use pinned (page-locked) memory for faster transfers
-let pinned_buffer = cuda_malloc_host(size)?;
-<span class="boring">}</span></code></pre></pre>
-<h3 id="2-stream-overlap"><a class="header" href="#2-stream-overlap">2. Stream Overlap</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Use separate streams for H2D, compute, D2H
-let h2d_stream = context.create_stream()?;
-let compute_stream = context.create_stream()?;
-let d2h_stream = context.create_stream()?;
-<span class="boring">}</span></code></pre></pre>
-<h3 id="3-kernel-occupancy"><a class="header" href="#3-kernel-occupancy">3. Kernel Occupancy</a></h3>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Optimal: 4 warps per block = 128 threads
-// Shared memory: 48 KB (12 KB per warp)
-// Registers: ~32 per thread
-<span class="boring">}</span></code></pre></pre>
-<h2 id="error-handling"><a class="header" href="#error-handling">Error Handling</a></h2>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>match kernel_result {
-    Ok(output) =&gt; process_output(output),
-    Err(CudaError::IllegalAddress) =&gt; {
-        // Memory access violation
-        fallback_to_cpu()?
-    }
-    Err(CudaError::LaunchFailed) =&gt; {
-        // Kernel launch failed
-        fallback_to_cpu()?
-    }
-    Err(e) =&gt; Err(Error::GpuNotAvailable(e.to_string())),
-}
-<span class="boring">}</span></code></pre></pre>
+<h2 id="requirements"><a class="header" href="#requirements">Requirements</a></h2>
+<ul>
+<li>Linux kernel 6.0+ with ublk support</li>
+<li>CAP_SYS_ADMIN capability (for device creation)</li>
+<li>Optional: NVIDIA GPU with CUDA support</li>
+</ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../architecture/simd-dispatch.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../architecture/gpu-pipeline.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../ublk/overview.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../ublk/block-device.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -338,11 +255,11 @@ let d2h_stream = context.create_stream()?;
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../architecture/simd-dispatch.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../architecture/gpu-pipeline.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../ublk/overview.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../ublk/block-device.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
