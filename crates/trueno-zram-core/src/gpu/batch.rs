@@ -907,4 +907,275 @@ mod tests {
         assert!(stats.throughput_gbps().abs() < f64::EPSILON);
         assert!((stats.compression_ratio() - 1.0).abs() < f64::EPSILON);
     }
+
+    // ==========================================================================
+    // Additional coverage tests for BatchResult
+    // ==========================================================================
+    #[test]
+    fn test_batch_result_zero_time_throughput() {
+        let result = BatchResult {
+            pages: vec![],
+            h2d_time_ns: 0,
+            kernel_time_ns: 0,
+            d2h_time_ns: 0,
+            total_time_ns: 0, // Edge case: zero time
+        };
+        // Should return 0.0 for zero time to avoid division by zero
+        assert!(result.throughput_bytes_per_sec(4096).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_batch_result_compression_ratio() {
+        let result = BatchResult {
+            pages: vec![
+                CompressedPage {
+                    data: vec![0; 2048], // 50% compression
+                    original_size: PAGE_SIZE,
+                    algorithm: Algorithm::Lz4,
+                },
+                CompressedPage {
+                    data: vec![0; 1024], // 75% compression
+                    original_size: PAGE_SIZE,
+                    algorithm: Algorithm::Lz4,
+                },
+            ],
+            h2d_time_ns: 100,
+            kernel_time_ns: 800,
+            d2h_time_ns: 100,
+            total_time_ns: 1000,
+        };
+        // 2 pages * 4096 bytes = 8192 original / 3072 compressed = 2.67:1
+        let ratio = result.compression_ratio();
+        assert!(ratio > 2.0 && ratio < 3.0, "Compression ratio should be ~2.67");
+    }
+
+    #[test]
+    fn test_batch_result_compression_ratio_empty() {
+        let result = BatchResult {
+            pages: vec![],
+            h2d_time_ns: 0,
+            kernel_time_ns: 0,
+            d2h_time_ns: 0,
+            total_time_ns: 0,
+        };
+        // Empty pages should return 1.0 ratio
+        assert!((result.compression_ratio() - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_batch_result_pcie_rule_satisfied() {
+        let result = BatchResult {
+            pages: vec![],
+            h2d_time_ns: 100,
+            kernel_time_ns: 1001, // >5× transfer time (strictly greater)
+            d2h_time_ns: 100,
+            total_time_ns: 1201,
+        };
+        // kernel_time (1001) > 5 × transfer_time (200=1000) = true
+        assert!(result.pcie_rule_satisfied());
+    }
+
+    #[test]
+    fn test_batch_result_pcie_rule_not_satisfied() {
+        let result = BatchResult {
+            pages: vec![],
+            h2d_time_ns: 500,
+            kernel_time_ns: 100, // Less than 5× transfer
+            d2h_time_ns: 500,
+            total_time_ns: 1100,
+        };
+        // kernel_time (100) < 5 × transfer_time (1000) = false
+        assert!(!result.pcie_rule_satisfied());
+    }
+
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn test_gpu_context_debug() {
+        if !crate::gpu::gpu_available() {
+            return;
+        }
+        let config = GpuBatchConfig::default();
+        let compressor = GpuBatchCompressor::new(config).unwrap();
+        // Exercise the Debug impl
+        let debug_str = format!("{:?}", compressor);
+        assert!(debug_str.contains("GpuBatchCompressor"));
+    }
+
+    // ==========================================================================
+    // Additional coverage tests for would_benefit and trait impls
+    // ==========================================================================
+
+    #[test]
+    fn test_would_benefit_large_batch() {
+        // Large batch (>=1000 pages) should benefit from GPU
+        assert!(GpuBatchCompressor::would_benefit(1000));
+        assert!(GpuBatchCompressor::would_benefit(10000));
+        assert!(GpuBatchCompressor::would_benefit(100000));
+    }
+
+    #[test]
+    fn test_would_benefit_small_batch() {
+        // Small batch (<1000 pages) should not benefit from GPU
+        assert!(!GpuBatchCompressor::would_benefit(0));
+        assert!(!GpuBatchCompressor::would_benefit(1));
+        assert!(!GpuBatchCompressor::would_benefit(999));
+    }
+
+    #[test]
+    fn test_gpu_batch_config_clone() {
+        let config = GpuBatchConfig {
+            device_index: 1,
+            algorithm: Algorithm::Zstd { level: 3 },
+            batch_size: 500,
+            async_dma: false,
+            ring_buffer_slots: 8,
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.device_index, 1);
+        assert_eq!(cloned.batch_size, 500);
+        assert!(!cloned.async_dma);
+        assert_eq!(cloned.ring_buffer_slots, 8);
+    }
+
+    #[test]
+    fn test_gpu_batch_config_debug() {
+        let config = GpuBatchConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("GpuBatchConfig"));
+        assert!(debug_str.contains("device_index"));
+        assert!(debug_str.contains("batch_size"));
+    }
+
+    #[test]
+    fn test_gpu_batch_stats_clone() {
+        let stats = GpuBatchStats {
+            pages_compressed: 1000,
+            total_bytes_in: 4096000,
+            total_bytes_out: 2048000,
+            total_time_ns: 1_000_000,
+        };
+        let cloned = stats.clone();
+        assert_eq!(cloned.pages_compressed, 1000);
+        assert_eq!(cloned.total_bytes_in, 4096000);
+        assert_eq!(cloned.total_bytes_out, 2048000);
+        assert_eq!(cloned.total_time_ns, 1_000_000);
+    }
+
+    #[test]
+    fn test_gpu_batch_stats_debug() {
+        let stats = GpuBatchStats::default();
+        let debug_str = format!("{:?}", stats);
+        assert!(debug_str.contains("GpuBatchStats"));
+        assert!(debug_str.contains("pages_compressed"));
+    }
+
+    #[test]
+    fn test_batch_result_clone() {
+        let result = BatchResult {
+            pages: vec![CompressedPage {
+                data: vec![1, 2, 3],
+                original_size: PAGE_SIZE,
+                algorithm: Algorithm::Lz4,
+            }],
+            h2d_time_ns: 100,
+            kernel_time_ns: 500,
+            d2h_time_ns: 100,
+            total_time_ns: 700,
+        };
+        let cloned = result.clone();
+        assert_eq!(cloned.pages.len(), 1);
+        assert_eq!(cloned.h2d_time_ns, 100);
+        assert_eq!(cloned.kernel_time_ns, 500);
+        assert_eq!(cloned.d2h_time_ns, 100);
+        assert_eq!(cloned.total_time_ns, 700);
+    }
+
+    #[test]
+    fn test_batch_result_debug() {
+        let result = BatchResult {
+            pages: vec![],
+            h2d_time_ns: 0,
+            kernel_time_ns: 0,
+            d2h_time_ns: 0,
+            total_time_ns: 0,
+        };
+        let debug_str = format!("{:?}", result);
+        assert!(debug_str.contains("BatchResult"));
+        assert!(debug_str.contains("pages"));
+    }
+
+    #[test]
+    #[cfg(not(feature = "cuda"))]
+    fn test_compress_batch_no_cuda() {
+        let config = GpuBatchConfig::default();
+        let result = GpuBatchCompressor::new(config);
+        // Without CUDA, creation should fail
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("CUDA"));
+    }
+
+    #[test]
+    fn test_gpu_batch_stats_default_values() {
+        let stats = GpuBatchStats::default();
+        assert_eq!(stats.pages_compressed, 0);
+        assert_eq!(stats.total_bytes_in, 0);
+        assert_eq!(stats.total_bytes_out, 0);
+        assert_eq!(stats.total_time_ns, 0);
+    }
+
+    #[test]
+    fn test_throughput_with_large_input() {
+        let result = BatchResult {
+            pages: vec![],
+            h2d_time_ns: 1000,
+            kernel_time_ns: 5000,
+            d2h_time_ns: 1000,
+            total_time_ns: 1_000_000_000, // 1 second
+        };
+        // 1 GiB input in 1 second = 1073741824 bytes/sec
+        let input_bytes = 1024 * 1024 * 1024; // 1GiB = 1073741824 bytes
+        let throughput = result.throughput_bytes_per_sec(input_bytes);
+        let expected = 1073741824.0;
+        assert!(
+            (throughput - expected).abs() < 1.0,
+            "Should be ~1 GiB/s, got {throughput}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_compressor_stats_accessor() {
+        if !crate::gpu::gpu_available() {
+            return;
+        }
+        let config = GpuBatchConfig::default();
+        let compressor = GpuBatchCompressor::new(config).unwrap();
+
+        // Fresh compressor should have zero stats
+        let stats = compressor.stats();
+        assert_eq!(stats.pages_compressed, 0);
+        assert_eq!(stats.total_bytes_in, 0);
+        assert_eq!(stats.total_bytes_out, 0);
+    }
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_compressor_config_accessor() {
+        if !crate::gpu::gpu_available() {
+            return;
+        }
+        let config = GpuBatchConfig {
+            device_index: 0,
+            batch_size: 2000,
+            algorithm: Algorithm::Lz4,
+            async_dma: true,
+            ring_buffer_slots: 6,
+        };
+        let compressor = GpuBatchCompressor::new(config).unwrap();
+
+        let retrieved_config = compressor.config();
+        assert_eq!(retrieved_config.batch_size, 2000);
+        assert_eq!(retrieved_config.ring_buffer_slots, 6);
+    }
 }
