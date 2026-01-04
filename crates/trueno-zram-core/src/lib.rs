@@ -29,6 +29,7 @@ mod error;
 pub mod lz4;
 mod page;
 pub mod simd;
+pub mod zram;
 pub mod zstd;
 
 pub use error::{Error, Result};

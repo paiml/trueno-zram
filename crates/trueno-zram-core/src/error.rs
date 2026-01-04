@@ -30,6 +30,10 @@ pub enum Error {
     #[error("SIMD backend {0:?} not available on this CPU")]
     SimdNotAvailable(crate::SimdBackend),
 
+    /// I/O error (filesystem, device access).
+    #[error("I/O error: {0}")]
+    IoError(String),
+
     /// Internal error (should not happen).
     #[error("internal error: {0}")]
     Internal(String),
