@@ -1,8 +1,9 @@
 //! Remove zram device command.
+//!
+//! This is a pure shim that delegates to `trueno_zram_core::zram`.
 
 use clap::Args;
-use std::fs;
-use std::path::Path;
+use trueno_zram_core::zram::{SysfsOps, ZramOps};
 
 /// Arguments for removing a zram device.
 #[derive(Args)]
@@ -17,34 +18,9 @@ pub struct RemoveArgs {
 }
 
 /// Remove a zram device.
-pub fn remove(args: RemoveArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let sys_path = format!("/sys/block/zram{}", args.device);
-
-    if !Path::new(&sys_path).exists() {
-        return Err(format!("zram{} does not exist", args.device).into());
-    }
-
-    // Check if device is in use (has swap or mount)
-    if !args.force {
-        let swaps = fs::read_to_string("/proc/swaps").unwrap_or_default();
-        if swaps.contains(&format!("/dev/zram{}", args.device)) {
-            return Err(format!(
-                "zram{} is in use as swap. Use --force or swapoff first.",
-                args.device
-            )
-            .into());
-        }
-    }
-
-    // Reset the device (disables it)
-    let reset_path = format!("{sys_path}/reset");
-    fs::write(&reset_path, "1")?;
-
-    // Optionally hot-remove the device
-    let hot_remove_path = "/sys/class/zram-control/hot_remove";
-    if Path::new(hot_remove_path).exists() {
-        let _ = fs::write(hot_remove_path, args.device.to_string());
-    }
+pub fn remove(args: &RemoveArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let ops = SysfsOps::new();
+    ops.remove(args.device, args.force)?;
 
     println!("Removed zram{}", args.device);
     Ok(())

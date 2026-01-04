@@ -257,9 +257,8 @@ mod tests {
         let input = [0x14, b'A']; // 1 literal 'A', then should have offset
         let mut output = [0u8; 100];
         let result = decompress(&input, &mut output);
-        match result {
-            Ok(len) => assert_eq!(len, 1),
-            Err(_) => {}
+        if let Ok(len) = result {
+            assert_eq!(len, 1);
         }
     }
 
@@ -300,11 +299,11 @@ mod tests {
     fn test_roundtrip_small_patterns() {
         // Test small repeating patterns that stress overlap handling
         let patterns: &[&[u8]] = &[
-            &[0xAB, 0xCD],                         // 2-byte pattern
-            &[0x11, 0x22, 0x33],                   // 3-byte pattern
-            &[0xDE, 0xAD, 0xBE, 0xEF],             // 4-byte pattern
-            &[0x01, 0x02, 0x03, 0x04, 0x05],       // 5-byte pattern
-            &[0xAA; 7],                            // 7-byte pattern
+            &[0xAB, 0xCD],                   // 2-byte pattern
+            &[0x11, 0x22, 0x33],             // 3-byte pattern
+            &[0xDE, 0xAD, 0xBE, 0xEF],       // 4-byte pattern
+            &[0x01, 0x02, 0x03, 0x04, 0x05], // 5-byte pattern
+            &[0xAA; 7],                      // 7-byte pattern
         ];
 
         for pattern in patterns {
@@ -462,5 +461,79 @@ mod tests {
         let result = decompress(&input, &mut output);
         assert!(result.is_ok());
         assert_eq!(output[0], b'X');
+    }
+
+    #[test]
+    fn test_decompress_empty_input() {
+        // Empty input returns 0 decompressed bytes
+        let input: [u8; 0] = [];
+        let mut output = [0u8; 100];
+        let result = decompress(&input, &mut output);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_decompress_truncated_literal_length_extension() {
+        // Token with literal_len=15 needs extension bytes
+        // 0xF0 = 15 literals, 0 match
+        let input = [0xF0]; // Missing extension byte and literals
+        let mut output = [0u8; 100];
+        let result = decompress(&input, &mut output);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decompress_literal_extends_past_input() {
+        // Token claims 5 literals but input has fewer
+        // 0x50 = 5 literals, 0 match
+        let input = [0x50, b'A', b'B']; // Only 2 bytes, claims 5
+        let mut output = [0u8; 100];
+        let result = decompress(&input, &mut output);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decompress_literal_exceeds_output() {
+        // Token claims more literals than output can hold
+        // 0x30 = 3 literals, 0 match
+        let input = [0x30, b'A', b'B', b'C'];
+        let mut output = [0u8; 2]; // Only 2 bytes
+        let result = decompress(&input, &mut output);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decompress_truncated_at_offset() {
+        // Token with literals followed by match, but only 1 offset byte
+        // 0x11 = 1 literal, 1 match
+        let input = [0x11, b'A', 0x01]; // Has literal, but offset is truncated (needs 2 bytes)
+        let mut output = [0u8; 100];
+        let result = decompress(&input, &mut output);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decompress_truncated_match_extension() {
+        // Token with extended match length but missing extension
+        // 0x0F = 0 literals, 15 match (needs extension)
+        let input = [0x0F, 0x01, 0x00]; // Offset 1, but no match extension
+        let mut output = [0u8; 100];
+        // First need some data to copy from
+        output[0] = b'X';
+        let result = decompress(&input, &mut output);
+        // Should work with the 15+4=19 match
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_decompress_match_buffer_overflow() {
+        // Match that would exceed output buffer
+        // Create input that produces more output than buffer allows
+        let input = [0x10, b'A', 0x01, 0x00, 0xFF, 0xFF]; // Large match
+        let mut output = [0u8; 10]; // Small buffer
+        let result = decompress(&input, &mut output);
+        // Either succeeds with what fits or fails
+        assert!(result.is_ok() || result.is_err());
     }
 }

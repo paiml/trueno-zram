@@ -251,8 +251,9 @@ fn read_block_header(input: &[u8], pos: &mut usize) -> Result<BlockHeader> {
         return Err(Error::CorruptedData("missing block header".to_string()));
     }
 
-    let header =
-        u32::from(input[*pos]) | (u32::from(input[*pos + 1]) << 8) | (u32::from(input[*pos + 2]) << 16);
+    let header = u32::from(input[*pos])
+        | (u32::from(input[*pos + 1]) << 8)
+        | (u32::from(input[*pos + 2]) << 16);
     *pos += 3;
 
     let last_block = (header & 0x01) != 0;
@@ -402,7 +403,7 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(Error::CorruptedData(msg)) => assert!(msg.contains("magic")),
-            _ => panic!("expected corrupted data error"),
+            _ => unreachable!("expected corrupted data error"),
         }
     }
 
@@ -557,7 +558,9 @@ mod tests {
     #[test]
     fn test_decompress_block_buffer_too_small() {
         // Raw literals, size=10
-        let input = [0b01010000, b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J'];
+        let input = [
+            0b01010000, b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J',
+        ];
         let mut output = [0u8; 5]; // Too small
         let result = decompress_block(&input, &mut output);
         assert!(matches!(result, Err(Error::BufferTooSmall { .. })));
@@ -697,7 +700,7 @@ mod tests {
         let mut input = vec![0x28, 0xB5, 0x2F, 0xFD]; // Magic
         input.push(0xC0); // Descriptor: fcs_flag=3 (8 bytes)
         input.push(0x10); // Window descriptor
-        // 8 bytes of FCS
+                          // 8 bytes of FCS
         input.extend_from_slice(&[0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
         let mut pos = 0;

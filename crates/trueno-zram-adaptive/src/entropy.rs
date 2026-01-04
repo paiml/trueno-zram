@@ -103,7 +103,7 @@ mod tests {
         // Create a page with uniform byte distribution
         let mut page = [0u8; PAGE_SIZE];
         for (i, byte) in page.iter_mut().enumerate() {
-            *byte = (i % 256) as u8;
+            *byte = u8::try_from(i % 256).unwrap();
         }
         // Repeat pattern to fill page
         let entropy = calc.calculate(&page);
@@ -126,7 +126,7 @@ mod tests {
         // Repeating pattern -> Low
         let mut pattern_page = [0u8; PAGE_SIZE];
         for (i, byte) in pattern_page.iter_mut().enumerate() {
-            *byte = (i % 4) as u8;
+            *byte = u8::try_from(i % 4).unwrap();
         }
         let level = calc.classify(&pattern_page);
         assert!(matches!(level, EntropyLevel::VeryLow | EntropyLevel::Low));

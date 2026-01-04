@@ -87,6 +87,144 @@ mod tests {
     use super::*;
     use crate::PAGE_SIZE;
 
+    // Test SIMD dispatch functions
+    #[test]
+    fn test_decompress_simd_zeros() {
+        let input = [0u8; PAGE_SIZE];
+        let compressed = compress(&input).unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = decompress_simd(&compressed, &mut output).unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_decompress_simd_pattern() {
+        let mut input = [0u8; PAGE_SIZE];
+        for (i, b) in input.iter_mut().enumerate() {
+            *b = (i % 256) as u8;
+        }
+        let compressed = compress(&input).unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = decompress_simd(&compressed, &mut output).unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_decompress_simd_rle() {
+        // RLE pattern exercises memset/broadcast paths
+        let input = [0xABu8; PAGE_SIZE];
+        let compressed = compress(&input).unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = decompress_simd(&compressed, &mut output).unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_decompress_simd_large_literals() {
+        // Create data that produces large literal runs (> 64 bytes)
+        let mut input = [0u8; PAGE_SIZE];
+        let mut state = 12345u64;
+        for byte in &mut input[..256] {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            *byte = (state >> 33) as u8;
+        }
+        // Rest is zeros (will match)
+        let compressed = compress(&input).unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = decompress_simd(&compressed, &mut output).unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_decompress_simd_small_offsets() {
+        // Test various small offsets (2-7) which require byte-by-byte copy
+        for pattern_len in 2..=7 {
+            let mut input = [0u8; PAGE_SIZE];
+            for (i, b) in input.iter_mut().enumerate() {
+                *b = (i % pattern_len) as u8;
+            }
+            let compressed = compress(&input).unwrap();
+            let mut output = [0u8; PAGE_SIZE];
+            let len = decompress_simd(&compressed, &mut output).unwrap();
+            assert_eq!(len, PAGE_SIZE, "failed for pattern_len={pattern_len}");
+            assert_eq!(
+                input[..],
+                output[..],
+                "failed for pattern_len={pattern_len}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_decompress_simd_medium_offsets() {
+        // Test medium offsets (8-63) which use 8-byte copies
+        for pattern_len in [8, 16, 32, 48, 63] {
+            let mut input = [0u8; PAGE_SIZE];
+            for (i, b) in input.iter_mut().enumerate() {
+                *b = (i % pattern_len) as u8;
+            }
+            let compressed = compress(&input).unwrap();
+            let mut output = [0u8; PAGE_SIZE];
+            let len = decompress_simd(&compressed, &mut output).unwrap();
+            assert_eq!(len, PAGE_SIZE, "failed for pattern_len={pattern_len}");
+            assert_eq!(
+                input[..],
+                output[..],
+                "failed for pattern_len={pattern_len}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_decompress_simd_large_offsets() {
+        // Test large offsets (>=64) which can use wildcard copy
+        for pattern_len in [64, 128, 256, 512] {
+            let mut input = [0u8; PAGE_SIZE];
+            for (i, b) in input.iter_mut().enumerate() {
+                *b = (i % pattern_len) as u8;
+            }
+            let compressed = compress(&input).unwrap();
+            let mut output = [0u8; PAGE_SIZE];
+            let len = decompress_simd(&compressed, &mut output).unwrap();
+            assert_eq!(len, PAGE_SIZE, "failed for pattern_len={pattern_len}");
+            assert_eq!(
+                input[..],
+                output[..],
+                "failed for pattern_len={pattern_len}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_compress_simd_zeros() {
+        let input = [0u8; PAGE_SIZE];
+        let compressed = compress_simd(&input).unwrap();
+        // Verify it compresses
+        assert!(compressed.len() < PAGE_SIZE);
+        // Verify roundtrip
+        let mut output = [0u8; PAGE_SIZE];
+        let len = decompress(&compressed, &mut output).unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_compress_simd_pattern() {
+        let mut input = [0u8; PAGE_SIZE];
+        for (i, b) in input.iter_mut().enumerate() {
+            *b = (i % 256) as u8;
+        }
+        let compressed = compress_simd(&input).unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = decompress(&compressed, &mut output).unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
     #[test]
     fn test_roundtrip_zeros() {
         let input = [0u8; PAGE_SIZE];

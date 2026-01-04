@@ -30,6 +30,10 @@ pub enum Error {
     #[error("SIMD backend {0:?} not available on this CPU")]
     SimdNotAvailable(crate::SimdBackend),
 
+    /// GPU not available or unsupported.
+    #[error("GPU not available: {0}")]
+    GpuNotAvailable(String),
+
     /// I/O error (filesystem, device access).
     #[error("I/O error: {0}")]
     IoError(String),
@@ -80,5 +84,13 @@ mod tests {
     fn test_error_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Error>();
+    }
+
+    #[test]
+    fn test_error_display_gpu_not_available() {
+        let err = Error::GpuNotAvailable("CUDA feature not enabled".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("GPU not available"));
+        assert!(msg.contains("CUDA"));
     }
 }

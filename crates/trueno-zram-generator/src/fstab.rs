@@ -4,6 +4,7 @@ use crate::config::ZramConfig;
 
 /// Generate an fstab entry for a zram swap device.
 #[must_use]
+#[allow(dead_code)]
 pub fn generate_fstab_entry(config: &ZramConfig) -> String {
     format!(
         "/dev/zram{device}\tnone\tswap\tsw,pri={priority}\t0\t0",

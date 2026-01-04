@@ -1,10 +1,11 @@
 //! Status command for zram devices.
+//!
+//! This is a pure shim that delegates to `trueno_zram_core::zram`.
 
 use crate::output::OutputFormat;
 use clap::Args;
 use serde::Serialize;
-use std::fs;
-use std::path::Path;
+use trueno_zram_core::zram::{format_size, SysfsOps, ZramOps};
 
 /// Arguments for status command.
 #[derive(Args)]
@@ -14,39 +15,51 @@ pub struct StatusArgs {
     pub device: Option<u32>,
 }
 
-/// Status information for a zram device.
+/// Serializable status for JSON output.
 #[derive(Debug, Serialize)]
-pub struct ZramStatus {
-    /// Device number.
-    pub device: u32,
-    /// Configured disk size.
-    pub disksize: u64,
-    /// Original data size (uncompressed).
-    pub orig_data_size: u64,
-    /// Compressed data size.
-    pub compr_data_size: u64,
-    /// Memory used.
-    pub mem_used_total: u64,
-    /// Compression algorithm.
-    pub algorithm: String,
-    /// Compression ratio.
-    pub ratio: f64,
+struct StatusOutput {
+    device: u32,
+    disksize: u64,
+    orig_data_size: u64,
+    compr_data_size: u64,
+    mem_used_total: u64,
+    algorithm: String,
+    ratio: f64,
 }
 
 /// Show zram device status.
-pub fn status(args: StatusArgs, format: OutputFormat) -> Result<(), Box<dyn std::error::Error>> {
-    let devices = if let Some(dev) = args.device {
-        vec![dev]
-    } else {
-        find_zram_devices()?
-    };
+pub fn status(args: &StatusArgs, format: OutputFormat) -> Result<(), Box<dyn std::error::Error>> {
+    let ops = SysfsOps::new();
 
-    let mut statuses = Vec::new();
-    for dev in devices {
-        if let Ok(status) = get_device_status(dev) {
-            statuses.push(status);
-        }
-    }
+    let statuses: Vec<StatusOutput> = if let Some(dev) = args.device {
+        let s = ops.status(dev)?;
+        let ratio = s.compression_ratio();
+        vec![StatusOutput {
+            device: s.device,
+            disksize: s.disksize,
+            orig_data_size: s.orig_data_size,
+            compr_data_size: s.compr_data_size,
+            mem_used_total: s.mem_used_total,
+            algorithm: s.algorithm,
+            ratio,
+        }]
+    } else {
+        ops.list()?
+            .into_iter()
+            .map(|s| {
+                let ratio = s.compression_ratio();
+                StatusOutput {
+                    device: s.device,
+                    disksize: s.disksize,
+                    orig_data_size: s.orig_data_size,
+                    compr_data_size: s.compr_data_size,
+                    mem_used_total: s.mem_used_total,
+                    algorithm: s.algorithm,
+                    ratio,
+                }
+            })
+            .collect()
+    };
 
     match format {
         OutputFormat::Table => print_table(&statuses),
@@ -71,52 +84,7 @@ pub fn status(args: StatusArgs, format: OutputFormat) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-fn find_zram_devices() -> Result<Vec<u32>, Box<dyn std::error::Error>> {
-    let mut devices = Vec::new();
-    for i in 0..16 {
-        let path = format!("/sys/block/zram{i}");
-        if Path::new(&path).exists() {
-            devices.push(i);
-        }
-    }
-    Ok(devices)
-}
-
-fn get_device_status(device: u32) -> Result<ZramStatus, Box<dyn std::error::Error>> {
-    let sys_path = format!("/sys/block/zram{device}");
-
-    let disksize = read_sysfs_u64(&format!("{sys_path}/disksize"))?;
-    let orig_data_size = read_sysfs_u64(&format!("{sys_path}/orig_data_size")).unwrap_or(0);
-    let compr_data_size = read_sysfs_u64(&format!("{sys_path}/compr_data_size")).unwrap_or(0);
-    let mem_used_total = read_sysfs_u64(&format!("{sys_path}/mem_used_total")).unwrap_or(0);
-    let algorithm = fs::read_to_string(format!("{sys_path}/comp_algorithm"))
-        .unwrap_or_else(|_| "unknown".to_string())
-        .trim()
-        .to_string();
-
-    let ratio = if compr_data_size > 0 {
-        orig_data_size as f64 / compr_data_size as f64
-    } else {
-        0.0
-    };
-
-    Ok(ZramStatus {
-        device,
-        disksize,
-        orig_data_size,
-        compr_data_size,
-        mem_used_total,
-        algorithm,
-        ratio,
-    })
-}
-
-fn read_sysfs_u64(path: &str) -> Result<u64, Box<dyn std::error::Error>> {
-    let content = fs::read_to_string(path)?;
-    Ok(content.trim().parse()?)
-}
-
-fn print_table(statuses: &[ZramStatus]) {
+fn print_table(statuses: &[StatusOutput]) {
     println!(
         "{:>6} {:>10} {:>10} {:>10} {:>10} {:>8} {:>8}",
         "DEVICE", "DISKSIZE", "DATA", "COMPR", "TOTAL", "ALGO", "RATIO"
@@ -130,26 +98,8 @@ fn print_table(statuses: &[ZramStatus]) {
             format_size(s.orig_data_size),
             format_size(s.compr_data_size),
             format_size(s.mem_used_total),
-            s.algorithm,
+            &s.algorithm[..s.algorithm.len().min(8)],
             s.ratio
         );
-    }
-}
-
-fn format_size(bytes: u64) -> String {
-    const GB: u64 = 1024 * 1024 * 1024;
-    const MB: u64 = 1024 * 1024;
-    const KB: u64 = 1024;
-
-    if bytes >= GB {
-        format!("{:.1}G", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1}M", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1}K", bytes as f64 / KB as f64)
-    } else if bytes > 0 {
-        format!("{bytes}B")
-    } else {
-        "0".to_string()
     }
 }

@@ -162,7 +162,9 @@ impl ZramDevice {
             orig_data_size: self.read_attr_u64("orig_data_size").unwrap_or(0),
             compr_data_size: self.read_attr_u64("compr_data_size").unwrap_or(0),
             mem_used_total: self.read_attr_u64("mem_used_total").unwrap_or(0),
-            algorithm: self.read_attr_str("comp_algorithm").unwrap_or_else(|_| "unknown".to_string()),
+            algorithm: self
+                .read_attr_str("comp_algorithm")
+                .unwrap_or_else(|_| "unknown".to_string()),
         })
     }
 
@@ -248,8 +250,8 @@ mod tests {
     #[test]
     fn test_zram_status_ratio_zero() {
         let status = ZramStatus::default();
-        assert_eq!(status.compression_ratio(), 0.0);
-        assert_eq!(status.space_savings(), 0.0);
+        assert!(status.compression_ratio().abs() < f64::EPSILON);
+        assert!(status.space_savings().abs() < f64::EPSILON);
     }
 
     #[test]
@@ -290,16 +292,18 @@ mod tests {
         assert!(debug.contains("zram0"));
     }
 
+    // Use u32::MAX to ensure device doesn't exist (system won't have billions of zram devices)
+    const NONEXISTENT_DEVICE: u32 = u32::MAX;
+
     #[test]
     fn test_zram_device_nonexistent() {
-        // Device 99 shouldn't exist
-        let dev = ZramDevice::new(99);
+        let dev = ZramDevice::new(NONEXISTENT_DEVICE);
         assert!(!dev.exists());
     }
 
     #[test]
     fn test_zram_device_read_attr_nonexistent() {
-        let dev = ZramDevice::new(99);
+        let dev = ZramDevice::new(NONEXISTENT_DEVICE);
         let result = dev.read_attr_u64("disksize");
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -308,21 +312,21 @@ mod tests {
 
     #[test]
     fn test_zram_device_read_attr_str_nonexistent() {
-        let dev = ZramDevice::new(99);
+        let dev = ZramDevice::new(NONEXISTENT_DEVICE);
         let result = dev.read_attr_str("comp_algorithm");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_zram_device_write_attr_nonexistent() {
-        let dev = ZramDevice::new(99);
+        let dev = ZramDevice::new(NONEXISTENT_DEVICE);
         let result = dev.write_attr("disksize", "1024");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_zram_device_status_nonexistent() {
-        let dev = ZramDevice::new(99);
+        let dev = ZramDevice::new(NONEXISTENT_DEVICE);
         let result = dev.status();
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -331,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_zram_device_configure_nonexistent() {
-        let dev = ZramDevice::new(99);
+        let dev = ZramDevice::new(NONEXISTENT_DEVICE);
         let config = ZramConfig::default();
         let result = dev.configure(&config);
         assert!(result.is_err());
@@ -341,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_zram_device_reset_nonexistent() {
-        let dev = ZramDevice::new(99);
+        let dev = ZramDevice::new(NONEXISTENT_DEVICE);
         let result = dev.reset();
         assert!(result.is_err());
     }

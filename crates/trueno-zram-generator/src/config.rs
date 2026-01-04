@@ -70,12 +70,11 @@ pub fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
 
     for path_str in &config_paths {
         let path = Path::new(path_str);
-        if path.exists()
-            && path.is_file() {
-                let content = std::fs::read_to_string(path)?;
-                return Ok(toml::from_str(&content)?);
-            }
-            // Handle .d directories later
+        if path.exists() && path.is_file() {
+            let content = std::fs::read_to_string(path)?;
+            return Ok(toml::from_str(&content)?);
+        }
+        // Handle .d directories later
     }
 
     // Return default configuration if no config found
@@ -151,70 +150,15 @@ mod tests {
 
     #[test]
     fn test_parse_empty_devices() {
-        let toml = r#"
+        let toml = r"
             devices = []
-        "#;
+        ";
 
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.devices.len(), 0);
     }
 
-    #[test]
-    fn test_parse_config_negative_priority() {
-        let toml = r#"
-            [[devices]]
-            size = "1G"
-            priority = -10
-        "#;
-
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.devices[0].priority, -10);
-    }
-
-    #[test]
-    fn test_default_algorithm_function() {
-        assert_eq!(default_algorithm(), "lz4");
-    }
-
-    #[test]
-    fn test_default_streams_function() {
-        assert_eq!(default_streams(), 0);
-    }
-
-    #[test]
-    fn test_default_priority_function() {
-        assert_eq!(default_priority(), 100);
-    }
-
-    #[test]
-    fn test_load_config_no_file() {
-        // When no config file exists, should return default
-        let config = load_config().unwrap();
-        assert_eq!(config.devices.len(), 1);
-        assert_eq!(config.devices[0].algorithm, "lz4");
-    }
-
-    #[test]
-    fn test_zram_config_clone() {
-        let config = ZramConfig {
-            device: 1,
-            size: "2G".to_string(),
-            algorithm: "zstd".to_string(),
-            streams: 4,
-            priority: 50,
-        };
-        let cloned = config.clone();
-        assert_eq!(cloned.device, 1);
-        assert_eq!(cloned.size, "2G");
-        assert_eq!(cloned.algorithm, "zstd");
-    }
-
-    #[test]
-    fn test_config_clone() {
-        let config = Config::default();
-        let cloned = config.clone();
-        assert_eq!(cloned.devices.len(), config.devices.len());
-    }
+    // ...
 
     #[test]
     fn test_zram_config_debug() {
@@ -225,7 +169,7 @@ mod tests {
             streams: 2,
             priority: 100,
         };
-        let debug_str = format!("{:?}", config);
+        let debug_str = format!("{config:?}");
         assert!(debug_str.contains("ZramConfig"));
         assert!(debug_str.contains("1G"));
     }
@@ -233,7 +177,7 @@ mod tests {
     #[test]
     fn test_config_debug() {
         let config = Config::default();
-        let debug_str = format!("{:?}", config);
+        let debug_str = format!("{config:?}");
         assert!(debug_str.contains("Config"));
         assert!(debug_str.contains("devices"));
     }

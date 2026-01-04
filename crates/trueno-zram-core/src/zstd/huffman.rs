@@ -78,7 +78,7 @@ impl HuffmanTable {
 
     /// Decode one symbol.
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn decode(&self, bits: u64, bit_pos: usize) -> (u8, u8) {
         let index = ((bits >> bit_pos) as usize) & ((1 << self.table_log) - 1);
         let entry = &self.entries[index];

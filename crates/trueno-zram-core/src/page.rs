@@ -173,7 +173,7 @@ mod tests {
     fn test_compression_stats_default() {
         let stats = CompressionStats::new();
         assert_eq!(stats.pages_compressed, 0);
-        assert_eq!(stats.overall_ratio(), 1.0);
+        assert!((stats.overall_ratio() - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -194,5 +194,82 @@ mod tests {
             ..Default::default()
         };
         assert!((stats.compress_throughput() - 1e9).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_compressed_page_ratio_empty_data() {
+        // Edge case: empty data should return ratio of 1.0
+        let page = CompressedPage {
+            data: vec![],
+            original_size: PAGE_SIZE,
+            algorithm: Algorithm::None,
+        };
+        assert!((page.ratio() - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compression_stats_decompress_throughput() {
+        let stats = CompressionStats {
+            bytes_in: 1_000_000_000,         // 1GB
+            decompress_time_ns: 500_000_000, // 0.5 seconds
+            ..Default::default()
+        };
+        // 1GB / 0.5s = 2GB/s
+        assert!((stats.decompress_throughput() - 2e9).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_compression_stats_zero_throughput() {
+        let stats = CompressionStats::default();
+        assert!(stats.compress_throughput().abs() < f64::EPSILON);
+        assert!(stats.decompress_throughput().abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compressed_page_clone() {
+        let page = CompressedPage::new(vec![1, 2, 3], PAGE_SIZE, Algorithm::Lz4).unwrap();
+        let cloned = page.clone();
+        assert_eq!(page.data, cloned.data);
+        assert_eq!(page.algorithm, cloned.algorithm);
+    }
+
+    #[test]
+    fn test_compressed_page_debug() {
+        let page = CompressedPage::new(vec![1, 2, 3], PAGE_SIZE, Algorithm::Lz4).unwrap();
+        let debug = format!("{page:?}");
+        assert!(debug.contains("CompressedPage"));
+    }
+
+    #[test]
+    fn test_compression_stats_clone() {
+        let stats = CompressionStats {
+            pages_compressed: 100,
+            bytes_in: 409600,
+            bytes_out: 102400,
+            ..Default::default()
+        };
+        let cloned = stats.clone();
+        assert_eq!(stats.pages_compressed, cloned.pages_compressed);
+    }
+
+    #[test]
+    fn test_compressed_page_is_compressed_large_output() {
+        // Data larger than original - not actually compressed
+        let page = CompressedPage {
+            data: vec![0u8; PAGE_SIZE + 100],
+            original_size: PAGE_SIZE,
+            algorithm: Algorithm::Lz4,
+        };
+        assert!(!page.is_compressed());
+    }
+
+    #[test]
+    fn test_compressed_page_bytes_saved_no_savings() {
+        let page = CompressedPage {
+            data: vec![0u8; PAGE_SIZE + 100],
+            original_size: PAGE_SIZE,
+            algorithm: Algorithm::Lz4,
+        };
+        assert_eq!(page.bytes_saved(), 0);
     }
 }

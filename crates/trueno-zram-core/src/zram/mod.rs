@@ -7,7 +7,7 @@ mod device;
 mod ops;
 
 pub use device::{ZramConfig, ZramDevice, ZramStatus};
-pub use ops::{ZramOps, SysfsOps};
+pub use ops::{SysfsOps, ZramOps};
 
 use crate::{Error, Result};
 use std::path::Path;
@@ -79,7 +79,9 @@ fn get_total_ram() -> Result<u64> {
             }
         }
     }
-    Err(Error::InvalidInput("could not determine total RAM".to_string()))
+    Err(Error::InvalidInput(
+        "could not determine total RAM".to_string(),
+    ))
 }
 
 /// Find all existing zram devices.
@@ -96,8 +98,7 @@ pub fn find_devices() -> Vec<u32> {
 
 /// Check if zram module is loaded.
 pub fn is_zram_available() -> bool {
-    Path::new("/sys/class/zram-control").exists()
-        || Path::new("/sys/block/zram0").exists()
+    Path::new("/sys/class/zram-control").exists() || Path::new("/sys/block/zram0").exists()
 }
 
 #[cfg(test)]
@@ -158,8 +159,8 @@ mod tests {
     fn test_get_total_ram() {
         // Should work on any Linux system
         let ram = get_total_ram();
-        if ram.is_ok() {
-            assert!(ram.unwrap() > 0);
+        if let Ok(ram) = ram {
+            assert!(ram > 0);
         }
     }
 
@@ -172,5 +173,41 @@ mod tests {
             assert!(half > quarter);
             assert_eq!(half, quarter * 2);
         }
+    }
+
+    #[test]
+    fn test_parse_size_ram_invalid_divisor() {
+        let result = parse_size("ram/invalid");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("invalid RAM divisor"));
+    }
+
+    #[test]
+    fn test_find_devices() {
+        let devices = find_devices();
+        // Should return a vector (may be empty if no zram)
+        // On systems with zram, device 0 should be present
+        if is_zram_available() && Path::new("/sys/block/zram0").exists() {
+            assert!(devices.contains(&0));
+        }
+    }
+
+    #[test]
+    fn test_is_zram_available() {
+        // Just verify it doesn't panic
+        let available = is_zram_available();
+        let _ = available;
+    }
+
+    #[test]
+    fn test_format_size_edge_cases() {
+        // Test boundaries
+        assert_eq!(format_size(1023), "1023B");
+        assert_eq!(format_size(1024), "1.0K");
+        assert_eq!(format_size(1024 * 1024 - 1), "1024.0K");
+        assert_eq!(format_size(1024 * 1024), "1.0M");
+        assert_eq!(format_size(1024 * 1024 * 1024 - 1), "1024.0M");
+        assert_eq!(format_size(1024 * 1024 * 1024), "1.0G");
     }
 }

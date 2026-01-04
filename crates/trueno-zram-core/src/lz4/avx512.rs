@@ -12,7 +12,7 @@
 use crate::{Result, PAGE_SIZE};
 
 #[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::{_mm512_loadu_si512, __m512i, _mm512_storeu_si512, _mm512_set1_epi8};
+use std::arch::x86_64::{__m512i, _mm512_loadu_si512, _mm512_set1_epi8, _mm512_storeu_si512};
 
 /// AVX-512 accelerated LZ4 compression.
 ///
@@ -183,7 +183,9 @@ unsafe fn decompress_avx512_impl(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> 
         // Copy literals using AVX-512
         if literal_len > 0 {
             if ip.add(literal_len) > ip_end {
-                return Err(Error::CorruptedData("literal extends past input".to_string()));
+                return Err(Error::CorruptedData(
+                    "literal extends past input".to_string(),
+                ));
             }
             if op.add(literal_len) > op_end {
                 return Err(Error::BufferTooSmall {
@@ -212,7 +214,9 @@ unsafe fn decompress_avx512_impl(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> 
 
         // Read offset
         if ip.add(2) > ip_end {
-            return Err(Error::CorruptedData("unexpected end of input at offset".to_string()));
+            return Err(Error::CorruptedData(
+                "unexpected end of input at offset".to_string(),
+            ));
         }
         let offset = std::ptr::read_unaligned(ip.cast::<u16>()) as usize;
         ip = ip.add(2);
@@ -318,6 +322,175 @@ mod tests {
         let has_avx512bw = std::arch::is_x86_feature_detected!("avx512bw");
         // Test doesn't require AVX-512, just verifies detection works
         println!("AVX-512F: {has_avx512f}, AVX-512BW: {has_avx512bw}");
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_avx512_empty_input() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        let mut output = [0u8; PAGE_SIZE];
+        let len = unsafe { decompress_avx512(&[], &mut output) }.unwrap();
+        assert_eq!(len, 0);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_avx512_corrupted_truncated() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        // Create valid compressed data then truncate it
+        let input = [0u8; PAGE_SIZE];
+        let compressed = unsafe { compress_avx512(&input) }.unwrap();
+        let truncated = &compressed[..compressed.len() / 2];
+        let mut output = [0u8; PAGE_SIZE];
+        let result = unsafe { decompress_avx512(truncated, &mut output) };
+        // Should fail with corrupted data error
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_avx512_long_literal_extension() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        // Create data that produces long literal runs requiring extension bytes
+        let mut input = [0u8; PAGE_SIZE];
+        let mut state = 98765u64;
+        for byte in &mut input {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            *byte = (state >> 33) as u8;
+        }
+        let compressed = unsafe { compress_avx512(&input) }.unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = unsafe { decompress_avx512(&compressed, &mut output) }.unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_avx512_long_match_extension() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        // Create data with very long matches (requiring match length extension)
+        // Single repeated value creates maximum RLE compression
+        let input = [0x42u8; PAGE_SIZE];
+        let compressed = unsafe { compress_avx512(&input) }.unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = unsafe { decompress_avx512(&compressed, &mut output) }.unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_avx512_medium_literals() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        // Test literals between 16 and 64 bytes (uses copy_nonoverlapping path)
+        let mut input = [0u8; PAGE_SIZE];
+        let mut state = 11111u64;
+        for byte in &mut input[..48] {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            *byte = (state >> 33) as u8;
+        }
+        // Rest is zeros to allow matching
+        let compressed = unsafe { compress_avx512(&input) }.unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = unsafe { decompress_avx512(&compressed, &mut output) }.unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_avx512_small_rle() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        // Test small RLE (offset=1, match_len < 64) - uses unrolled path
+        let mut input = [0u8; PAGE_SIZE];
+        // Create pattern: unique bytes followed by repeated byte
+        input[0] = 0xAA;
+        input[1] = 0xBB;
+        input[2] = 0xCC;
+        input[3] = 0xDD;
+        for byte in &mut input[4..64] {
+            *byte = 0xDD; // Will be encoded as RLE
+        }
+        let compressed = unsafe { compress_avx512(&input) }.unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = unsafe { decompress_avx512(&compressed, &mut output) }.unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_avx512_large_rle() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        // Test large RLE (offset=1, match_len >= 64) - uses memset_avx512
+        let mut input = [0u8; PAGE_SIZE];
+        input[0] = 0xAA;
+        input[1] = 0xBB;
+        input[2] = 0xCC;
+        input[3] = 0xDD;
+        for byte in &mut input[4..256] {
+            *byte = 0xDD; // Large RLE
+        }
+        let compressed = unsafe { compress_avx512(&input) }.unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = unsafe { decompress_avx512(&compressed, &mut output) }.unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_avx512_copy_128() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        // Test wildcard_copy_avx512 with 65-128 bytes (uses copy_128 path)
+        let mut input = [0u8; PAGE_SIZE];
+        let mut state = 22222u64;
+        for byte in &mut input[..100] {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            *byte = (state >> 33) as u8;
+        }
+        let compressed = unsafe { compress_avx512(&input) }.unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = unsafe { decompress_avx512(&compressed, &mut output) }.unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_avx512_copy_large() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        // Test wildcard_copy_avx512 with >128 bytes (uses loop path)
+        let mut input = [0u8; PAGE_SIZE];
+        let mut state = 33333u64;
+        for byte in &mut input[..256] {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            *byte = (state >> 33) as u8;
+        }
+        let compressed = unsafe { compress_avx512(&input) }.unwrap();
+        let mut output = [0u8; PAGE_SIZE];
+        let len = unsafe { decompress_avx512(&compressed, &mut output) }.unwrap();
+        assert_eq!(len, PAGE_SIZE);
+        assert_eq!(input, output);
     }
 
     #[test]

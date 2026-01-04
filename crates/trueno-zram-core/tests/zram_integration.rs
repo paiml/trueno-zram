@@ -7,7 +7,7 @@
 //! Run with: sudo cargo test --test zram_integration -- --nocapture
 
 use trueno_zram_core::zram::{SysfsOps, ZramConfig, ZramDevice, ZramOps};
-use trueno_zram_core::{CompressorBuilder, Algorithm, PageCompressor, PAGE_SIZE};
+use trueno_zram_core::{Algorithm, CompressorBuilder, PAGE_SIZE};
 
 /// Check if we can run zram tests.
 fn can_run_zram_tests() -> bool {
@@ -131,15 +131,22 @@ fn test_compression_on_zram() {
 
     for (name, page) in test_patterns {
         let compressed = compressor.compress(page).expect("Should compress");
-        let decompressed = compressor.decompress(&compressed).expect("Should decompress");
+        let decompressed = compressor
+            .decompress(&compressed)
+            .expect("Should decompress");
         assert_eq!(page, &decompressed, "Roundtrip failed for {name}");
 
-        let ratio = if compressed.data.len() > 0 {
+        let ratio = if !compressed.data.is_empty() {
             PAGE_SIZE as f64 / compressed.data.len() as f64
         } else {
             1.0
         };
-        println!("  {name}: {} -> {} bytes ({:.2}x)", PAGE_SIZE, compressed.data.len(), ratio);
+        println!(
+            "  {name}: {} -> {} bytes ({:.2}x)",
+            PAGE_SIZE,
+            compressed.data.len(),
+            ratio
+        );
     }
 
     // Cleanup
@@ -186,7 +193,8 @@ fn test_list_devices() {
 
     println!("Found {} zram device(s):", devices.len());
     for status in &devices {
-        println!("  zram{}: {} disksize, {} algorithm",
+        println!(
+            "  zram{}: {} disksize, {} algorithm",
             status.device,
             trueno_zram_core::zram::format_size(status.disksize),
             status.algorithm
@@ -297,6 +305,9 @@ fn test_compression_throughput() {
     let throughput_mb = (total_bytes as f64 / 1024.0 / 1024.0) / elapsed.as_secs_f64();
     let pages_per_sec = total_pages as f64 / elapsed.as_secs_f64();
 
-    println!("Throughput: {:.2} MB/s ({:.0} pages/sec)", throughput_mb, pages_per_sec);
+    println!(
+        "Throughput: {:.2} MB/s ({:.0} pages/sec)",
+        throughput_mb, pages_per_sec
+    );
     println!("Stats: {:?}", compressor.stats());
 }

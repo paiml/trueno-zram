@@ -193,4 +193,86 @@ mod tests {
         // RLE should be very efficient
         assert!(compressed.len() < 50);
     }
+
+    #[test]
+    fn test_compress_small_content() {
+        // Content size <= 255: uses 1 byte FCS
+        let input = [0x12u8; 100];
+        let compressed = compress(&input, 1).unwrap();
+        assert!(compressed.len() > 4); // At least magic + header
+    }
+
+    #[test]
+    fn test_compress_medium_content() {
+        // Content size 256-65791: uses 2 byte FCS
+        let input = vec![0x34u8; 1000];
+        let compressed = compress(&input, 1).unwrap();
+        assert!(compressed.len() > 6);
+    }
+
+    #[test]
+    fn test_compress_large_content() {
+        // Content size > 65791: uses 4 byte FCS
+        let input = vec![0x56u8; 100_000];
+        let compressed = compress(&input, 1).unwrap();
+        // Should be much smaller than input (RLE)
+        assert!(compressed.len() < 100);
+    }
+
+    #[test]
+    fn test_compress_level_clamp_low() {
+        // Level < 1 should be clamped to 1
+        let input = [0x78u8; 64];
+        let _ = compress(&input, 0).unwrap();
+    }
+
+    #[test]
+    fn test_compress_level_clamp_high() {
+        // Level > 19 should be clamped to 19
+        let input = [0x9Au8; 64];
+        let _ = compress(&input, 25).unwrap();
+    }
+
+    #[test]
+    fn test_compress_small_literals() {
+        // < 32 bytes: uses 5-bit size format
+        let input = [0xBCu8; 16];
+        let compressed = compress(&input, 3).unwrap();
+        assert!(!compressed.is_empty());
+    }
+
+    #[test]
+    fn test_compress_medium_literals() {
+        // 32-4095 bytes: uses 12-bit size format
+        let input = vec![0xDEu8; 500];
+        let compressed = compress(&input, 3).unwrap();
+        assert!(!compressed.is_empty());
+    }
+
+    #[test]
+    fn test_compress_large_literals() {
+        // >= 4096 bytes: uses 20-bit size format
+        let input = vec![0xF0u8; 5000];
+        let compressed = compress(&input, 3).unwrap();
+        assert!(!compressed.is_empty());
+    }
+
+    #[test]
+    fn test_compress_mixed_content() {
+        // Non-RLE content that will use compressed or raw block
+        let mut input = Vec::with_capacity(256);
+        for i in 0..256 {
+            input.push(i as u8);
+        }
+        let compressed = compress(&input, 3).unwrap();
+        assert!(!compressed.is_empty());
+    }
+
+    #[test]
+    fn test_compress_multiple_blocks() {
+        // Create input larger than 128KB block size
+        let input = vec![0x11u8; 200_000];
+        let compressed = compress(&input, 1).unwrap();
+        assert!(!compressed.is_empty());
+    }
 }

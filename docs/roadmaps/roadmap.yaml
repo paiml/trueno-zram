@@ -1,0 +1,23 @@
+roadmap_version: '1.0'
+github_enabled: true
+github_repo: paiml/trueno-zram
+roadmap:
+- id: ZRAM-001
+  github_issue: null
+  item_type: task
+  title: Implement GPU compression backend and adaptive selection
+  status: inprogress
+  priority: critical
+  assigned_to: null
+  created: 2026-01-04
+  updated: 2026-01-04T11:21:32.209159902+00:00
+  spec: docs/specifications/zram-rust-compatibility-enhance-trueno.md
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - enhancement
+  - gpu
+  - compression
+  notes: null

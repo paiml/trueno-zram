@@ -41,7 +41,7 @@ enum Commands {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    let result = match cli.command {
+    let result = match &cli.command {
         Commands::Create(args) => commands::create(args),
         Commands::Remove(args) => commands::remove(args),
         Commands::Status(args) => commands::status(args, cli.format),

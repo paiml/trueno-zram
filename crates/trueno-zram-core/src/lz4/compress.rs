@@ -2,7 +2,7 @@
 //!
 //! High-performance LZ4 block format compression using unsafe pointer arithmetic.
 
-use super::constants::{MF_LIMIT, LAST_LITERALS, MAX_DISTANCE, MIN_MATCH};
+use super::constants::{LAST_LITERALS, MAX_DISTANCE, MF_LIMIT, MIN_MATCH};
 use crate::Result;
 
 /// Hash table size (64KB = 16384 entries of 4 bytes each).
@@ -54,7 +54,10 @@ unsafe fn write_u16(ptr: *mut u8, val: u16) {
 /// Copy 8 bytes (wildcard copy).
 #[inline(always)]
 unsafe fn copy_8(dst: *mut u8, src: *const u8) {
-    std::ptr::write_unaligned(dst.cast::<u64>(), std::ptr::read_unaligned(src.cast::<u64>()));
+    std::ptr::write_unaligned(
+        dst.cast::<u64>(),
+        std::ptr::read_unaligned(src.cast::<u64>()),
+    );
 }
 
 /// Count matching bytes using 64-bit comparisons.
