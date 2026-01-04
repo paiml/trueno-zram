@@ -1,0 +1,2270 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>trueno-zram</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="SIMD and GPU-accelerated memory compression for Linux">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "rust";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">trueno-zram</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/paiml/trueno-zram" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p><strong>trueno-zram</strong> is a SIMD and GPU-accelerated memory compression library for Linux systems. It provides userspace Rust implementations of LZ4 and ZSTD compression that leverage modern CPU vector instructions (AVX2, AVX-512, NEON) and optional CUDA GPU acceleration.</p>
+<h2 id="why-trueno-zram"><a class="header" href="#why-trueno-zram">Why trueno-zram?</a></h2>
+<p>Linux's kernel zram module provides transparent memory compression, but it has limitations:</p>
+<ol>
+<li><strong>Fixed algorithms</strong>: Kernel zram supports limited compression algorithms</li>
+<li><strong>No SIMD optimization</strong>: Kernel implementations don't fully utilize modern CPU features</li>
+<li><strong>No GPU offload</strong>: Large batch compression can't leverage GPU acceleration</li>
+<li><strong>Limited tunability</strong>: Hard to optimize for specific workloads</li>
+</ol>
+<p>trueno-zram addresses these limitations by providing:</p>
+<ul>
+<li><strong>Runtime SIMD dispatch</strong>: Automatically selects AVX-512, AVX2, or NEON based on CPU</li>
+<li><strong>GPU batch compression</strong>: Offloads large batches to CUDA GPUs when beneficial</li>
+<li><strong>Adaptive algorithm selection</strong>: ML-driven selection based on page entropy</li>
+<li><strong>Same-fill optimization</strong>: 2048:1 compression for zero/repeated pages</li>
+<li><strong>Kernel compatibility</strong>: Drop-in replacement via sysfs interface</li>
+</ul>
+<h2 id="performance-highlights"><a class="header" href="#performance-highlights">Performance Highlights</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Metric</th><th>Achieved</th></tr></thead><tbody>
+<tr><td>LZ4 Compression</td><td>4.4 GB/s (AVX-512)</td></tr>
+<tr><td>LZ4 Decompression</td><td>5.4 GB/s (AVX-512)</td></tr>
+<tr><td>ZSTD Compression</td><td>11.2 GB/s (AVX-512)</td></tr>
+<tr><td>ZSTD Decompression</td><td>46 GB/s (AVX-512)</td></tr>
+<tr><td>Same-fill ratio</td><td>2048:1</td></tr>
+</tbody></table>
+</div>
+<h2 id="part-of-the-paiml-ecosystem"><a class="header" href="#part-of-the-paiml-ecosystem">Part of the PAIML Ecosystem</a></h2>
+<p>trueno-zram is part of the "Batuta Stack":</p>
+<ul>
+<li><a href="https://crates.io/crates/trueno">trueno</a> - High-performance SIMD compute library</li>
+<li><a href="https://crates.io/crates/trueno-gpu">trueno-gpu</a> - Pure Rust PTX generation for CUDA</li>
+<li><a href="https://crates.io/crates/aprender">aprender</a> - Machine learning in pure Rust</li>
+<li><a href="https://crates.io/crates/certeza">certeza</a> - Asymptotic test effectiveness framework</li>
+</ul>
+<h2 id="license"><a class="header" href="#license">License</a></h2>
+<p>trueno-zram is dual-licensed under MIT and Apache-2.0.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
+<h2 id="from-cratesio"><a class="header" href="#from-cratesio">From crates.io</a></h2>
+<p>Add trueno-zram-core to your <code>Cargo.toml</code>:</p>
+<pre><code class="language-toml">[dependencies]
+trueno-zram-core = "0.1"
+</code></pre>
+<p>Or use cargo add:</p>
+<pre><code class="language-bash">cargo add trueno-zram-core
+</code></pre>
+<h2 id="with-cuda-support"><a class="header" href="#with-cuda-support">With CUDA Support</a></h2>
+<p>For GPU acceleration, enable the <code>cuda</code> feature:</p>
+<pre><code class="language-toml">[dependencies]
+trueno-zram-core = { version = "0.1", features = ["cuda"] }
+</code></pre>
+<p>Or:</p>
+<pre><code class="language-bash">cargo add trueno-zram-core --features cuda
+</code></pre>
+<h3 id="cuda-requirements"><a class="header" href="#cuda-requirements">CUDA Requirements</a></h3>
+<ul>
+<li>CUDA Toolkit 12.8 or later</li>
+<li>NVIDIA driver supporting CUDA 12.8</li>
+<li>GPU with compute capability &gt;= 7.0 (Volta or newer)</li>
+</ul>
+<h2 id="feature-flags"><a class="header" href="#feature-flags">Feature Flags</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Feature</th><th>Description</th><th>Default</th></tr></thead><tbody>
+<tr><td><code>std</code></td><td>Standard library support</td><td>Yes</td></tr>
+<tr><td><code>nightly</code></td><td>Nightly-only SIMD features</td><td>No</td></tr>
+<tr><td><code>cuda</code></td><td>CUDA GPU acceleration</td><td>No</td></tr>
+</tbody></table>
+</div>
+<h2 id="system-requirements"><a class="header" href="#system-requirements">System Requirements</a></h2>
+<ul>
+<li><strong>OS</strong>: Linux (kernel &gt;= 5.10 LTS)</li>
+<li><strong>CPU</strong>: x86_64 (AVX2/AVX-512) or AArch64 (NEON)</li>
+<li><strong>Rust</strong>: 1.82.0 or later (MSRV)</li>
+</ul>
+<h2 id="verifying-installation"><a class="header" href="#verifying-installation">Verifying Installation</a></h2>
+<pre><pre class="playground"><code class="language-rust">use trueno_zram_core::{CompressorBuilder, Algorithm};
+
+fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    let compressor = CompressorBuilder::new()
+        .algorithm(Algorithm::Lz4)
+        .build()?;
+
+    println!("trueno-zram installed successfully!");
+    println!("SIMD backend: {:?}", compressor.backend());
+
+    Ok(())
+}</code></pre></pre>
+<h2 id="building-from-source"><a class="header" href="#building-from-source">Building from Source</a></h2>
+<pre><code class="language-bash">git clone https://github.com/paiml/trueno-zram
+cd trueno-zram
+
+# Build all crates
+cargo build --release --all-features
+
+# Run tests
+cargo test --workspace --all-features
+
+# Build with CUDA
+cargo build --release --features cuda
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h1>
+<h2 id="basic-compression"><a class="header" href="#basic-compression">Basic Compression</a></h2>
+<pre><pre class="playground"><code class="language-rust">use trueno_zram_core::{CompressorBuilder, Algorithm, PAGE_SIZE};
+
+fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    // Create a compressor with LZ4 algorithm
+    let compressor = CompressorBuilder::new()
+        .algorithm(Algorithm::Lz4)
+        .build()?;
+
+    // Create a test page (4KB)
+    let mut page = [0u8; PAGE_SIZE];
+    page[0..100].copy_from_slice(&amp;[0xAA; 100]);
+
+    // Compress
+    let compressed = compressor.compress(&amp;page)?;
+    println!("Original size: {} bytes", PAGE_SIZE);
+    println!("Compressed size: {} bytes", compressed.data.len());
+    println!("Ratio: {:.2}x", compressed.ratio());
+
+    // Decompress
+    let decompressed = compressor.decompress(&amp;compressed)?;
+    assert_eq!(page, decompressed);
+    println!("Decompression verified!");
+
+    Ok(())
+}</code></pre></pre>
+<h2 id="choosing-an-algorithm"><a class="header" href="#choosing-an-algorithm">Choosing an Algorithm</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::{CompressorBuilder, Algorithm};
+
+// LZ4: Fastest compression, good for most workloads
+let lz4 = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+
+// ZSTD Level 1: Better ratio, still fast
+let zstd_fast = CompressorBuilder::new()
+    .algorithm(Algorithm::Zstd { level: 1 })
+    .build()?;
+
+// ZSTD Level 3: Best ratio for compressible data
+let zstd_best = CompressorBuilder::new()
+    .algorithm(Algorithm::Zstd { level: 3 })
+    .build()?;
+
+// Adaptive: Automatically selects based on entropy
+let adaptive = CompressorBuilder::new()
+    .algorithm(Algorithm::Adaptive)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="compression-statistics"><a class="header" href="#compression-statistics">Compression Statistics</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+
+// Compress some pages
+for _ in 0..100 {
+    let page = [0u8; PAGE_SIZE];
+    let _ = compressor.compress(&amp;page)?;
+}
+
+// Get statistics
+let stats = compressor.stats();
+println!("Pages compressed: {}", stats.pages);
+println!("Total input: {} bytes", stats.bytes_in);
+println!("Total output: {} bytes", stats.bytes_out);
+println!("Overall ratio: {:.2}x", stats.ratio());
+println!("Throughput: {:.2} GB/s", stats.throughput_gbps());
+<span class="boring">}</span></code></pre></pre>
+<h2 id="error-handling"><a class="header" href="#error-handling">Error Handling</a></h2>
+<pre><pre class="playground"><code class="language-rust">use trueno_zram_core::{CompressorBuilder, Algorithm, Error};
+
+fn compress_page(data: &amp;[u8; PAGE_SIZE]) -&gt; Result&lt;Vec&lt;u8&gt;, Error&gt; {
+    let compressor = CompressorBuilder::new()
+        .algorithm(Algorithm::Lz4)
+        .build()?;
+
+    let compressed = compressor.compress(data)?;
+    Ok(compressed.data)
+}
+
+fn main() {
+    let page = [0u8; PAGE_SIZE];
+
+    match compress_page(&amp;page) {
+        Ok(data) =&gt; println!("Compressed to {} bytes", data.len()),
+        Err(Error::BufferTooSmall(msg)) =&gt; eprintln!("Buffer error: {msg}"),
+        Err(Error::CorruptedData(msg)) =&gt; eprintln!("Corrupt data: {msg}"),
+        Err(e) =&gt; eprintln!("Other error: {e}"),
+    }
+}</code></pre></pre>
+<h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
+<ul>
+<li>Learn about <a href="getting-started/../concepts/gpu.html">GPU Batch Compression</a></li>
+<li>Explore <a href="getting-started/../concepts/simd.html">SIMD Acceleration</a></li>
+<li>See more <a href="getting-started/./examples.html">Examples</a></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="examples"><a class="header" href="#examples">Examples</a></h1>
+<h2 id="running-examples"><a class="header" href="#running-examples">Running Examples</a></h2>
+<p>trueno-zram includes several examples to demonstrate its features:</p>
+<pre><code class="language-bash"># GPU information and backend selection
+cargo run -p trueno-zram-core --example gpu_info
+cargo run -p trueno-zram-core --example gpu_info --features cuda
+
+# Compression benchmarks
+cargo run -p trueno-zram-core --example compress_benchmark --release
+cargo run -p trueno-zram-core --example compress_benchmark --release --features cuda
+</code></pre>
+<h2 id="gpu-info-example"><a class="header" href="#gpu-info-example">GPU Info Example</a></h2>
+<p>Shows GPU detection, backend selection logic, and PCIe 5x rule evaluation:</p>
+<pre><code>trueno-zram GPU Information
+============================
+
+1. GPU Availability
+   ----------------
+   GPU available: true
+
+   CUDA Device Information:
+     Device: NVIDIA GeForce RTX 4090
+     Compute Capability: SM 8.9
+     Memory: 24564 MB
+     L2 Cache: 73728 KB
+     Optimal batch: 14745 pages
+     Supported: true
+
+2. Backend Selection Logic
+   -----------------------
+   GPU_MIN_BATCH_SIZE: 1000 pages
+   PAGE_SIZE: 4096 bytes
+
+      Batch          No GPU        With GPU
+   ------------------------------------------
+         1          Scalar          Scalar
+        10            Simd            Simd
+       100            Simd            Simd
+       500            Simd            Simd
+      1000            Simd             Gpu
+      5000            Simd             Gpu
+     10000            Simd             Gpu
+
+3. PCIe 5x Rule Evaluation
+   -----------------------
+   GPU offload beneficial when: T_cpu &gt; 5 * (T_transfer + T_gpu)
+
+   1K pages, PCIe 4.0, 100 GB/s GPU (4 MB): CPU preferred
+   10K pages, PCIe 4.0, 100 GB/s GPU (40 MB): GPU beneficial
+   100K pages, PCIe 5.0, 500 GB/s GPU (400 MB): GPU beneficial
+</code></pre>
+<h2 id="compression-benchmark"><a class="header" href="#compression-benchmark">Compression Benchmark</a></h2>
+<p>Measures throughput across different data patterns:</p>
+<pre><code>trueno-zram Compression Benchmark
+=================================
+
+Pattern: Zeros (compressible)
+----------------------------------------------------------------------
+   Pages  Algorithm     Compress   Decompress      Ratio    Backend
+     100        Lz4      22.01 GB/s      46.02 GB/s   2048.00x Avx512
+    1000        Lz4      21.87 GB/s      45.91 GB/s   2048.00x Avx512
+
+Pattern: Text (compressible)
+----------------------------------------------------------------------
+   Pages  Algorithm     Compress   Decompress      Ratio    Backend
+     100        Lz4       4.57 GB/s       5.42 GB/s      3.21x Avx512
+    1000        Lz4       4.44 GB/s       5.37 GB/s      3.21x Avx512
+
+Pattern: Random (incompressible)
+----------------------------------------------------------------------
+   Pages  Algorithm     Compress   Decompress      Ratio    Backend
+     100        Lz4       1.87 GB/s      43.78 GB/s      1.00x Avx512
+    1000        Lz4       1.61 GB/s      31.64 GB/s      1.00x Avx512
+</code></pre>
+<h2 id="custom-example-batch-processing"><a class="header" href="#custom-example-batch-processing">Custom Example: Batch Processing</a></h2>
+<pre><pre class="playground"><code class="language-rust">use trueno_zram_core::{CompressorBuilder, Algorithm, PAGE_SIZE};
+use std::time::Instant;
+
+fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    let compressor = CompressorBuilder::new()
+        .algorithm(Algorithm::Lz4)
+        .build()?;
+
+    // Generate test pages
+    let pages: Vec&lt;[u8; PAGE_SIZE]&gt; = (0..1000)
+        .map(|i| {
+            let mut page = [0u8; PAGE_SIZE];
+            // Create compressible pattern
+            for (j, byte) in page.iter_mut().enumerate() {
+                *byte = ((i + j) % 256) as u8;
+            }
+            page
+        })
+        .collect();
+
+    // Benchmark compression
+    let start = Instant::now();
+    let mut total_compressed = 0;
+
+    for page in &amp;pages {
+        let compressed = compressor.compress(page)?;
+        total_compressed += compressed.data.len();
+    }
+
+    let elapsed = start.elapsed();
+    let input_bytes = pages.len() * PAGE_SIZE;
+    let throughput = input_bytes as f64 / elapsed.as_secs_f64() / 1e9;
+    let ratio = input_bytes as f64 / total_compressed as f64;
+
+    println!("Compressed {} pages in {:?}", pages.len(), elapsed);
+    println!("Throughput: {:.2} GB/s", throughput);
+    println!("Compression ratio: {:.2}x", ratio);
+
+    Ok(())
+}</code></pre></pre>
+<h2 id="custom-example-gpu-batch-compression"><a class="header" href="#custom-example-gpu-batch-compression">Custom Example: GPU Batch Compression</a></h2>
+<pre><pre class="playground"><code class="language-rust">use trueno_zram_core::gpu::{GpuBatchCompressor, GpuBatchConfig, gpu_available};
+use trueno_zram_core::{Algorithm, PAGE_SIZE};
+
+fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    if !gpu_available() {
+        println!("No GPU available, skipping GPU example");
+        return Ok(());
+    }
+
+    let config = GpuBatchConfig {
+        device_index: 0,
+        algorithm: Algorithm::Lz4,
+        batch_size: 1000,
+        async_dma: true,
+        ring_buffer_slots: 4,
+    };
+
+    let mut compressor = GpuBatchCompressor::new(config)?;
+
+    // Create batch of pages
+    let pages: Vec&lt;[u8; PAGE_SIZE]&gt; = vec![[0u8; PAGE_SIZE]; 1000];
+
+    // Compress batch
+    let result = compressor.compress_batch(&amp;pages)?;
+
+    println!("Batch Results:");
+    println!("  Pages: {}", result.pages.len());
+    println!("  H2D time: {} ns", result.h2d_time_ns);
+    println!("  Kernel time: {} ns", result.kernel_time_ns);
+    println!("  D2H time: {} ns", result.d2h_time_ns);
+    println!("  Total time: {} ns", result.total_time_ns);
+    println!("  Compression ratio: {:.2}x", result.compression_ratio());
+    println!("  PCIe 5x rule satisfied: {}", result.pcie_rule_satisfied());
+
+    // Get compressor stats
+    let stats = compressor.stats();
+    println!("\nCompressor Stats:");
+    println!("  Pages compressed: {}", stats.pages_compressed);
+    println!("  Throughput: {:.2} GB/s", stats.throughput_gbps());
+
+    Ok(())
+}</code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="compression-algorithms"><a class="header" href="#compression-algorithms">Compression Algorithms</a></h1>
+<p>trueno-zram supports multiple compression algorithms optimized for memory page compression.</p>
+<h2 id="lz4"><a class="header" href="#lz4">LZ4</a></h2>
+<p>LZ4 is a lossless compression algorithm focused on compression and decompression speed.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::{CompressorBuilder, Algorithm};
+
+let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="characteristics"><a class="header" href="#characteristics">Characteristics</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>
+<tr><td>Compression speed</td><td>4.4 GB/s (AVX-512)</td></tr>
+<tr><td>Decompression speed</td><td>5.4 GB/s (AVX-512)</td></tr>
+<tr><td>Typical ratio</td><td>2-4x for compressible data</td></tr>
+<tr><td>Best for</td><td>Speed-critical workloads</td></tr>
+</tbody></table>
+</div>
+<h3 id="when-to-use-lz4"><a class="header" href="#when-to-use-lz4">When to Use LZ4</a></h3>
+<ul>
+<li>Real-time compression requirements</li>
+<li>High-throughput memory compression</li>
+<li>When CPU overhead must be minimal</li>
+<li>Mixed workloads with varying compressibility</li>
+</ul>
+<h2 id="zstd-zstandard"><a class="header" href="#zstd-zstandard">ZSTD (Zstandard)</a></h2>
+<p>ZSTD provides better compression ratios while maintaining good speed.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Fast mode (level 1)
+let fast = CompressorBuilder::new()
+    .algorithm(Algorithm::Zstd { level: 1 })
+    .build()?;
+
+// Better compression (level 3)
+let better = CompressorBuilder::new()
+    .algorithm(Algorithm::Zstd { level: 3 })
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="compression-levels"><a class="header" href="#compression-levels">Compression Levels</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Level</th><th>Compression</th><th>Decompression</th><th>Ratio</th></tr></thead><tbody>
+<tr><td>1</td><td>11.2 GB/s</td><td>46 GB/s</td><td>Better than LZ4</td></tr>
+<tr><td>3</td><td>8.5 GB/s</td><td>45 GB/s</td><td>Best</td></tr>
+</tbody></table>
+</div>
+<h3 id="when-to-use-zstd"><a class="header" href="#when-to-use-zstd">When to Use ZSTD</a></h3>
+<ul>
+<li>Memory-constrained systems</li>
+<li>Highly compressible data (text, logs)</li>
+<li>When compression ratio matters more than speed</li>
+<li>Cold/archived memory pages</li>
+</ul>
+<h2 id="adaptive-selection"><a class="header" href="#adaptive-selection">Adaptive Selection</a></h2>
+<p>The adaptive algorithm automatically selects based on page entropy:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Adaptive)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="selection-logic"><a class="header" href="#selection-logic">Selection Logic</a></h3>
+<ol>
+<li><strong>Same-fill detection</strong>: Pages with repeated values use 2048:1 encoding</li>
+<li><strong>Entropy analysis</strong>: Shannon entropy determines compressibility</li>
+<li><strong>Algorithm selection</strong>:
+<ul>
+<li>Low entropy (&lt; 4 bits): ZSTD for best ratio</li>
+<li>Medium entropy (4-7 bits): LZ4 for balance</li>
+<li>High entropy (&gt; 7 bits): Pass-through (incompressible)</li>
+</ul>
+</li>
+</ol>
+<h2 id="same-fill-optimization"><a class="header" href="#same-fill-optimization">Same-Fill Optimization</a></h2>
+<p>Pages filled with the same byte value get special 2048:1 compression:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::samefill::{detect_same_fill, CompactSameFill};
+
+let zero_page = [0u8; 4096];
+
+if let Some(fill) = detect_same_fill(&amp;zero_page) {
+    let compact = CompactSameFill::new(fill);
+    // Only 2 bytes needed to represent 4096-byte page!
+    assert_eq!(compact.to_bytes().len(), 2);
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="same-fill-statistics"><a class="header" href="#same-fill-statistics">Same-Fill Statistics</a></h3>
+<ul>
+<li>Zero pages: ~30-40% of typical memory</li>
+<li>Same-fill pages: ~35-45% total</li>
+<li>Compression ratio: 2048:1</li>
+</ul>
+<h2 id="algorithm-comparison"><a class="header" href="#algorithm-comparison">Algorithm Comparison</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Algorithm</th><th>Compress</th><th>Decompress</th><th>Ratio</th><th>Use Case</th></tr></thead><tbody>
+<tr><td>LZ4</td><td>4.4 GB/s</td><td>5.4 GB/s</td><td>2-4x</td><td>General</td></tr>
+<tr><td>ZSTD-1</td><td>11.2 GB/s</td><td>46 GB/s</td><td>3-5x</td><td>Balanced</td></tr>
+<tr><td>ZSTD-3</td><td>8.5 GB/s</td><td>45 GB/s</td><td>4-6x</td><td>Best ratio</td></tr>
+<tr><td>Same-fill</td><td>N/A</td><td>N/A</td><td>2048x</td><td>Zero/repeated</td></tr>
+<tr><td>Adaptive</td><td>Varies</td><td>Varies</td><td>Optimal</td><td>Automatic</td></tr>
+</tbody></table>
+</div><div style="break-before: page; page-break-before: always;"></div><h1 id="simd-acceleration"><a class="header" href="#simd-acceleration">SIMD Acceleration</a></h1>
+<p>trueno-zram uses runtime CPU feature detection to select the optimal SIMD implementation.</p>
+<h2 id="supported-backends"><a class="header" href="#supported-backends">Supported Backends</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Backend</th><th>Instruction Set</th><th>Register Width</th><th>Platforms</th></tr></thead><tbody>
+<tr><td>AVX-512</td><td>AVX-512F/BW/VL</td><td>512-bit</td><td>Skylake-X, Ice Lake, Zen 4</td></tr>
+<tr><td>AVX2</td><td>AVX2 + FMA</td><td>256-bit</td><td>Haswell+, Zen 1+</td></tr>
+<tr><td>NEON</td><td>ARM NEON</td><td>128-bit</td><td>ARMv8-A (AArch64)</td></tr>
+<tr><td>Scalar</td><td>None</td><td>64-bit</td><td>All platforms</td></tr>
+</tbody></table>
+</div>
+<h2 id="runtime-detection"><a class="header" href="#runtime-detection">Runtime Detection</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::simd::{detect, SimdFeatures};
+
+let features = detect();
+
+println!("AVX-512: {}", features.has_avx512());
+println!("AVX2: {}", features.has_avx2());
+println!("SSE4.2: {}", features.has_sse42());
+<span class="boring">}</span></code></pre></pre>
+<h2 id="automatic-dispatch"><a class="header" href="#automatic-dispatch">Automatic Dispatch</a></h2>
+<p>The compressor automatically uses the best available backend:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::CompressorBuilder;
+
+let compressor = CompressorBuilder::new().build()?;
+
+// Check which backend was selected
+println!("Backend: {:?}", compressor.backend());
+<span class="boring">}</span></code></pre></pre>
+<h2 id="performance-by-backend"><a class="header" href="#performance-by-backend">Performance by Backend</a></h2>
+<h3 id="lz4-compression"><a class="header" href="#lz4-compression">LZ4 Compression</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Backend</th><th>Throughput</th><th>Relative</th></tr></thead><tbody>
+<tr><td>AVX-512</td><td>4.4 GB/s</td><td>1.45x</td></tr>
+<tr><td>AVX2</td><td>3.2 GB/s</td><td>1.05x</td></tr>
+<tr><td>Scalar</td><td>3.0 GB/s</td><td>1.0x</td></tr>
+</tbody></table>
+</div>
+<h3 id="zstd-compression"><a class="header" href="#zstd-compression">ZSTD Compression</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Backend</th><th>Throughput</th><th>Relative</th></tr></thead><tbody>
+<tr><td>AVX-512</td><td>11.2 GB/s</td><td>1.40x</td></tr>
+<tr><td>AVX2</td><td>8.5 GB/s</td><td>1.06x</td></tr>
+<tr><td>Scalar</td><td>8.0 GB/s</td><td>1.0x</td></tr>
+</tbody></table>
+</div>
+<h2 id="simd-optimizations"><a class="header" href="#simd-optimizations">SIMD Optimizations</a></h2>
+<h3 id="hash-table-lookups-lz4"><a class="header" href="#hash-table-lookups-lz4">Hash Table Lookups (LZ4)</a></h3>
+<p>AVX-512 enables parallel hash probing for match finding:</p>
+<pre><code>// Scalar: Sequential probe
+for offset in 0..16 {
+    if hash_table[hash + offset] == pattern { ... }
+}
+
+// AVX-512: Parallel probe (16 comparisons at once)
+let matches = _mm512_cmpeq_epi32(hash_values, pattern_broadcast);
+</code></pre>
+<h3 id="literal-copying"><a class="header" href="#literal-copying">Literal Copying</a></h3>
+<p>Wide vector moves for copying uncompressed literals:</p>
+<pre><code>// AVX-512: 64 bytes per iteration
+_mm512_storeu_si512(dst, _mm512_loadu_si512(src));
+
+// AVX2: 32 bytes per iteration
+_mm256_storeu_si256(dst, _mm256_loadu_si256(src));
+</code></pre>
+<h3 id="match-extension"><a class="header" href="#match-extension">Match Extension</a></h3>
+<p>SIMD comparison for extending matches:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Compare 64 bytes at once with AVX-512
+let cmp = _mm512_cmpeq_epi8(src_chunk, dst_chunk);
+let mask = _mm512_movepi8_mask(cmp);
+let match_len = mask.trailing_ones();
+<span class="boring">}</span></code></pre></pre>
+<h2 id="forcing-a-backend"><a class="header" href="#forcing-a-backend">Forcing a Backend</a></h2>
+<p>For testing or benchmarking, you can force a specific backend:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::{CompressorBuilder, SimdBackend};
+
+// Force scalar (no SIMD)
+let scalar = CompressorBuilder::new()
+    .prefer_backend(SimdBackend::Scalar)
+    .build()?;
+
+// Force AVX2 (will fail if not available)
+let avx2 = CompressorBuilder::new()
+    .prefer_backend(SimdBackend::Avx2)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="gpu-batch-compression"><a class="header" href="#gpu-batch-compression">GPU Batch Compression</a></h1>
+<p>trueno-zram supports CUDA GPU acceleration for batch compression of memory pages.</p>
+<h2 id="when-to-use-gpu"><a class="header" href="#when-to-use-gpu">When to Use GPU</a></h2>
+<p>GPU compression is beneficial when:</p>
+<ol>
+<li><strong>Large batches</strong>: 1000+ pages to compress</li>
+<li><strong>PCIe 5x rule satisfied</strong>: Computation time &gt; 5× transfer time</li>
+<li><strong>GPU available</strong>: CUDA-capable GPU with SM 7.0+</li>
+</ol>
+<h2 id="basic-usage"><a class="header" href="#basic-usage">Basic Usage</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::{GpuBatchCompressor, GpuBatchConfig, gpu_available};
+use trueno_zram_core::{Algorithm, PAGE_SIZE};
+
+if gpu_available() {
+    let config = GpuBatchConfig {
+        device_index: 0,
+        algorithm: Algorithm::Lz4,
+        batch_size: 1000,
+        async_dma: true,
+        ring_buffer_slots: 4,
+    };
+
+    let mut compressor = GpuBatchCompressor::new(config)?;
+
+    let pages: Vec&lt;[u8; PAGE_SIZE]&gt; = vec![[0u8; PAGE_SIZE]; 1000];
+    let result = compressor.compress_batch(&amp;pages)?;
+
+    println!("Compression ratio: {:.2}x", result.compression_ratio());
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="configuration-options"><a class="header" href="#configuration-options">Configuration Options</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct GpuBatchConfig {
+    /// CUDA device index (0 = first GPU)
+    pub device_index: u32,
+
+    /// Compression algorithm
+    pub algorithm: Algorithm,
+
+    /// Number of pages per batch
+    pub batch_size: usize,
+
+    /// Enable async DMA transfers
+    pub async_dma: bool,
+
+    /// Ring buffer slots for pipelining
+    pub ring_buffer_slots: usize,
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="batch-results"><a class="header" href="#batch-results">Batch Results</a></h2>
+<p>The <code>BatchResult</code> provides timing breakdown:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let result = compressor.compress_batch(&amp;pages)?;
+
+// Timing components
+println!("H2D transfer: {} ns", result.h2d_time_ns);
+println!("Kernel execution: {} ns", result.kernel_time_ns);
+println!("D2H transfer: {} ns", result.d2h_time_ns);
+println!("Total time: {} ns", result.total_time_ns);
+
+// Metrics
+let throughput = result.throughput_bytes_per_sec(pages.len() * PAGE_SIZE);
+println!("Throughput: {:.2} GB/s", throughput / 1e9);
+println!("Compression ratio: {:.2}x", result.compression_ratio());
+println!("PCIe 5x rule satisfied: {}", result.pcie_rule_satisfied());
+<span class="boring">}</span></code></pre></pre>
+<h2 id="backend-selection"><a class="header" href="#backend-selection">Backend Selection</a></h2>
+<p>Use <code>select_backend</code> to determine optimal backend:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::{select_backend, gpu_available};
+
+let batch_size = 5000;
+let has_gpu = gpu_available();
+
+let backend = select_backend(batch_size, has_gpu);
+println!("Selected backend: {:?}", backend);
+// Output: Gpu (for large batches with GPU available)
+<span class="boring">}</span></code></pre></pre>
+<h2 id="supported-gpus"><a class="header" href="#supported-gpus">Supported GPUs</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>GPU</th><th>Architecture</th><th>SM</th><th>Optimal Batch</th></tr></thead><tbody>
+<tr><td>H100</td><td>Hopper</td><td>9.0</td><td>10,240 pages</td></tr>
+<tr><td>A100</td><td>Ampere</td><td>8.0</td><td>8,192 pages</td></tr>
+<tr><td>RTX 4090</td><td>Ada</td><td>8.9</td><td>14,745 pages</td></tr>
+<tr><td>RTX 3090</td><td>Ampere</td><td>8.6</td><td>6,144 pages</td></tr>
+</tbody></table>
+</div>
+<h2 id="pure-rust-ptx-generation"><a class="header" href="#pure-rust-ptx-generation">Pure Rust PTX Generation</a></h2>
+<p>trueno-zram uses <a href="https://crates.io/crates/trueno-gpu">trueno-gpu</a> for pure Rust PTX generation:</p>
+<ul>
+<li>No LLVM dependency</li>
+<li>No nvcc required</li>
+<li>Kernel code in Rust, compiled to PTX at runtime</li>
+<li>Warp-cooperative LZ4 compression (4 warps/block)</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// The LZ4 kernel processes 4 pages per block (1 page per warp)
+// Uses shared memory for hash tables and match finding
+// cvta.shared.u64 for generic addressing
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="same-fill-detection"><a class="header" href="#same-fill-detection">Same-Fill Detection</a></h1>
+<p>Same-fill optimization provides 2048:1 compression for pages containing a single repeated byte value.</p>
+<h2 id="why-same-fill-matters"><a class="header" href="#why-same-fill-matters">Why Same-Fill Matters</a></h2>
+<p>Memory pages often contain:</p>
+<ul>
+<li><strong>Zero pages</strong>: ~30-40% of typical memory (uninitialized, freed)</li>
+<li><strong>Same-fill pages</strong>: ~5-10% additional (memset patterns)</li>
+</ul>
+<p>Detecting and encoding these specially provides massive compression wins.</p>
+<h2 id="detection"><a class="header" href="#detection">Detection</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::samefill::detect_same_fill;
+use trueno_zram_core::PAGE_SIZE;
+
+let zero_page = [0u8; PAGE_SIZE];
+let pattern_page = [0xAA; PAGE_SIZE];
+let mixed_page = [0u8; PAGE_SIZE];
+
+// Zero page detected
+assert!(detect_same_fill(&amp;zero_page).is_some());
+
+// Pattern page detected
+assert!(detect_same_fill(&amp;pattern_page).is_some());
+
+// Mixed content not detected
+let mut mixed = [0u8; PAGE_SIZE];
+mixed[100] = 0xFF;
+assert!(detect_same_fill(&amp;mixed).is_none());
+<span class="boring">}</span></code></pre></pre>
+<h2 id="compact-encoding"><a class="header" href="#compact-encoding">Compact Encoding</a></h2>
+<p>Same-fill pages compress to just 2 bytes:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::samefill::CompactSameFill;
+
+let fill_value = 0u8;
+let compact = CompactSameFill::new(fill_value);
+
+// Serialize (2 bytes)
+let bytes = compact.to_bytes();
+assert_eq!(bytes.len(), 2);
+
+// Deserialize
+let restored = CompactSameFill::from_bytes(&amp;bytes)?;
+assert_eq!(restored.fill_value(), 0);
+
+// Expand back to full page
+let page = restored.expand();
+assert_eq!(page.len(), PAGE_SIZE);
+assert!(page.iter().all(|&amp;b| b == 0));
+<span class="boring">}</span></code></pre></pre>
+<h2 id="compression-ratio"><a class="header" href="#compression-ratio">Compression Ratio</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Page Type</th><th>Original</th><th>Compressed</th><th>Ratio</th></tr></thead><tbody>
+<tr><td>Zero-fill</td><td>4096 B</td><td>2 B</td><td>2048:1</td></tr>
+<tr><td>0xFF-fill</td><td>4096 B</td><td>2 B</td><td>2048:1</td></tr>
+<tr><td>Any same-fill</td><td>4096 B</td><td>2 B</td><td>2048:1</td></tr>
+</tbody></table>
+</div>
+<h2 id="integration-with-compressor"><a class="header" href="#integration-with-compressor">Integration with Compressor</a></h2>
+<p>The compressor automatically detects same-fill pages:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::{CompressorBuilder, Algorithm};
+
+let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+
+let zero_page = [0u8; PAGE_SIZE];
+let compressed = compressor.compress(&amp;zero_page)?;
+
+// Same-fill pages get special encoding
+println!("Compressed size: {} bytes", compressed.data.len());
+// Output: ~20 bytes (LZ4 minimal encoding for same-fill)
+<span class="boring">}</span></code></pre></pre>
+<h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
+<p>Same-fill detection is extremely fast:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// SIMD-accelerated comparison
+// AVX-512: Check 64 bytes per iteration
+// AVX2: Check 32 bytes per iteration
+// Typical: &lt;100ns for 4KB page
+<span class="boring">}</span></code></pre></pre>
+<h2 id="memory-statistics"><a class="header" href="#memory-statistics">Memory Statistics</a></h2>
+<p>On typical systems:</p>
+<div class="table-wrapper"><table><thead><tr><th>Memory Type</th><th>Same-Fill %</th></tr></thead><tbody>
+<tr><td>Idle desktop</td><td>60-70%</td></tr>
+<tr><td>Active workload</td><td>35-45%</td></tr>
+<tr><td>Database server</td><td>25-35%</td></tr>
+<tr><td>Compilation</td><td>40-50%</td></tr>
+</tbody></table>
+</div><div style="break-before: page; page-break-before: always;"></div><h1 id="compressorbuilder-api"><a class="header" href="#compressorbuilder-api">CompressorBuilder API</a></h1>
+<p>The <code>CompressorBuilder</code> provides a fluent API for configuring compression.</p>
+<h2 id="basic-usage-1"><a class="header" href="#basic-usage-1">Basic Usage</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::{CompressorBuilder, Algorithm};
+
+let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="builder-methods"><a class="header" href="#builder-methods">Builder Methods</a></h2>
+<h3 id="algorithmalgo-algorithm"><a class="header" href="#algorithmalgo-algorithm"><code>algorithm(algo: Algorithm)</code></a></h3>
+<p>Sets the compression algorithm:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// LZ4 (fastest)
+.algorithm(Algorithm::Lz4)
+
+// ZSTD with compression level
+.algorithm(Algorithm::Zstd { level: 1 })
+.algorithm(Algorithm::Zstd { level: 3 })
+
+// Adaptive (auto-select based on entropy)
+.algorithm(Algorithm::Adaptive)
+<span class="boring">}</span></code></pre></pre>
+<h3 id="prefer_backendbackend-simdbackend"><a class="header" href="#prefer_backendbackend-simdbackend"><code>prefer_backend(backend: SimdBackend)</code></a></h3>
+<p>Forces a specific SIMD backend:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::SimdBackend;
+
+// Force scalar (no SIMD)
+.prefer_backend(SimdBackend::Scalar)
+
+// Force AVX2
+.prefer_backend(SimdBackend::Avx2)
+
+// Force AVX-512
+.prefer_backend(SimdBackend::Avx512)
+<span class="boring">}</span></code></pre></pre>
+<h3 id="build"><a class="header" href="#build"><code>build()</code></a></h3>
+<p>Creates the compressor:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?; // Returns Result&lt;Compressor, Error&gt;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="compressor-methods"><a class="header" href="#compressor-methods">Compressor Methods</a></h2>
+<h3 id="compressself-page-u8-page_size---resultcompressedpage"><a class="header" href="#compressself-page-u8-page_size---resultcompressedpage"><code>compress(&amp;self, page: &amp;[u8; PAGE_SIZE]) -&gt; Result&lt;CompressedPage&gt;</code></a></h3>
+<p>Compresses a single page:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let page = [0u8; PAGE_SIZE];
+let compressed = compressor.compress(&amp;page)?;
+
+println!("Size: {} bytes", compressed.data.len());
+println!("Ratio: {:.2}x", compressed.ratio());
+<span class="boring">}</span></code></pre></pre>
+<h3 id="decompressself-page-compressedpage---resultu8-page_size"><a class="header" href="#decompressself-page-compressedpage---resultu8-page_size"><code>decompress(&amp;self, page: &amp;CompressedPage) -&gt; Result&lt;[u8; PAGE_SIZE]&gt;</code></a></h3>
+<p>Decompresses a page:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let decompressed = compressor.decompress(&amp;compressed)?;
+assert_eq!(page, decompressed);
+<span class="boring">}</span></code></pre></pre>
+<h3 id="statsself---compressionstats"><a class="header" href="#statsself---compressionstats"><code>stats(&amp;self) -&gt; CompressionStats</code></a></h3>
+<p>Returns compression statistics:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let stats = compressor.stats();
+
+println!("Pages: {}", stats.pages);
+println!("Bytes in: {}", stats.bytes_in);
+println!("Bytes out: {}", stats.bytes_out);
+println!("Ratio: {:.2}x", stats.ratio());
+println!("Compress time: {} ns", stats.compress_time_ns);
+println!("Decompress time: {} ns", stats.decompress_time_ns);
+println!("Throughput: {:.2} GB/s", stats.throughput_gbps());
+<span class="boring">}</span></code></pre></pre>
+<h3 id="reset_statsmut-self"><a class="header" href="#reset_statsmut-self"><code>reset_stats(&amp;mut self)</code></a></h3>
+<p>Resets statistics counters:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>compressor.reset_stats();
+<span class="boring">}</span></code></pre></pre>
+<h3 id="backendself---simdbackend"><a class="header" href="#backendself---simdbackend"><code>backend(&amp;self) -&gt; SimdBackend</code></a></h3>
+<p>Returns the active SIMD backend:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>println!("Backend: {:?}", compressor.backend());
+// Output: Avx512, Avx2, Neon, or Scalar
+<span class="boring">}</span></code></pre></pre>
+<h2 id="compressedpage"><a class="header" href="#compressedpage">CompressedPage</a></h2>
+<p>The compressed page structure:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct CompressedPage {
+    /// Compressed data
+    pub data: Vec&lt;u8&gt;,
+
+    /// Original size (always PAGE_SIZE)
+    pub original_size: usize,
+
+    /// Algorithm used
+    pub algorithm: Algorithm,
+}
+
+impl CompressedPage {
+    /// Compression ratio
+    pub fn ratio(&amp;self) -&gt; f64;
+
+    /// Bytes saved
+    pub fn bytes_saved(&amp;self) -&gt; usize;
+
+    /// Check if actually compressed
+    pub fn is_compressed(&amp;self) -&gt; bool;
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="error-handling-1"><a class="header" href="#error-handling-1">Error Handling</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::Error;
+
+match compressor.compress(&amp;page) {
+    Ok(compressed) =&gt; { /* success */ }
+    Err(Error::BufferTooSmall(msg)) =&gt; { /* buffer issue */ }
+    Err(Error::CorruptedData(msg)) =&gt; { /* corrupt input */ }
+    Err(Error::InvalidInput(msg)) =&gt; { /* invalid params */ }
+    Err(e) =&gt; { /* other error */ }
+}
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="gpu-batch-api"><a class="header" href="#gpu-batch-api">GPU Batch API</a></h1>
+<p>The GPU batch API provides high-throughput compression for large page batches.</p>
+<h2 id="gpubatchconfig"><a class="header" href="#gpubatchconfig">GpuBatchConfig</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::GpuBatchConfig;
+use trueno_zram_core::Algorithm;
+
+let config = GpuBatchConfig {
+    device_index: 0,        // CUDA device (0 = first GPU)
+    algorithm: Algorithm::Lz4,
+    batch_size: 1000,       // Pages per batch
+    async_dma: true,        // Enable async transfers
+    ring_buffer_slots: 4,   // Pipeline depth
+};
+<span class="boring">}</span></code></pre></pre>
+<h2 id="gpubatchcompressor"><a class="header" href="#gpubatchcompressor">GpuBatchCompressor</a></h2>
+<h3 id="creation"><a class="header" href="#creation">Creation</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::{GpuBatchCompressor, GpuBatchConfig};
+
+let config = GpuBatchConfig::default();
+let mut compressor = GpuBatchCompressor::new(config)?;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="batch-compression"><a class="header" href="#batch-compression">Batch Compression</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let pages: Vec&lt;[u8; PAGE_SIZE]&gt; = vec![[0u8; PAGE_SIZE]; 1000];
+let result = compressor.compress_batch(&amp;pages)?;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="statistics"><a class="header" href="#statistics">Statistics</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let stats = compressor.stats();
+
+println!("Pages compressed: {}", stats.pages_compressed);
+println!("Input bytes: {}", stats.total_bytes_in);
+println!("Output bytes: {}", stats.total_bytes_out);
+println!("Time: {} ns", stats.total_time_ns);
+println!("Ratio: {:.2}x", stats.compression_ratio());
+println!("Throughput: {:.2} GB/s", stats.throughput_gbps());
+<span class="boring">}</span></code></pre></pre>
+<h3 id="configuration-access"><a class="header" href="#configuration-access">Configuration Access</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let config = compressor.config();
+println!("Batch size: {}", config.batch_size);
+println!("Async DMA: {}", config.async_dma);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="batchresult"><a class="header" href="#batchresult">BatchResult</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct BatchResult {
+    /// Compressed pages
+    pub pages: Vec&lt;CompressedPage&gt;,
+
+    /// Host-to-device transfer time (ns)
+    pub h2d_time_ns: u64,
+
+    /// Kernel execution time (ns)
+    pub kernel_time_ns: u64,
+
+    /// Device-to-host transfer time (ns)
+    pub d2h_time_ns: u64,
+
+    /// Total wall clock time (ns)
+    pub total_time_ns: u64,
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="methods"><a class="header" href="#methods">Methods</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Throughput in bytes/second
+let throughput = result.throughput_bytes_per_sec(input_bytes);
+
+// Compression ratio
+let ratio = result.compression_ratio();
+
+// Check PCIe 5x rule
+let beneficial = result.pcie_rule_satisfied();
+<span class="boring">}</span></code></pre></pre>
+<h2 id="helper-functions"><a class="header" href="#helper-functions">Helper Functions</a></h2>
+<h3 id="gpu_available"><a class="header" href="#gpu_available"><code>gpu_available()</code></a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::gpu_available;
+
+if gpu_available() {
+    println!("CUDA GPU detected");
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="select_backend"><a class="header" href="#select_backend"><code>select_backend()</code></a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::{select_backend, BackendSelection};
+
+let backend = select_backend(batch_size, gpu_available());
+
+match backend {
+    BackendSelection::Gpu =&gt; { /* use GPU */ }
+    BackendSelection::Simd =&gt; { /* use CPU SIMD */ }
+    BackendSelection::Scalar =&gt; { /* use scalar */ }
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="meets_pcie_rule"><a class="header" href="#meets_pcie_rule"><code>meets_pcie_rule()</code></a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::meets_pcie_rule;
+
+let pages = 10000;
+let pcie_bandwidth = 64.0;  // GB/s (PCIe 5.0)
+let gpu_throughput = 500.0; // GB/s
+
+if meets_pcie_rule(pages, pcie_bandwidth, gpu_throughput) {
+    println!("GPU offload beneficial");
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="gpudeviceinfo"><a class="header" href="#gpudeviceinfo">GpuDeviceInfo</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::GpuDeviceInfo;
+
+let info = GpuDeviceInfo {
+    index: 0,
+    name: "RTX 4090".to_string(),
+    total_memory: 24 * 1024 * 1024 * 1024,
+    l2_cache_size: 72 * 1024 * 1024,
+    compute_capability: (8, 9),
+    backend: GpuBackend::Cuda,
+};
+
+println!("Optimal batch: {} pages", info.optimal_batch_size());
+println!("Supported: {}", info.is_supported());
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="kernel-compatibility-api"><a class="header" href="#kernel-compatibility-api">Kernel Compatibility API</a></h1>
+<p>The <code>compat</code> module provides sysfs interface compatibility with kernel zram.</p>
+<h2 id="sysfsinterface"><a class="header" href="#sysfsinterface">SysfsInterface</a></h2>
+<p>Emulates the kernel zram sysfs interface:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::compat::SysfsInterface;
+
+let mut interface = SysfsInterface::new();
+
+// Configure like kernel zram
+interface.write_attr("disksize", "4G")?;
+interface.write_attr("comp_algorithm", "lz4")?;
+interface.write_attr("mem_limit", "2G")?;
+
+// Read attributes
+let disksize = interface.read_attr("disksize")?;
+let algorithm = interface.read_attr("comp_algorithm")?;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="supported-attributes"><a class="header" href="#supported-attributes">Supported Attributes</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Attribute</th><th>Read</th><th>Write</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>disksize</code></td><td>Yes</td><td>Yes</td><td>Disk size in bytes</td></tr>
+<tr><td><code>comp_algorithm</code></td><td>Yes</td><td>Yes</td><td>Compression algorithm</td></tr>
+<tr><td><code>mem_limit</code></td><td>Yes</td><td>Yes</td><td>Memory limit</td></tr>
+<tr><td><code>mem_used_max</code></td><td>Yes</td><td>No</td><td>Peak memory usage</td></tr>
+<tr><td><code>mem_used_total</code></td><td>Yes</td><td>No</td><td>Current memory usage</td></tr>
+<tr><td><code>orig_data_size</code></td><td>Yes</td><td>No</td><td>Original data size</td></tr>
+<tr><td><code>compr_data_size</code></td><td>Yes</td><td>No</td><td>Compressed data size</td></tr>
+<tr><td><code>num_reads</code></td><td>Yes</td><td>No</td><td>Read count</td></tr>
+<tr><td><code>num_writes</code></td><td>Yes</td><td>No</td><td>Write count</td></tr>
+<tr><td><code>invalid_io</code></td><td>Yes</td><td>No</td><td>Invalid I/O count</td></tr>
+<tr><td><code>notify_free</code></td><td>Yes</td><td>No</td><td>Free notifications</td></tr>
+<tr><td><code>reset</code></td><td>No</td><td>Yes</td><td>Reset device</td></tr>
+</tbody></table>
+</div>
+<h2 id="algorithm-support"><a class="header" href="#algorithm-support">Algorithm Support</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::compat::{ZramAlgorithm, is_algorithm_supported};
+
+// Check algorithm support
+assert!(is_algorithm_supported("lz4"));
+assert!(is_algorithm_supported("zstd"));
+assert!(is_algorithm_supported("lzo"));  // Compatibility alias
+
+// Parse algorithm
+let algo = "lz4".parse::&lt;ZramAlgorithm&gt;()?;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="supported-algorithms"><a class="header" href="#supported-algorithms">Supported Algorithms</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Name</th><th>Alias</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>lz4</code></td><td>-</td><td>LZ4 fast compression</td></tr>
+<tr><td><code>lz4hc</code></td><td>-</td><td>LZ4 high compression</td></tr>
+<tr><td><code>zstd</code></td><td>-</td><td>Zstandard</td></tr>
+<tr><td><code>lzo</code></td><td><code>lzo-rle</code></td><td>LZO (mapped to LZ4)</td></tr>
+<tr><td><code>842</code></td><td><code>deflate</code></td><td>842/deflate (mapped to ZSTD)</td></tr>
+</tbody></table>
+</div>
+<h2 id="statistics-1"><a class="header" href="#statistics-1">Statistics</a></h2>
+<h3 id="mmstat"><a class="header" href="#mmstat">MmStat</a></h3>
+<p>Memory statistics (like <code>/sys/block/zram0/mm_stat</code>):</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::compat::MmStat;
+
+let stat = interface.mm_stat();
+
+println!("Original size: {} bytes", stat.orig_data_size);
+println!("Compressed size: {} bytes", stat.compr_data_size);
+println!("Memory used: {} bytes", stat.mem_used_total);
+println!("Memory limit: {} bytes", stat.mem_limit);
+println!("Memory max: {} bytes", stat.mem_used_max);
+println!("Same pages: {}", stat.same_pages);
+println!("Pages stored: {}", stat.pages_compacted);
+println!("Huge pages: {}", stat.huge_pages);
+<span class="boring">}</span></code></pre></pre>
+<h3 id="iostat"><a class="header" href="#iostat">IoStat</a></h3>
+<p>I/O statistics (like <code>/sys/block/zram0/io_stat</code>):</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::compat::IoStat;
+
+let stat = interface.io_stat();
+
+println!("Reads: {}", stat.num_reads);
+println!("Writes: {}", stat.num_writes);
+println!("Invalid I/O: {}", stat.invalid_io);
+println!("Notify free: {}", stat.notify_free);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="device-reset"><a class="header" href="#device-reset">Device Reset</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Reset all statistics and data
+interface.write_attr("reset", "1")?;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="integration-example"><a class="header" href="#integration-example">Integration Example</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::compat::SysfsInterface;
+use trueno_zram_core::PAGE_SIZE;
+
+let mut interface = SysfsInterface::new();
+
+// Configure
+interface.write_attr("disksize", "1G")?;
+interface.write_attr("comp_algorithm", "lz4")?;
+
+// Simulate writes
+let page = [0xAA; PAGE_SIZE];
+interface.write_page(0, &amp;page)?;
+interface.write_page(1, &amp;page)?;
+
+// Check statistics
+let mm = interface.mm_stat();
+println!("Compression ratio: {:.2}x",
+    mm.orig_data_size as f64 / mm.compr_data_size as f64);
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="benchmarks"><a class="header" href="#benchmarks">Benchmarks</a></h1>
+<h2 id="running-benchmarks"><a class="header" href="#running-benchmarks">Running Benchmarks</a></h2>
+<pre><code class="language-bash"># Criterion benchmarks
+cargo bench --all-features
+
+# With baseline comparison
+cargo bench --all-features -- --save-baseline main
+
+# Example benchmarks
+cargo run -p trueno-zram-core --example compress_benchmark --release
+</code></pre>
+<h2 id="results-summary"><a class="header" href="#results-summary">Results Summary</a></h2>
+<h3 id="lz4-performance"><a class="header" href="#lz4-performance">LZ4 Performance</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Backend</th><th>Compress</th><th>Decompress</th><th>Ratio</th></tr></thead><tbody>
+<tr><td>AVX-512</td><td>4.4 GB/s</td><td>5.4 GB/s</td><td>2-4x</td></tr>
+<tr><td>AVX2</td><td>3.2 GB/s</td><td>4.1 GB/s</td><td>2-4x</td></tr>
+<tr><td>Scalar</td><td>3.0 GB/s</td><td>3.8 GB/s</td><td>2-4x</td></tr>
+</tbody></table>
+</div>
+<h3 id="zstd-performance"><a class="header" href="#zstd-performance">ZSTD Performance</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Backend</th><th>Level</th><th>Compress</th><th>Decompress</th><th>Ratio</th></tr></thead><tbody>
+<tr><td>AVX-512</td><td>1</td><td>11.2 GB/s</td><td>46 GB/s</td><td>3-5x</td></tr>
+<tr><td>AVX-512</td><td>3</td><td>8.5 GB/s</td><td>45 GB/s</td><td>4-6x</td></tr>
+<tr><td>AVX2</td><td>1</td><td>8.5 GB/s</td><td>35 GB/s</td><td>3-5x</td></tr>
+</tbody></table>
+</div>
+<h3 id="same-fill-performance"><a class="header" href="#same-fill-performance">Same-Fill Performance</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Backend</th><th>Detection</th><th>Ratio</th></tr></thead><tbody>
+<tr><td>AVX-512</td><td>22 GB/s</td><td>2048:1</td></tr>
+<tr><td>AVX2</td><td>18 GB/s</td><td>2048:1</td></tr>
+<tr><td>Scalar</td><td>12 GB/s</td><td>2048:1</td></tr>
+</tbody></table>
+</div>
+<h2 id="data-patterns"><a class="header" href="#data-patterns">Data Patterns</a></h2>
+<h3 id="zeros-best-case"><a class="header" href="#zeros-best-case">Zeros (Best Case)</a></h3>
+<pre><code>Pattern: Zeros (100% same-fill)
+Pages: 1000
+Compression: 22 GB/s
+Decompression: 46 GB/s
+Ratio: 2048:1
+</code></pre>
+<h3 id="text-compressible"><a class="header" href="#text-compressible">Text (Compressible)</a></h3>
+<pre><code>Pattern: Text/Code
+Pages: 1000
+LZ4 Compression: 4.4 GB/s
+LZ4 Decompression: 5.4 GB/s
+Ratio: 3.2:1
+</code></pre>
+<h3 id="random-incompressible"><a class="header" href="#random-incompressible">Random (Incompressible)</a></h3>
+<pre><code>Pattern: Random bytes
+Pages: 1000
+LZ4 Compression: 1.6 GB/s
+LZ4 Decompression: 32 GB/s
+Ratio: 1.0:1 (pass-through)
+</code></pre>
+<h2 id="gpu-benchmarks"><a class="header" href="#gpu-benchmarks">GPU Benchmarks</a></h2>
+<h3 id="rtx-4090"><a class="header" href="#rtx-4090">RTX 4090</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Batch Size</th><th>Throughput</th><th>PCIe 5x</th></tr></thead><tbody>
+<tr><td>1,000</td><td>8 GB/s</td><td>No</td></tr>
+<tr><td>10,000</td><td>45 GB/s</td><td>Yes</td></tr>
+<tr><td>100,000</td><td>120 GB/s</td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<h3 id="a100"><a class="header" href="#a100">A100</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Batch Size</th><th>Throughput</th><th>PCIe 5x</th></tr></thead><tbody>
+<tr><td>1,000</td><td>12 GB/s</td><td>No</td></tr>
+<tr><td>10,000</td><td>85 GB/s</td><td>Yes</td></tr>
+<tr><td>100,000</td><td>280 GB/s</td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<h2 id="latency"><a class="header" href="#latency">Latency</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Operation</th><th>P50</th><th>P99</th><th>P99.9</th></tr></thead><tbody>
+<tr><td>LZ4 compress (4KB)</td><td>45us</td><td>85us</td><td>120us</td></tr>
+<tr><td>LZ4 decompress (4KB)</td><td>38us</td><td>72us</td><td>95us</td></tr>
+<tr><td>Same-fill detect</td><td>8us</td><td>15us</td><td>25us</td></tr>
+</tbody></table>
+</div>
+<h2 id="memory-usage"><a class="header" href="#memory-usage">Memory Usage</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Component</th><th>Memory</th></tr></thead><tbody>
+<tr><td>Hash table (LZ4)</td><td>64 KB</td></tr>
+<tr><td>Working buffer</td><td>16 KB</td></tr>
+<tr><td>ZSTD context</td><td>256 KB</td></tr>
+</tbody></table>
+</div>
+<h2 id="comparison-with-kernel-zram"><a class="header" href="#comparison-with-kernel-zram">Comparison with Kernel zram</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Metric</th><th>Kernel zram</th><th>trueno-zram</th><th>Improvement</th></tr></thead><tbody>
+<tr><td>LZ4 compress</td><td>2.8 GB/s</td><td>4.4 GB/s</td><td>+57%</td></tr>
+<tr><td>LZ4 decompress</td><td>3.5 GB/s</td><td>5.4 GB/s</td><td>+54%</td></tr>
+<tr><td>Same-fill</td><td>8 GB/s</td><td>22 GB/s</td><td>+175%</td></tr>
+</tbody></table>
+</div><div style="break-before: page; page-break-before: always;"></div><h1 id="tuning-guide"><a class="header" href="#tuning-guide">Tuning Guide</a></h1>
+<h2 id="algorithm-selection"><a class="header" href="#algorithm-selection">Algorithm Selection</a></h2>
+<h3 id="lz4-vs-zstd"><a class="header" href="#lz4-vs-zstd">LZ4 vs ZSTD</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Workload</th><th>Recommended</th><th>Reason</th></tr></thead><tbody>
+<tr><td>Real-time</td><td>LZ4</td><td>Lowest latency</td></tr>
+<tr><td>Memory-constrained</td><td>ZSTD</td><td>Better ratio</td></tr>
+<tr><td>Mixed content</td><td>Adaptive</td><td>Auto-selects</td></tr>
+<tr><td>Highly compressible</td><td>ZSTD-3</td><td>Best ratio</td></tr>
+</tbody></table>
+</div>
+<h3 id="code-example"><a class="header" href="#code-example">Code Example</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::{CompressorBuilder, Algorithm};
+
+// For latency-sensitive workloads
+let fast = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+
+// For memory-constrained systems
+let compact = CompressorBuilder::new()
+    .algorithm(Algorithm::Zstd { level: 3 })
+    .build()?;
+
+// For unknown workloads
+let adaptive = CompressorBuilder::new()
+    .algorithm(Algorithm::Adaptive)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="simd-backend-selection"><a class="header" href="#simd-backend-selection">SIMD Backend Selection</a></h2>
+<p>The library auto-detects the best backend, but you can force one:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::{CompressorBuilder, SimdBackend};
+
+// Force AVX2 (e.g., for testing)
+let compressor = CompressorBuilder::new()
+    .prefer_backend(SimdBackend::Avx2)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="gpu-batch-sizing"><a class="header" href="#gpu-batch-sizing">GPU Batch Sizing</a></h2>
+<h3 id="optimal-batch-size"><a class="header" href="#optimal-batch-size">Optimal Batch Size</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>GPU</th><th>L2 Cache</th><th>Optimal Batch</th></tr></thead><tbody>
+<tr><td>H100</td><td>50 MB</td><td>10,240 pages</td></tr>
+<tr><td>A100</td><td>40 MB</td><td>8,192 pages</td></tr>
+<tr><td>RTX 4090</td><td>72 MB</td><td>14,745 pages</td></tr>
+<tr><td>RTX 3090</td><td>6 MB</td><td>1,200 pages</td></tr>
+</tbody></table>
+</div>
+<h3 id="calculation"><a class="header" href="#calculation">Calculation</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn optimal_batch_size(l2_cache_bytes: usize) -&gt; usize {
+    // Each page needs ~3KB working memory
+    // Target 80% L2 cache utilization
+    (l2_cache_bytes * 80 / 100) / (3 * 1024)
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="async-dma"><a class="header" href="#async-dma">Async DMA</a></h2>
+<p>Enable async DMA for overlapping transfers:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let config = GpuBatchConfig {
+    async_dma: true,
+    ring_buffer_slots: 4,  // Pipeline depth
+    ..Default::default()
+};
+<span class="boring">}</span></code></pre></pre>
+<p>Benefits:</p>
+<ul>
+<li>Overlaps H2D, compute, D2H</li>
+<li>20-30% throughput improvement</li>
+<li>Higher GPU utilization</li>
+</ul>
+<h2 id="memory-configuration"><a class="header" href="#memory-configuration">Memory Configuration</a></h2>
+<h3 id="working-memory"><a class="header" href="#working-memory">Working Memory</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Per-thread memory usage
+const LZ4_HASH_TABLE: usize = 64 * 1024;   // 64 KB
+const ZSTD_CONTEXT: usize = 256 * 1024;     // 256 KB
+const WORKING_BUFFER: usize = 16 * 1024;    // 16 KB
+<span class="boring">}</span></code></pre></pre>
+<h3 id="reducing-memory"><a class="header" href="#reducing-memory">Reducing Memory</a></h3>
+<p>For memory-constrained systems:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Use LZ4 (smaller context)
+.algorithm(Algorithm::Lz4)
+
+// Smaller batch sizes
+let config = GpuBatchConfig {
+    batch_size: 100,
+    ..Default::default()
+};
+<span class="boring">}</span></code></pre></pre>
+<h2 id="monitoring-performance"><a class="header" href="#monitoring-performance">Monitoring Performance</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+
+// Process pages...
+
+let stats = compressor.stats();
+
+// Check throughput
+if stats.throughput_gbps() &lt; 3.0 {
+    println!("Warning: Low throughput, check CPU affinity");
+}
+
+// Check ratio
+if stats.ratio() &lt; 1.5 {
+    println!("Warning: Low compression, data may be incompressible");
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="cpu-affinity"><a class="header" href="#cpu-affinity">CPU Affinity</a></h2>
+<p>For best performance, pin compression threads to physical cores:</p>
+<pre><code class="language-bash"># Linux: Pin to cores 0-3
+taskset -c 0-3 ./my_app
+
+# Check NUMA topology
+numactl --hardware
+</code></pre>
+<h2 id="kernel-parameters"><a class="header" href="#kernel-parameters">Kernel Parameters</a></h2>
+<p>For zram integration:</p>
+<pre><code class="language-bash"># Increase zram size
+echo $((8 * 1024 * 1024 * 1024)) &gt; /sys/block/zram0/disksize
+
+# Set compression streams
+echo 4 &gt; /sys/block/zram0/max_comp_streams
+
+# Enable writeback
+echo 1 &gt; /sys/block/zram0/writeback
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="pcie-5x-rule"><a class="header" href="#pcie-5x-rule">PCIe 5x Rule</a></h1>
+<p>The PCIe 5x rule determines when GPU offload is beneficial for compression.</p>
+<h2 id="the-rule"><a class="header" href="#the-rule">The Rule</a></h2>
+<pre><code>GPU beneficial when: T_compute &gt; 5 × T_transfer
+</code></pre>
+<p>Where:</p>
+<ul>
+<li><code>T_compute</code> = CPU computation time</li>
+<li><code>T_transfer</code> = PCIe transfer time (H2D + D2H)</li>
+</ul>
+<h2 id="why-5x"><a class="header" href="#why-5x">Why 5x?</a></h2>
+<p>GPU offload has overhead:</p>
+<ol>
+<li><strong>H2D transfer</strong>: Copy data to GPU</li>
+<li><strong>Kernel launch</strong>: ~5-10us overhead</li>
+<li><strong>D2H transfer</strong>: Copy results back</li>
+<li><strong>Synchronization</strong>: Wait for completion</li>
+</ol>
+<p>The 5x factor accounts for these overheads and ensures GPU provides net benefit.</p>
+<h2 id="calculation-1"><a class="header" href="#calculation-1">Calculation</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::meets_pcie_rule;
+use trueno_zram_core::PAGE_SIZE;
+
+fn check_gpu_benefit(
+    pages: usize,
+    pcie_bandwidth_gbps: f64,
+    gpu_throughput_gbps: f64,
+) -&gt; bool {
+    let data_bytes = pages * PAGE_SIZE;
+
+    // Transfer time (round trip)
+    let transfer_time = 2.0 * data_bytes as f64 / (pcie_bandwidth_gbps * 1e9);
+
+    // GPU compute time
+    let gpu_time = data_bytes as f64 / (gpu_throughput_gbps * 1e9);
+
+    // CPU compute time (assume 4 GB/s baseline)
+    let cpu_time = data_bytes as f64 / (4e9);
+
+    // GPU beneficial if saves time
+    cpu_time &gt; (transfer_time + gpu_time) * 1.2  // 20% margin
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="examples-1"><a class="header" href="#examples-1">Examples</a></h2>
+<h3 id="pcie-40-x16-25-gbs"><a class="header" href="#pcie-40-x16-25-gbs">PCIe 4.0 x16 (25 GB/s)</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Batch</th><th>Data Size</th><th>Transfer</th><th>GPU Time</th><th>Beneficial?</th></tr></thead><tbody>
+<tr><td>100</td><td>400 KB</td><td>32 us</td><td>4 us</td><td>No</td></tr>
+<tr><td>1,000</td><td>4 MB</td><td>320 us</td><td>40 us</td><td>Marginal</td></tr>
+<tr><td>10,000</td><td>40 MB</td><td>3.2 ms</td><td>400 us</td><td>Yes</td></tr>
+<tr><td>100,000</td><td>400 MB</td><td>32 ms</td><td>4 ms</td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<h3 id="pcie-50-x16-64-gbs"><a class="header" href="#pcie-50-x16-64-gbs">PCIe 5.0 x16 (64 GB/s)</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Batch</th><th>Data Size</th><th>Transfer</th><th>GPU Time</th><th>Beneficial?</th></tr></thead><tbody>
+<tr><td>1,000</td><td>4 MB</td><td>125 us</td><td>40 us</td><td>No</td></tr>
+<tr><td>10,000</td><td>40 MB</td><td>1.25 ms</td><td>400 us</td><td>Yes</td></tr>
+<tr><td>100,000</td><td>400 MB</td><td>12.5 ms</td><td>4 ms</td><td>Yes</td></tr>
+</tbody></table>
+</div>
+<h2 id="checking-in-code"><a class="header" href="#checking-in-code">Checking in Code</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::{GpuBatchCompressor, GpuBatchConfig};
+
+let mut compressor = GpuBatchCompressor::new(config)?;
+let result = compressor.compress_batch(&amp;pages)?;
+
+if result.pcie_rule_satisfied() {
+    println!("GPU offload was beneficial");
+    println!("Kernel time: {} ns", result.kernel_time_ns);
+    println!("Transfer time: {} ns",
+        result.h2d_time_ns + result.d2h_time_ns);
+} else {
+    println!("Consider using CPU for this batch size");
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="backend-selection-1"><a class="header" href="#backend-selection-1">Backend Selection</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::gpu::{select_backend, BackendSelection, gpu_available};
+
+let batch_size = 5000;
+let has_gpu = gpu_available();
+
+match select_backend(batch_size, has_gpu) {
+    BackendSelection::Gpu =&gt; {
+        // Use GPU batch compression
+    }
+    BackendSelection::Simd =&gt; {
+        // Use CPU SIMD compression
+    }
+    BackendSelection::Scalar =&gt; {
+        // Use scalar compression
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="optimization-tips"><a class="header" href="#optimization-tips">Optimization Tips</a></h2>
+<ol>
+<li><strong>Batch larger</strong>: Combine small batches into larger ones</li>
+<li><strong>Use async DMA</strong>: Overlap transfers with computation</li>
+<li><strong>Profile first</strong>: Measure actual transfer times</li>
+<li><strong>Consider hybrid</strong>: Use CPU for small batches, GPU for large</li>
+</ol>
+<h2 id="hardware-specific-thresholds"><a class="header" href="#hardware-specific-thresholds">Hardware-Specific Thresholds</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>GPU</th><th>PCIe</th><th>Min Beneficial Batch</th></tr></thead><tbody>
+<tr><td>H100</td><td>5.0 x16</td><td>5,000 pages</td></tr>
+<tr><td>A100</td><td>4.0 x16</td><td>8,000 pages</td></tr>
+<tr><td>RTX 4090</td><td>4.0 x16</td><td>10,000 pages</td></tr>
+<tr><td>RTX 3090</td><td>4.0 x16</td><td>12,000 pages</td></tr>
+</tbody></table>
+</div><div style="break-before: page; page-break-before: always;"></div><h1 id="design-overview"><a class="header" href="#design-overview">Design Overview</a></h1>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<pre><code>┌─────────────────────────────────────────────────────────┐
+│                    Public API                           │
+│  CompressorBuilder, Algorithm, CompressedPage           │
+├─────────────────────────────────────────────────────────┤
+│                 Algorithm Selection                      │
+│  ┌─────────┐  ┌─────────┐  ┌──────────┐  ┌─────────┐   │
+│  │   LZ4   │  │  ZSTD   │  │ Adaptive │  │Samefill │   │
+│  └────┬────┘  └────┬────┘  └────┬─────┘  └────┬────┘   │
+├───────┼────────────┼────────────┼─────────────┼────────┤
+│       │     SIMD Dispatch       │             │         │
+│  ┌────▼────┐  ┌────▼────┐  ┌───▼───┐  ┌─────▼─────┐   │
+│  │ AVX-512 │  │  AVX2   │  │ NEON  │  │  Scalar   │   │
+│  └─────────┘  └─────────┘  └───────┘  └───────────┘   │
+├─────────────────────────────────────────────────────────┤
+│                   GPU Backend (Optional)                 │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  CUDA Batch Compressor (trueno-gpu PTX)         │   │
+│  │  ├── H2D Transfer                               │   │
+│  │  ├── Warp-Cooperative LZ4 Kernel                │   │
+│  │  └── D2H Transfer                               │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+</code></pre>
+<h2 id="crate-structure"><a class="header" href="#crate-structure">Crate Structure</a></h2>
+<pre><code>trueno-zram/
+├── crates/
+│   ├── trueno-zram-core/     # Core compression library
+│   │   ├── src/
+│   │   │   ├── lib.rs        # Public API
+│   │   │   ├── error.rs      # Error types
+│   │   │   ├── page.rs       # CompressedPage
+│   │   │   ├── lz4/          # LZ4 implementation
+│   │   │   ├── zstd/         # ZSTD implementation
+│   │   │   ├── gpu/          # GPU batch compression
+│   │   │   ├── simd/         # SIMD detection/dispatch
+│   │   │   ├── samefill.rs   # Same-fill detection
+│   │   │   ├── compat.rs     # Kernel compatibility
+│   │   │   └── benchmark.rs  # Benchmarking utilities
+│   │   └── examples/
+│   ├── trueno-zram-adaptive/ # ML-driven selection
+│   ├── trueno-zram-generator/# systemd integration
+│   └── trueno-zram-cli/      # CLI tool
+└── bins/
+    └── trueno-ublk/          # ublk daemon
+</code></pre>
+<h2 id="key-design-decisions"><a class="header" href="#key-design-decisions">Key Design Decisions</a></h2>
+<h3 id="1-runtime-simd-dispatch"><a class="header" href="#1-runtime-simd-dispatch">1. Runtime SIMD Dispatch</a></h3>
+<p>CPU features are detected at runtime, not compile time:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Detection happens once at startup
+let features = simd::detect();
+
+// Dispatch based on available features
+if features.has_avx512() {
+    lz4::avx512::compress(input, output)
+} else if features.has_avx2() {
+    lz4::avx2::compress(input, output)
+} else {
+    lz4::scalar::compress(input, output)
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="2-page-based-compression"><a class="header" href="#2-page-based-compression">2. Page-Based Compression</a></h3>
+<p>All compression operates on fixed 4KB pages:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub const PAGE_SIZE: usize = 4096;
+
+// This is enforced at the type level
+pub fn compress(page: &amp;[u8; PAGE_SIZE]) -&gt; Result&lt;CompressedPage&gt;;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="3-builder-pattern"><a class="header" href="#3-builder-pattern">3. Builder Pattern</a></h3>
+<p>Configuration via builder pattern:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .prefer_backend(SimdBackend::Avx512)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="4-trait-based-abstraction"><a class="header" href="#4-trait-based-abstraction">4. Trait-Based Abstraction</a></h3>
+<p>The <code>PageCompressor</code> trait enables polymorphism:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait PageCompressor {
+    fn compress(&amp;self, page: &amp;[u8; PAGE_SIZE]) -&gt; Result&lt;CompressedPage&gt;;
+    fn decompress(&amp;self, page: &amp;CompressedPage) -&gt; Result&lt;[u8; PAGE_SIZE]&gt;;
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="5-zero-copy-where-possible"><a class="header" href="#5-zero-copy-where-possible">5. Zero-Copy Where Possible</a></h3>
+<p>Minimize allocations in hot paths:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Output buffer passed in, not allocated
+fn compress_into(input: &amp;[u8], output: &amp;mut [u8]) -&gt; Result&lt;usize&gt;;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="6-no-panics-in-library-code"><a class="header" href="#6-no-panics-in-library-code">6. No Panics in Library Code</a></h3>
+<p>All errors are returned as <code>Result</code>:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span>#![deny(clippy::panic)]
+#![deny(clippy::unwrap_used)]
+<span class="boring">fn main() {
+</span><span class="boring">}</span></code></pre></pre>
+<h2 id="dependencies"><a class="header" href="#dependencies">Dependencies</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Crate</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>thiserror</code></td><td>Error derive macros</td></tr>
+<tr><td><code>cudarc</code></td><td>CUDA driver bindings</td></tr>
+<tr><td><code>rayon</code></td><td>Parallel iteration</td></tr>
+<tr><td><code>trueno-gpu</code></td><td>Pure Rust PTX generation</td></tr>
+</tbody></table>
+</div>
+<h2 id="feature-flags-1"><a class="header" href="#feature-flags-1">Feature Flags</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>std</code></td><td>Yes</td><td>Standard library</td></tr>
+<tr><td><code>nightly</code></td><td>No</td><td>Nightly SIMD features</td></tr>
+<tr><td><code>cuda</code></td><td>No</td><td>CUDA GPU support</td></tr>
+</tbody></table>
+</div><div style="break-before: page; page-break-before: always;"></div><h1 id="simd-dispatch"><a class="header" href="#simd-dispatch">SIMD Dispatch</a></h1>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>trueno-zram uses runtime CPU feature detection to select the optimal SIMD implementation.</p>
+<h2 id="detection-1"><a class="header" href="#detection-1">Detection</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// src/simd/detect.rs
+
+pub fn detect() -&gt; SimdFeatures {
+    #[cfg(target_arch = "x86_64")]
+    {
+        SimdFeatures {
+            avx512: is_x86_feature_detected!("avx512f")
+                &amp;&amp; is_x86_feature_detected!("avx512bw")
+                &amp;&amp; is_x86_feature_detected!("avx512vl"),
+            avx2: is_x86_feature_detected!("avx2"),
+            sse42: is_x86_feature_detected!("sse4.2"),
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        SimdFeatures {
+            neon: true, // Always available on AArch64
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="dispatch-pattern"><a class="header" href="#dispatch-pattern">Dispatch Pattern</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// src/simd/dispatch.rs
+
+pub fn compress(input: &amp;[u8], output: &amp;mut [u8]) -&gt; Result&lt;usize&gt; {
+    let features = detect();
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        if features.has_avx512() {
+            return unsafe { avx512::compress(input, output) };
+        }
+        if features.has_avx2() {
+            return unsafe { avx2::compress(input, output) };
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        if features.has_neon() {
+            return unsafe { neon::compress(input, output) };
+        }
+    }
+
+    scalar::compress(input, output)
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="implementation-structure"><a class="header" href="#implementation-structure">Implementation Structure</a></h2>
+<p>Each algorithm has separate implementations:</p>
+<pre><code>lz4/
+├── mod.rs          # Public API, dispatch
+├── compress.rs     # Core algorithm logic
+├── decompress.rs   # Decompression
+├── avx512.rs       # AVX-512 specialization
+├── avx2.rs         # AVX2 specialization
+├── neon.rs         # ARM NEON specialization
+└── scalar.rs       # Fallback implementation
+</code></pre>
+<h2 id="avx-512-implementation"><a class="header" href="#avx-512-implementation">AVX-512 Implementation</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// lz4/avx512.rs
+
+#[target_feature(enable = "avx512f,avx512bw,avx512vl")]
+pub unsafe fn compress(input: &amp;[u8], output: &amp;mut [u8]) -&gt; Result&lt;usize&gt; {
+    // 64-byte hash table lookups
+    let hash_chunk = _mm512_loadu_si512(input.as_ptr());
+
+    // Parallel match finding
+    let matches = _mm512_cmpeq_epi32(hash_chunk, pattern);
+
+    // Wide literal copies
+    _mm512_storeu_si512(output.as_mut_ptr(), data);
+
+    // ...
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="avx2-implementation"><a class="header" href="#avx2-implementation">AVX2 Implementation</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// lz4/avx2.rs
+
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress(input: &amp;[u8], output: &amp;mut [u8]) -&gt; Result&lt;usize&gt; {
+    // 32-byte operations
+    let chunk = _mm256_loadu_si256(input.as_ptr());
+
+    // Match extension
+    let cmp = _mm256_cmpeq_epi8(src, dst);
+    let mask = _mm256_movemask_epi8(cmp);
+
+    // ...
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="neon-implementation"><a class="header" href="#neon-implementation">NEON Implementation</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// lz4/neon.rs
+
+#[cfg(target_arch = "aarch64")]
+pub unsafe fn compress(input: &amp;[u8], output: &amp;mut [u8]) -&gt; Result&lt;usize&gt; {
+    use std::arch::aarch64::*;
+
+    // 16-byte operations
+    let chunk = vld1q_u8(input.as_ptr());
+
+    // Parallel comparison
+    let cmp = vceqq_u8(src, dst);
+
+    // ...
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="benchmarking-dispatch"><a class="header" href="#benchmarking-dispatch">Benchmarking Dispatch</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::simd::{detect, SimdBackend};
+
+fn benchmark_all_backends() {
+    let features = detect();
+    let input = [0xAA; PAGE_SIZE];
+    let mut output = [0u8; PAGE_SIZE * 2];
+
+    // Benchmark available backends
+    if features.has_avx512() {
+        bench("AVX-512", || avx512::compress(&amp;input, &amp;mut output));
+    }
+    if features.has_avx2() {
+        bench("AVX2", || avx2::compress(&amp;input, &amp;mut output));
+    }
+    bench("Scalar", || scalar::compress(&amp;input, &amp;mut output));
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="compile-time-optimization"><a class="header" href="#compile-time-optimization">Compile-Time Optimization</a></h2>
+<p>For maximum performance, enable target features:</p>
+<pre><code class="language-toml"># .cargo/config.toml
+[build]
+rustflags = ["-C", "target-cpu=native"]
+</code></pre>
+<p>Or for specific features:</p>
+<pre><code class="language-toml">rustflags = ["-C", "target-feature=+avx2,+avx512f,+avx512bw"]
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="gpu-pipeline"><a class="header" href="#gpu-pipeline">GPU Pipeline</a></h1>
+<h2 id="overview-1"><a class="header" href="#overview-1">Overview</a></h2>
+<p>The GPU pipeline uses CUDA for batch compression with async DMA.</p>
+<pre><code>┌────────────┐    ┌────────────┐    ┌────────────┐    ┌────────────┐
+│   Host     │───▶│    H2D     │───▶│   Kernel   │───▶│    D2H     │
+│   Memory   │    │  Transfer  │    │  Execution │    │  Transfer  │
+└────────────┘    └────────────┘    └────────────┘    └────────────┘
+      ▲                                                      │
+      └──────────────────────────────────────────────────────┘
+</code></pre>
+<h2 id="pipeline-stages"><a class="header" href="#pipeline-stages">Pipeline Stages</a></h2>
+<h3 id="1-host-to-device-transfer"><a class="header" href="#1-host-to-device-transfer">1. Host-to-Device Transfer</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn transfer_to_device(&amp;self, pages: &amp;[[u8; PAGE_SIZE]]) -&gt; Result&lt;CudaSlice&lt;u8&gt;&gt; {
+    // Flatten pages into contiguous buffer
+    let total_bytes = pages.len() * PAGE_SIZE;
+    let mut flat_data = Vec::with_capacity(total_bytes);
+    for page in pages {
+        flat_data.extend_from_slice(page);
+    }
+
+    // Async copy to device
+    let device_buffer = self.stream.clone_htod(&amp;flat_data)?;
+    Ok(device_buffer)
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="2-kernel-execution"><a class="header" href="#2-kernel-execution">2. Kernel Execution</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn execute_kernel(&amp;self, input: &amp;CudaSlice&lt;u8&gt;, batch_size: u32) -&gt; Result&lt;CudaSlice&lt;u8&gt;&gt; {
+    // Allocate output buffer
+    let mut output = self.stream.alloc_zeros::&lt;u8&gt;(batch_size as usize * PAGE_SIZE)?;
+    let mut sizes = self.stream.alloc_zeros::&lt;u32&gt;(batch_size as usize)?;
+
+    // Launch kernel
+    // Grid: ceil(batch_size / 4) blocks
+    // Block: 128 threads (4 warps)
+    unsafe {
+        self.stream
+            .launch_builder(&amp;self.kernel_fn)
+            .arg(&amp;input)
+            .arg(&amp;mut output)
+            .arg(&amp;mut sizes)
+            .arg(&amp;batch_size)
+            .launch(cfg)?;
+    }
+
+    self.stream.synchronize()?;
+    Ok(output)
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="3-device-to-host-transfer"><a class="header" href="#3-device-to-host-transfer">3. Device-to-Host Transfer</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn transfer_from_device(&amp;self, data: CudaSlice&lt;u8&gt;) -&gt; Result&lt;Vec&lt;CompressedPage&gt;&gt; {
+    let output = self.stream.clone_dtoh(&amp;data)?;
+
+    // Convert to CompressedPage structures
+    // ...
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="warp-cooperative-kernel"><a class="header" href="#warp-cooperative-kernel">Warp-Cooperative Kernel</a></h2>
+<p>The LZ4 kernel uses warp-cooperative compression:</p>
+<pre><code>Block (128 threads)
+├── Warp 0 (32 threads) → Page 0
+├── Warp 1 (32 threads) → Page 1
+├── Warp 2 (32 threads) → Page 2
+└── Warp 3 (32 threads) → Page 3
+</code></pre>
+<h3 id="shared-memory-layout"><a class="header" href="#shared-memory-layout">Shared Memory Layout</a></h3>
+<pre><code>Shared Memory (48 KB per block)
+├── Warp 0: 12 KB (hash table + working)
+├── Warp 1: 12 KB
+├── Warp 2: 12 KB
+└── Warp 3: 12 KB
+</code></pre>
+<h3 id="ptx-generation"><a class="header" href="#ptx-generation">PTX Generation</a></h3>
+<p>Using trueno-gpu for pure Rust PTX:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_gpu::kernels::lz4::Lz4WarpCompressKernel;
+use trueno_gpu::kernels::Kernel;
+
+let kernel = Lz4WarpCompressKernel::new(65536);
+let ptx_string = kernel.emit_ptx();
+
+// Load PTX into CUDA module
+let ptx = Ptx::from(ptx_string);
+let module = context.load_module(ptx)?;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="async-dma-ring-buffer"><a class="header" href="#async-dma-ring-buffer">Async DMA Ring Buffer</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct AsyncPipeline {
+    slots: Vec&lt;PipelineSlot&gt;,
+    head: usize,
+    tail: usize,
+}
+
+struct PipelineSlot {
+    input_buffer: CudaSlice&lt;u8&gt;,
+    output_buffer: CudaSlice&lt;u8&gt;,
+    event: CudaEvent,
+    state: SlotState,
+}
+
+enum SlotState {
+    Free,
+    H2DInProgress,
+    KernelInProgress,
+    D2HInProgress,
+    Complete,
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="pipelining"><a class="header" href="#pipelining">Pipelining</a></h3>
+<pre><code>Time ──────────────────────────────────────────────▶
+
+Slot 0: [H2D][Kernel][D2H]
+Slot 1:      [H2D][Kernel][D2H]
+Slot 2:           [H2D][Kernel][D2H]
+Slot 3:                [H2D][Kernel][D2H]
+</code></pre>
+<h2 id="performance-optimization"><a class="header" href="#performance-optimization">Performance Optimization</a></h2>
+<h3 id="1-pinned-memory"><a class="header" href="#1-pinned-memory">1. Pinned Memory</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Use pinned (page-locked) memory for faster transfers
+let pinned_buffer = cuda_malloc_host(size)?;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="2-stream-overlap"><a class="header" href="#2-stream-overlap">2. Stream Overlap</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Use separate streams for H2D, compute, D2H
+let h2d_stream = context.create_stream()?;
+let compute_stream = context.create_stream()?;
+let d2h_stream = context.create_stream()?;
+<span class="boring">}</span></code></pre></pre>
+<h3 id="3-kernel-occupancy"><a class="header" href="#3-kernel-occupancy">3. Kernel Occupancy</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Optimal: 4 warps per block = 128 threads
+// Shared memory: 48 KB (12 KB per warp)
+// Registers: ~32 per thread
+<span class="boring">}</span></code></pre></pre>
+<h2 id="error-handling-2"><a class="header" href="#error-handling-2">Error Handling</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>match kernel_result {
+    Ok(output) =&gt; process_output(output),
+    Err(CudaError::IllegalAddress) =&gt; {
+        // Memory access violation
+        fallback_to_cpu()?
+    }
+    Err(CudaError::LaunchFailed) =&gt; {
+        // Kernel launch failed
+        fallback_to_cpu()?
+    }
+    Err(e) =&gt; Err(Error::GpuNotAvailable(e.to_string())),
+}
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="contributing"><a class="header" href="#contributing">Contributing</a></h1>
+<h2 id="development-setup"><a class="header" href="#development-setup">Development Setup</a></h2>
+<pre><code class="language-bash"># Clone the repository
+git clone https://github.com/paiml/trueno-zram
+cd trueno-zram
+
+# Build
+cargo build --all-features
+
+# Run tests
+cargo test --workspace --all-features
+
+# Run with CUDA
+cargo test --workspace --features cuda
+</code></pre>
+<h2 id="code-style"><a class="header" href="#code-style">Code Style</a></h2>
+<ul>
+<li>Format with <code>cargo fmt</code></li>
+<li>Lint with <code>cargo clippy --all-features -- -D warnings</code></li>
+<li>No panics in library code</li>
+<li>All public items must be documented</li>
+</ul>
+<h2 id="testing"><a class="header" href="#testing">Testing</a></h2>
+<h3 id="unit-tests"><a class="header" href="#unit-tests">Unit Tests</a></h3>
+<pre><code class="language-bash">cargo test --workspace --all-features
+</code></pre>
+<h3 id="coverage"><a class="header" href="#coverage">Coverage</a></h3>
+<pre><code class="language-bash">cargo llvm-cov --workspace --all-features
+</code></pre>
+<p>Target: 95% line coverage.</p>
+<h3 id="mutation-testing"><a class="header" href="#mutation-testing">Mutation Testing</a></h3>
+<pre><code class="language-bash">cargo mutants --package trueno-zram-core
+</code></pre>
+<p>Target: 80% mutation score.</p>
+<h2 id="quality-gates"><a class="header" href="#quality-gates">Quality Gates</a></h2>
+<p>Before submitting a PR:</p>
+<ol>
+<li><strong>Formatting</strong>: <code>cargo fmt --check</code></li>
+<li><strong>Linting</strong>: <code>cargo clippy --all-features -- -D warnings</code></li>
+<li><strong>Tests</strong>: <code>cargo test --workspace --all-features</code></li>
+<li><strong>Documentation</strong>: <code>cargo doc --no-deps</code></li>
+<li><strong>Coverage</strong>: &gt;= 95%</li>
+</ol>
+<h2 id="commit-messages"><a class="header" href="#commit-messages">Commit Messages</a></h2>
+<p>Follow conventional commits:</p>
+<pre><code>feat: Add new compression algorithm
+fix: Handle edge case in decompression
+perf: Optimize hash table lookup
+docs: Update API documentation
+test: Add property-based tests
+refactor: Simplify SIMD dispatch
+</code></pre>
+<p>Always reference the work item:</p>
+<pre><code>feat: Add GPU batch compression (Refs ZRAM-001)
+</code></pre>
+<h2 id="pull-request-process"><a class="header" href="#pull-request-process">Pull Request Process</a></h2>
+<ol>
+<li>Fork the repository</li>
+<li>Create a feature branch</li>
+<li>Make changes with tests</li>
+<li>Run quality gates</li>
+<li>Submit PR with description</li>
+<li>Address review feedback</li>
+</ol>
+<h2 id="architecture-1"><a class="header" href="#architecture-1">Architecture</a></h2>
+<p>See <a href="./architecture/overview.html">Design Overview</a> for architecture decisions.</p>
+<h2 id="adding-a-new-algorithm"><a class="header" href="#adding-a-new-algorithm">Adding a New Algorithm</a></h2>
+<ol>
+<li>Create module in <code>src/algorithms/</code></li>
+<li>Implement <code>PageCompressor</code> trait</li>
+<li>Add SIMD implementations</li>
+<li>Add to <code>Algorithm</code> enum</li>
+<li>Write tests and benchmarks</li>
+<li>Update documentation</li>
+</ol>
+<h2 id="adding-simd-backend"><a class="header" href="#adding-simd-backend">Adding SIMD Backend</a></h2>
+<ol>
+<li>Add detection in <code>src/simd/detect.rs</code></li>
+<li>Create implementation file (e.g., <code>avx512.rs</code>)</li>
+<li>Add dispatch in <code>src/simd/dispatch.rs</code></li>
+<li>Write correctness tests</li>
+<li>Run benchmarks</li>
+</ol>
+<h2 id="reporting-issues"><a class="header" href="#reporting-issues">Reporting Issues</a></h2>
+<p>Use GitHub Issues with:</p>
+<ul>
+<li>Clear description</li>
+<li>Reproduction steps</li>
+<li>Expected vs actual behavior</li>
+<li>System info (CPU, OS, Rust version)</li>
+</ul>
+<h2 id="license-1"><a class="header" href="#license-1">License</a></h2>
+<p>Contributions are licensed under MIT OR Apache-2.0.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="changelog"><a class="header" href="#changelog">Changelog</a></h1>
+<p>All notable changes to this project will be documented in this file.</p>
+<p>The format is based on <a href="https://keepachangelog.com/en/1.0.0/">Keep a Changelog</a>,
+and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
+<h2 id="010---2025-01-04"><a class="header" href="#010---2025-01-04"><a href="https://github.com/paiml/trueno-zram/releases/tag/v0.1.0">0.1.0</a> - 2025-01-04</a></h2>
+<h3 id="added"><a class="header" href="#added">Added</a></h3>
+<ul>
+<li>
+<p><strong>Core compression library</strong> (<code>trueno-zram-core</code>)</p>
+<ul>
+<li>LZ4 compression with AVX2/AVX-512/NEON acceleration</li>
+<li>ZSTD compression with SIMD optimization</li>
+<li>Runtime CPU feature detection and dispatch</li>
+<li>Same-fill detection for 2048:1 zero page compression</li>
+</ul>
+</li>
+<li>
+<p><strong>GPU batch compression</strong></p>
+<ul>
+<li>CUDA support via cudarc</li>
+<li>Pure Rust PTX generation via trueno-gpu</li>
+<li>Warp-cooperative LZ4 kernel (4 warps/block)</li>
+<li>PCIe 5x rule evaluation</li>
+<li>Async DMA ring buffer support</li>
+</ul>
+</li>
+<li>
+<p><strong>Kernel compatibility</strong></p>
+<ul>
+<li>Sysfs interface compatible with kernel zram</li>
+<li>Algorithm compatibility layer</li>
+<li>Statistics matching kernel format</li>
+</ul>
+</li>
+<li>
+<p><strong>Benchmarking utilities</strong></p>
+<ul>
+<li>Criterion benchmarks</li>
+<li>Example programs for testing</li>
+<li>Performance measurement infrastructure</li>
+</ul>
+</li>
+</ul>
+<h3 id="performance-1"><a class="header" href="#performance-1">Performance</a></h3>
+<ul>
+<li>LZ4 compression: 4.4 GB/s (AVX-512)</li>
+<li>LZ4 decompression: 5.4 GB/s (AVX-512)</li>
+<li>ZSTD compression: 11.2 GB/s (AVX-512)</li>
+<li>ZSTD decompression: 46 GB/s (AVX-512)</li>
+<li>Same-fill detection: 22 GB/s</li>
+</ul>
+<h3 id="infrastructure"><a class="header" href="#infrastructure">Infrastructure</a></h3>
+<ul>
+<li>Published to crates.io as <code>trueno-zram-core</code></li>
+<li>461 tests passing</li>
+<li>94% test coverage</li>
+<li>Full documentation with mdBook</li>
+</ul>
+<h2 id="unreleased"><a class="header" href="#unreleased"><a href="https://github.com/paiml/trueno-zram/compare/v0.1.0...HEAD">Unreleased</a></a></h2>
+<h3 id="planned"><a class="header" href="#planned">Planned</a></h3>
+<ul>
+<li>trueno-zram-adaptive: ML-driven algorithm selection</li>
+<li>trueno-zram-generator: systemd integration</li>
+<li>trueno-zram-cli: zramctl replacement</li>
+<li>trueno-ublk: ublk daemon for kernel bypass</li>
+</ul>
+<hr />
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+        <script src="ace.js"></script>
+        <script src="editor.js"></script>
+        <script src="mode-rust.js"></script>
+        <script src="theme-dawn.js"></script>
+        <script src="theme-tomorrow_night.js"></script>
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+    </div>
+    </body>
+</html>

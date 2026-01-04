@@ -1,0 +1,354 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Tuning Guide - trueno-zram</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="SIMD and GPU-accelerated memory compression for Linux">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "rust";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">trueno-zram</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/paiml/trueno-zram" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/paiml/trueno-zram/edit/main/book/src/performance/tuning.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="tuning-guide"><a class="header" href="#tuning-guide">Tuning Guide</a></h1>
+<h2 id="algorithm-selection"><a class="header" href="#algorithm-selection">Algorithm Selection</a></h2>
+<h3 id="lz4-vs-zstd"><a class="header" href="#lz4-vs-zstd">LZ4 vs ZSTD</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Workload</th><th>Recommended</th><th>Reason</th></tr></thead><tbody>
+<tr><td>Real-time</td><td>LZ4</td><td>Lowest latency</td></tr>
+<tr><td>Memory-constrained</td><td>ZSTD</td><td>Better ratio</td></tr>
+<tr><td>Mixed content</td><td>Adaptive</td><td>Auto-selects</td></tr>
+<tr><td>Highly compressible</td><td>ZSTD-3</td><td>Best ratio</td></tr>
+</tbody></table>
+</div>
+<h3 id="code-example"><a class="header" href="#code-example">Code Example</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::{CompressorBuilder, Algorithm};
+
+// For latency-sensitive workloads
+let fast = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+
+// For memory-constrained systems
+let compact = CompressorBuilder::new()
+    .algorithm(Algorithm::Zstd { level: 3 })
+    .build()?;
+
+// For unknown workloads
+let adaptive = CompressorBuilder::new()
+    .algorithm(Algorithm::Adaptive)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="simd-backend-selection"><a class="header" href="#simd-backend-selection">SIMD Backend Selection</a></h2>
+<p>The library auto-detects the best backend, but you can force one:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use trueno_zram_core::{CompressorBuilder, SimdBackend};
+
+// Force AVX2 (e.g., for testing)
+let compressor = CompressorBuilder::new()
+    .prefer_backend(SimdBackend::Avx2)
+    .build()?;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="gpu-batch-sizing"><a class="header" href="#gpu-batch-sizing">GPU Batch Sizing</a></h2>
+<h3 id="optimal-batch-size"><a class="header" href="#optimal-batch-size">Optimal Batch Size</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>GPU</th><th>L2 Cache</th><th>Optimal Batch</th></tr></thead><tbody>
+<tr><td>H100</td><td>50 MB</td><td>10,240 pages</td></tr>
+<tr><td>A100</td><td>40 MB</td><td>8,192 pages</td></tr>
+<tr><td>RTX 4090</td><td>72 MB</td><td>14,745 pages</td></tr>
+<tr><td>RTX 3090</td><td>6 MB</td><td>1,200 pages</td></tr>
+</tbody></table>
+</div>
+<h3 id="calculation"><a class="header" href="#calculation">Calculation</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn optimal_batch_size(l2_cache_bytes: usize) -&gt; usize {
+    // Each page needs ~3KB working memory
+    // Target 80% L2 cache utilization
+    (l2_cache_bytes * 80 / 100) / (3 * 1024)
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="async-dma"><a class="header" href="#async-dma">Async DMA</a></h2>
+<p>Enable async DMA for overlapping transfers:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let config = GpuBatchConfig {
+    async_dma: true,
+    ring_buffer_slots: 4,  // Pipeline depth
+    ..Default::default()
+};
+<span class="boring">}</span></code></pre></pre>
+<p>Benefits:</p>
+<ul>
+<li>Overlaps H2D, compute, D2H</li>
+<li>20-30% throughput improvement</li>
+<li>Higher GPU utilization</li>
+</ul>
+<h2 id="memory-configuration"><a class="header" href="#memory-configuration">Memory Configuration</a></h2>
+<h3 id="working-memory"><a class="header" href="#working-memory">Working Memory</a></h3>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Per-thread memory usage
+const LZ4_HASH_TABLE: usize = 64 * 1024;   // 64 KB
+const ZSTD_CONTEXT: usize = 256 * 1024;     // 256 KB
+const WORKING_BUFFER: usize = 16 * 1024;    // 16 KB
+<span class="boring">}</span></code></pre></pre>
+<h3 id="reducing-memory"><a class="header" href="#reducing-memory">Reducing Memory</a></h3>
+<p>For memory-constrained systems:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Use LZ4 (smaller context)
+.algorithm(Algorithm::Lz4)
+
+// Smaller batch sizes
+let config = GpuBatchConfig {
+    batch_size: 100,
+    ..Default::default()
+};
+<span class="boring">}</span></code></pre></pre>
+<h2 id="monitoring-performance"><a class="header" href="#monitoring-performance">Monitoring Performance</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let compressor = CompressorBuilder::new()
+    .algorithm(Algorithm::Lz4)
+    .build()?;
+
+// Process pages...
+
+let stats = compressor.stats();
+
+// Check throughput
+if stats.throughput_gbps() &lt; 3.0 {
+    println!("Warning: Low throughput, check CPU affinity");
+}
+
+// Check ratio
+if stats.ratio() &lt; 1.5 {
+    println!("Warning: Low compression, data may be incompressible");
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="cpu-affinity"><a class="header" href="#cpu-affinity">CPU Affinity</a></h2>
+<p>For best performance, pin compression threads to physical cores:</p>
+<pre><code class="language-bash"># Linux: Pin to cores 0-3
+taskset -c 0-3 ./my_app
+
+# Check NUMA topology
+numactl --hardware
+</code></pre>
+<h2 id="kernel-parameters"><a class="header" href="#kernel-parameters">Kernel Parameters</a></h2>
+<p>For zram integration:</p>
+<pre><code class="language-bash"># Increase zram size
+echo $((8 * 1024 * 1024 * 1024)) &gt; /sys/block/zram0/disksize
+
+# Set compression streams
+echo 4 &gt; /sys/block/zram0/max_comp_streams
+
+# Enable writeback
+echo 1 &gt; /sys/block/zram0/writeback
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../performance/benchmarks.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../performance/pcie-rule.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../performance/benchmarks.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../performance/pcie-rule.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+        <script src="../ace.js"></script>
+        <script src="../editor.js"></script>
+        <script src="../mode-rust.js"></script>
+        <script src="../theme-dawn.js"></script>
+        <script src="../theme-tomorrow_night.js"></script>
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>
