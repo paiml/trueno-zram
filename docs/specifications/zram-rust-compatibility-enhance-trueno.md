@@ -1,7 +1,7 @@
 # ZRAM Rust Compatibility Enhancement Specification
 
 **Document ID:** TRUENO-ZRAM-SPEC-001
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Draft
 **Authors:** PAIML Engineering
 **Date:** 2026-01-04
@@ -229,14 +229,31 @@ pub fn classify_page(page: &[u8; PAGE_SIZE]) -> CompressionStrategy {
 
 ### 4.1 Architecture Overview
 
-We utilize `trueno-gpu` to generate optimized PTX kernels at runtime.
+**CRITICAL: Pure Rust Implementation**
+
+We implement GPU LZ4/Zstd compression kernels in **Pure Rust** using `trueno-gpu`'s PTX code generation infrastructure. This approach:
+
+1. **No external binary dependencies** - No nvCOMP, no closed-source NVIDIA libraries.
+2. **Full source auditability** - All compression logic is Rust, reviewable and modifiable.
+3. **Cross-platform potential** - PTX builder can target multiple GPU architectures.
+4. **Integrated with trueno ecosystem** - Shares infrastructure with existing kernels (GEMM, Attention, Softmax).
+
+**Implementation Location:** `trueno-gpu/src/kernels/lz4.rs` and `trueno-gpu/src/kernels/zstd.rs`
+
+The `trueno-gpu` crate provides:
+- `PtxBuilder` - Pure Rust PTX code generation (134KB+ of infrastructure).
+- `Kernel` trait - Standard interface for GPU kernels.
+- Barrier safety validation (PARITY-114 prevention).
+- Memory management abstractions.
+
+We generate optimized PTX kernels at compile-time or runtime.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                  GPU Compression Pipeline                        │
 ├─────────────────────────────────────────────────────────────────┤
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
-│  │ Page Batcher │ →  │ GPU Transfer │ →  │ Parallel     │       │
+│  │ Page Batcher │ →  │ GPU Transfer │ →  │ Warp-Cooperative │   │
 │  │ (Ring Buffer)│    │ (Async DMA)  │    │ Compression  │       │
 │  └──────────────┘    └──────────────┘    └──────────────┘       │
 │          ↑                                      │               │
@@ -248,25 +265,61 @@ We utilize `trueno-gpu` to generate optimized PTX kernels at runtime.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.2 CUDA Kernel Design
+### 4.2 Pure Rust PTX Kernel Design (Warp-per-Page)
 
-Kernel design focuses on maximizing warp occupancy and minimizing divergence.
+The primary kernel strategy is **Warp-per-Page**. Each 4KB page is assigned to a single CUDA Warp (32 threads). This architecture is superior to "Thread-per-Page" for several reasons:
+
+1. **Shared Memory Usage**: A Warp can cooperatively load the 4KB page into Shared Memory (128 bytes per thread), enabling single-cycle L1 latency for match finding.
+2. **Divergence Control**: All threads in the warp work on the same page state. While LZ4 is partially serial, the *search* for matches can be parallelized using `vote` and `shfl` intrinsics.
+3. **Prefix Sums**: Writing the compressed output stream requires calculating offsets. Intra-warp prefix sums (`__shfl_up_sync`) are extremely fast and register-local.
 
 ```rust
-// Conceptual Rust-to-PTX generation
-pub fn generate_lz4_compress_kernel() -> PtxModule {
-    Kernel::new("lz4_compress_pages")
-        .param::<*const u8>("input_pages")
-        .param::<*mut u8>("output_buffer")
-        .shared_memory("hash_table", 4096) // Per-block hash table
-        .body(|ctx| {
-            // Cooperative thread block compression
-            // Each thread handles a slice of the page, reducing latency
-        })
+// trueno-gpu/src/kernels/lz4.rs
+use crate::ptx::{PtxKernel, PtxModule};
+use crate::kernels::Kernel;
+
+/// GPU LZ4 Warp-Cooperative compression kernel
+pub struct Lz4WarpCompressKernel {
+    batch_size: u32,
+    page_size: u32,  // 4096 bytes
+}
+
+impl Kernel for Lz4WarpCompressKernel {
+    fn name(&self) -> &str { "lz4_compress_warp" }
+
+    fn build_ptx(&self) -> PtxKernel {
+        PtxKernel::new(self.name())
+            .param_ptr("input_batch")      // Flat buffer: batch_size * 4KB
+            .param_ptr("output_batch")     // Flat buffer: batch_size * 4KB
+            .param_ptr("output_sizes")     // u32 array: batch_size
+            .param_u32("batch_size")
+            .shared_memory(4096 + 1024)    // 4KB Page + Hash Table
+            .block_size(128, 1, 1)         // 4 Warps per Block (4 pages)
+            .body(|b| {
+                // PTX Logic:
+                // 1. Identify Page ID: (blockIdx.x * 4) + (threadIdx.x / 32)
+                // 2. Coop Load: Load 4KB page from Global -> Shared
+                // 3. Hash Table: Clear 1KB Hash Table in Shared
+                // 4. LZ4 Loop:
+                //    - Leader (Lane 0) maintains cursor
+                //    - Warp finds matches in parallel (checking 32 positions)
+                //    - Leader encodes sequence
+                // 5. Coop Store: Write compressed stream to Global Output
+                self.emit_lz4_warp_body(b)
+            })
+    }
 }
 ```
 
-### 4.3 Batching Strategy
+### 4.3 Batch Data Layout
+
+To maximize PCIe throughput, we use a **Structure of Arrays (SoA)** layout where possible, or simple flattened contiguous buffers.
+
+*   **Input**: `[Page 0 Data (4KB)] [Page 1 Data (4KB)] ...` (Contiguous makes `cudaMemcpyAsync` efficient).
+*   **Output**: `[Page 0 MaxCompressed (4KB)] ...` (Pre-allocated worst-case).
+*   **Sizes**: `[Size 0 (u32)] [Size 1 (u32)] ...` (Written by kernel).
+
+### 4.4 Batching Strategy
 
 To saturate the GPU and PCIe bus, we must batch pages.
 **Optimal Batch Size:** Defined by the GPU's L2 cache size to ensure working set residency.
@@ -278,9 +331,23 @@ To saturate the GPU and PCIe bus, we must batch pages.
 | H100 | 50 MB | 12,800 pages | 120 GB/s |
 | RTX 4090 | 72 MB | 18,432 pages | 60 GB/s |
 
-### 4.4 Memory Management
+### 4.5 Asynchronous Pipeline
 
-We employ **CUDA Unified Memory** where supported, or **Pinned Host Memory** for explicit DMA control to minimize copy overhead.
+We implement a 3-stage pipeline using CUDA Streams to overlap operations:
+
+1.  **Stream 0 (H2D)**: Copy Batch `N` from Host to Device.
+2.  **Stream 1 (Compute)**: Execute `lz4_compress_warp` on Batch `N-1`.
+3.  **Stream 2 (D2H)**: Copy Batch `N-2` Results from Device to Host.
+
+This hides the PCIe latency, effectively making the operation throughput-bound rather than latency-bound.
+
+### 4.6 PTX Assembly Strategy
+
+The `trueno-gpu` PtxBuilder will emit specific PTX 7.0+ instructions for maximum efficiency:
+-   `ld.global.ca.v4.u32`: Vectorized 128-bit loads for reading raw pages.
+-   `shfl.sync.bfly.b32`: Butterfly shuffles for parallel reduction/match finding.
+-   `match.any.sync.b32`: Hardware accelerated pattern matching (Volta+).
+-   `atom.shared.cas.b32`: Atomic operations for hash table updates in shared memory.
 
 ---
 
@@ -368,8 +435,10 @@ This specification builds upon established research in information theory, high-
     *   *Relevance:* Provides the critical heuristic for determining the batch size threshold for GPU offloading.
 7.  **Funasaka, S., Nakano, K., & Ito, Y. (2017).** "Fast LZ77 Compression Using a GPU." *IEEE International Conference on Cluster Computing (CLUSTER)*, 551–552. DOI: [10.1109/CLUSTER.2017.85](https://doi.org/10.1109/CLUSTER.2017.85).
     *   *Relevance:* validates the feasibility of GPU-based LZ compression.
-8.  **NVIDIA Corporation. (2021).** "nvCOMP: High Speed Data Compression Library for GPUs." *GTC 2021*.
-    *   *Relevance:* Industry standard benchmark for GPU compression throughput.
+8.  **PAIML. (2025).** "trueno-gpu: Pure Rust GPU Kernel Generation for CUDA." *GitHub*.
+    *   *Relevance:* Foundation for Pure Rust PTX code generation, eliminating closed-source dependencies.
+9.  **LZ4 Specification. (2023).** "LZ4 Block Format Description." *GitHub/lz4*.
+    *   *Relevance:* Reference for reverse-engineering GPU LZ4 compression kernel.
 
 ### 10.4 Systems & Memory Management
 9.  **Jennings, N. (2013).** "zram: Compressed RAM based block devices." *Linux Kernel Documentation*. [kernel.org](https://www.kernel.org/doc/Documentation/blockdev/zram.txt).
@@ -447,12 +516,12 @@ Following Popper's falsificationism: each claim must be testable and disprovable
 | F040 | GPU memory freed | No VRAM leak after 1M batches | |
 | F041 | Multi-GPU works | Each GPU produces correct output | |
 | F042 | CUDA context cleanup | No zombie contexts after process exit | |
-| F043 | Stream synchronization | Async operations complete before access | |
+| F043 | 3-stage pipeline overlaps | Profiler shows H2D, Kernel, D2H concurrency | |
 | F044 | Error propagation | CUDA errors surface as Rust Result::Err | |
 | F045 | OOM handled | GPU OOM returns error, doesn't crash | |
-| F046 | Kernel launch bounds | Grid/block sizes within hardware limits | |
-| F047 | Shared memory bounds | Shared memory usage within limits | |
-| F048 | Register pressure | Kernel uses <128 registers for occupancy | |
+| F046 | Warp-per-page grid valid | Grid/Block matches batch size / 32 threads | |
+| F047 | Shared mem fits page+hash | 4KB + hash table fits in configured Shared Mem | |
+| F048 | Register pressure | Kernel uses <64 registers/thread for occupancy | |
 | F049 | Compute capability check | Reject GPUs below SM 7.0 | |
 | F050 | PTX version compatible | Generated PTX loads on target GPU | |
 
@@ -465,10 +534,10 @@ Following Popper's falsificationism: each claim must be testable and disprovable
 | F053 | AVX-512 achieves 5 GB/s | Benchmark 1M pages, measure throughput | |
 | F054 | GPU achieves 50 GB/s | Benchmark 100K batches, measure throughput | |
 | F055 | P99 latency under target | Measure latency distribution, check P99 | |
-| F056 | GPU batching amortizes transfer | Batch 1000 pages faster than 1000×1 page | |
+| F056 | SoA layout beneficial | SoA layout beats AoS in throughput test | |
 | F057 | Adaptive selection improves ratio | Adaptive beats fixed algorithm | |
 | F058 | Entropy calculation overhead <1% | Entropy check adds <1% to compression time | |
-| F059 | Memory bandwidth utilized | Achieve >80% theoretical memory bandwidth | |
+| F059 | Coalesced access verified | Profiler shows >80% global memory efficiency | |
 | F060 | No performance regression | Each commit maintains or improves perf | |
 | F061 | Warm cache performance | Second run faster than first | |
 | F062 | Cold cache realistic | First-run performance within 2× of warm | |
@@ -551,8 +620,8 @@ Status: [ ] VALID  [ ] FALSIFIED
 - [ ] **Verification**: Pass Falsification points F001-F035.
 
 ### Phase 2: GPU Acceleration (Weeks 5-8)
-- [ ] **Kernel Gen**: Develop pure Rust PTX generator in `trueno-gpu` for LZ4.
-- [ ] **Data Pipeline**: Implement async DMA ring buffers and batching logic.
+- [ ] **Kernel Gen**: Develop Pure Rust PTX generator in `trueno-gpu` for LZ4 Warp-Cooperative kernel.
+- [ ] **Data Pipeline**: Implement 3-stage async DMA pipeline (H2D, Compute, D2H) with double buffering.
 - [ ] **Verification**: Pass Falsification points F036-F050.
 
 ### Phase 3: Integration (Weeks 9-12)
@@ -587,6 +656,7 @@ Status: [ ] VALID  [ ] FALSIFIED
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.2.0 | 2026-01-04 | PAIML Engineering | Enhanced GPU/CUDA subsystem with Warp-per-Page architecture, async pipeline, and PTX details. |
 | 1.1.0 | 2026-01-04 | PAIML Engineering | Enhanced citations, added KSM reference, clarified batching logic. |
 | 1.0.0 | 2026-01-04 | PAIML Engineering | Initial specification |
 

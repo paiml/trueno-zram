@@ -1,0 +1,58 @@
+[package]
+name = "trueno-ublk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "GPU-accelerated ZRAM replacement using ublk"
+keywords = ["ublk", "zram", "compression", "gpu", "block-device"]
+categories = ["command-line-utilities", "compression", "filesystem"]
+
+[[bin]]
+name = "trueno-ublk"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+trueno-zram-core = { workspace = true, features = ["cuda"] }
+trueno-zram-adaptive = { workspace = true }
+
+# CLI
+clap = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = "1.0"
+
+# ublk bindings
+libublk = "0.4"
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# System info
+nix = { version = "0.29", features = ["fs", "mount"] }
+procfs = "0.17"
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = "3.14"
+jugar-probar = { version = "0.4", default-features = false, features = ["tui"] }
+
+[features]
+default = []
+cuda = ["trueno-zram-core/cuda"]

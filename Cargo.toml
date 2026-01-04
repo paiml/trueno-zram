@@ -5,6 +5,7 @@ members = [
     "crates/trueno-zram-adaptive",
     "crates/trueno-zram-generator",
     "crates/trueno-zram-cli",
+    "bins/trueno-ublk",
 ]
 
 [workspace.package]
