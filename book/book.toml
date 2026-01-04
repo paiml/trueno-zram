@@ -3,7 +3,6 @@ title = "trueno-zram"
 description = "SIMD and GPU-accelerated memory compression for Linux"
 authors = ["PAIML"]
 language = "en"
-multilingual = false
 src = "src"
 
 [build]
@@ -27,4 +26,3 @@ copy-js = true
 [output.html.search]
 enable = true
 limit-results = 30
-use-hierarchical-heading = true
