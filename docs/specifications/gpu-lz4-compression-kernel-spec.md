@@ -13,8 +13,194 @@
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.2 | 2026-01-05 | Batuta Team | Added PTX FKR testing requirements - probar first, extreme TDD |
 | 1.1 | 2026-01-05 | Gemini Agent | Enhanced with project context, clarified dependencies, and updated paths |
 | 1.0 | 2026-01-05 | Batuta Team | Initial specification - defines GPU LZ4 compression requirements |
+
+---
+
+## 0. MANDATORY: PTX FKR Testing Before Implementation
+
+**CRITICAL**: Before implementing ANY PTX code, establish comprehensive Pixel FKR (Falsification Kernel Regression) tests using probar. This follows the extreme TDD pattern established in `trueno-gpu/tests/pixel_fkr.rs`.
+
+### 0.1 PTX Bug Classes to Detect
+
+Based on Issue #67 (CUDA_ERROR_INVALID_PTX on RTX 4090), the following bug classes MUST be tested:
+
+| Bug Class | Description | LZ4 Risk |
+|-----------|-------------|----------|
+| `SharedMemU64Addressing` | Using u64 for shared memory addresses (should be u32) | HIGH - hash table access |
+| `MissingBarrierSync` | Missing `bar.sync` between shared memory writes and reads | HIGH - warp cooperation |
+| `MissingEntryPoint` | No `.entry` or `.visible` directive | MEDIUM |
+| `InvalidRegisterType` | Wrong register type for operation | MEDIUM - hash multiply |
+| `UnalignedMemoryAccess` | Non-aligned global/shared memory access | HIGH - page data |
+
+### 0.2 Scalar Baseline Implementations (REQUIRED)
+
+**BEFORE any PTX code**, implement scalar baselines in Rust:
+
+```rust
+// trueno-gpu/src/kernels/lz4.rs - ALREADY EXISTS (lz4_compress_block)
+// These are the reference implementations for FKR validation
+
+/// Scalar LZ4 hash function - PTX must match this
+pub fn lz4_hash(val: u32) -> u32 {
+    val.wrapping_mul(LZ4_HASH_MULT) >> (32 - LZ4_HASH_BITS)
+}
+
+/// Scalar match length - PTX must match this
+pub fn lz4_match_length(data: &[u8], pos1: usize, pos2: usize, limit: usize) -> usize;
+
+/// Scalar sequence encoding - PTX output must decompress via this
+pub fn lz4_decompress_block(input: &[u8], output: &mut [u8]) -> Result<usize, &'static str>;
+```
+
+### 0.3 FKR Test File Structure
+
+Create `trueno-gpu/tests/lz4_fkr.rs`:
+
+```rust
+//! LZ4 Compression Kernel PTX FKR Tests
+//!
+//! Tests generated PTX for LZ4 compression matches scalar baseline.
+//! Run: cargo test -p trueno-gpu --test lz4_fkr --features "cuda"
+
+#![cfg(feature = "cuda")]
+
+use trueno_gpu::kernels::{Kernel, Lz4WarpCompressKernel, lz4_compress_block, lz4_decompress_block};
+
+#[cfg(feature = "gpu-pixels")]
+use jugar_probar::gpu_pixels::{validate_ptx, PtxBugClass};
+
+// ============================================================================
+// PTX STATIC ANALYSIS TESTS (Phase 0 - BEFORE implementation)
+// ============================================================================
+
+#[test]
+fn lz4_fkr_ptx_no_shared_mem_u64() {
+    let kernel = Lz4WarpCompressKernel::new(100);
+    let ptx = kernel.emit_ptx();
+
+    #[cfg(feature = "gpu-pixels")]
+    {
+        let result = validate_ptx(&ptx);
+        assert!(!result.has_bug(&PtxBugClass::SharedMemU64Addressing),
+            "LZ4 kernel uses u64 for shared memory (should be u32 offset)");
+    }
+}
+
+#[test]
+fn lz4_fkr_ptx_has_hash_multiply() {
+    let kernel = Lz4WarpCompressKernel::new(100);
+    let ptx = kernel.emit_ptx();
+
+    // LZ4 hash uses 0x9E3779B1 (2654435761)
+    assert!(ptx.contains("2654435761") || ptx.contains("0x9e3779b1"),
+        "LZ4 kernel missing hash multiplier constant");
+}
+
+#[test]
+fn lz4_fkr_ptx_has_compression_loop() {
+    let kernel = Lz4WarpCompressKernel::new(100);
+    let ptx = kernel.emit_ptx();
+
+    assert!(ptx.contains("L_compress_loop") || ptx.contains("L_main_loop"),
+        "LZ4 kernel missing main compression loop label");
+}
+
+#[test]
+fn lz4_fkr_ptx_barrier_safety() {
+    let kernel = Lz4WarpCompressKernel::new(100);
+    let result = kernel.analyze_barrier_safety();
+
+    assert!(result.is_safe,
+        "LZ4 kernel barrier safety failed: {:?}", result.violations);
+}
+
+// ============================================================================
+// SCALAR BASELINE VALIDATION (Phase 1 - verify CPU implementation)
+// ============================================================================
+
+#[test]
+fn lz4_fkr_scalar_roundtrip() {
+    // Test data with known compression pattern
+    let input = b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 40 A's
+    let mut compressed = [0u8; 64];
+    let mut decompressed = [0u8; 64];
+
+    let comp_size = lz4_compress_block(input, &mut compressed).unwrap();
+    let decomp_size = lz4_decompress_block(&compressed[..comp_size], &mut decompressed).unwrap();
+
+    assert_eq!(decomp_size, input.len());
+    assert_eq!(&decompressed[..decomp_size], input.as_slice());
+}
+
+#[test]
+fn lz4_fkr_scalar_zero_page() {
+    let input = [0u8; 4096];
+    let mut compressed = [0u8; 4200];
+
+    let comp_size = lz4_compress_block(&input, &mut compressed).unwrap();
+    assert!(comp_size < 100, "Zero page should compress to <100 bytes, got {}", comp_size);
+}
+
+// ============================================================================
+// PTX vs SCALAR COMPARISON (Phase 2 - after implementation)
+// ============================================================================
+
+#[test]
+#[ignore] // Enable after PTX implementation complete
+fn lz4_fkr_ptx_matches_scalar() {
+    // Generate test pages with various patterns
+    let test_cases = [
+        vec![0u8; 4096],                           // Zero page
+        vec![0xAAu8; 4096],                        // Repeated byte
+        (0..4096).map(|i| (i % 256) as u8).collect(), // Sequential
+    ];
+
+    for input in &test_cases {
+        // Scalar baseline
+        let mut scalar_out = vec![0u8; 5000];
+        let scalar_size = lz4_compress_block(input, &mut scalar_out).unwrap();
+
+        // GPU execution would go here
+        // let gpu_out = gpu_compress(input);
+
+        // Verify GPU output decompresses correctly
+        let mut verify = vec![0u8; 4096];
+        let verify_size = lz4_decompress_block(&scalar_out[..scalar_size], &mut verify).unwrap();
+
+        assert_eq!(verify_size, input.len());
+        assert_eq!(&verify[..], &input[..]);
+    }
+}
+```
+
+### 0.4 Implementation Order (Extreme TDD)
+
+```
+Phase 0: FKR Test Infrastructure
+├── Create lz4_fkr.rs with failing tests
+├── Run tests → ALL FAIL (expected)
+└── Establish scalar baselines as ground truth
+
+Phase 1: PTX Static Analysis
+├── Implement hash multiply constant → test passes
+├── Implement compression loop labels → test passes
+├── Implement barrier safety → test passes
+└── Validate with ptxas (if available)
+
+Phase 2: PTX Runtime (requires CUDA)
+├── Single-page compression test
+├── Multi-page batch test
+├── Scalar vs GPU comparison
+└── Performance validation
+
+Phase 3: Integration
+├── GpuBatchCompressor integration
+├── trueno-zram end-to-end
+└── 5X speedup verification
+```
 
 ---
 
@@ -271,9 +457,25 @@ pub struct Lz4CompressKernel {
     setp.ne.u32 %p2, %r3, 0;
     @%p2 bra wait_compress;
 
+    // LZ4 constants and setup
+    mov.u32 %r_prime, 2654435761;  // LZ4 prime (0x9E3779B1)
+    mov.u32 %r_pos, 0;             // Current position in page
+    mov.u32 %r_limit, 4084;        // PAGE_SIZE - 12 (LAST_LITERALS + MIN_MATCH)
+    mov.u32 %r_anchor, 0;          // Anchor for literals
+
 compress_loop:
-    // Hash current 4 bytes
-    // ... (hash computation)
+    // Check bounds
+    setp.ge.u32 %p3, %r_pos, %r_limit;
+    @%p3 bra emit_remaining_literals;
+
+    // Load 4 bytes at current position (simplified for spec)
+    // Real impl needs valid shared mem pointer calc
+    // ld.shared.u32 %r_curr_val, [smem_page_base + %r_pos];
+
+    // Hash computation: ((val * prime) >> 20) & 0xFFF
+    // mul.lo.u32 %r_hash, %r_curr_val, %r_prime;
+    // shr.u32 %r_hash, %r_hash, 20;
+    // and.b32 %r_hash, %r_hash, 4095;
 
     // Look up hash table for match
     // ... (match finding)
