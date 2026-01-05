@@ -1,10 +1,10 @@
 # GPU LZ4 Compression Kernel Specification
 
-**Version**: 1.0
+**Version**: 1.1
 **Date**: 2026-01-05
 **Status**: SPECIFICATION - Requires Implementation
 **Priority**: P0 - Critical for 5X Speedup Target
-**Crate**: `trueno-gpu` (kernel), `trueno-zram-core` (integration)
+**Crate**: `trueno-gpu` (external dependency / target for kernel), `trueno-zram-core` (integration)
 **Philosophy**: Pure Rust PTX - Full LZ4 Compression on GPU
 
 ---
@@ -13,13 +13,14 @@
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.1 | 2026-01-05 | Gemini Agent | Enhanced with project context, clarified dependencies, and updated paths |
 | 1.0 | 2026-01-05 | Batuta Team | Initial specification - defines GPU LZ4 compression requirements |
 
 ---
 
 ## Executive Summary
 
-**CRITICAL ISSUE**: The current `Lz4WarpCompressKernel` in trueno-gpu performs **ONLY zero-page detection**, not actual LZ4 compression. This means all compression work falls back to CPU, negating GPU benefits and failing to achieve the 5X speedup target.
+**CRITICAL ISSUE**: The current `Lz4WarpCompressKernel` in the `trueno-gpu` crate performs **ONLY zero-page detection**, not actual LZ4 compression. This means all compression work falls back to CPU in `trueno-zram`, negating GPU benefits and failing to achieve the 5X speedup target.
 
 ### Current State (BROKEN)
 
@@ -51,7 +52,7 @@ Target GPU Compression Pipeline:
 
 ### Core Thesis
 
-> **Requirement**: The pure-Rust PTX kernel MUST implement full LZ4 block compression on GPU. Zero-page detection is a trivial optimization, not compression. Without GPU-native LZ4, the 5X speedup target is **impossible**.
+> **Requirement**: The pure-Rust PTX kernel in `trueno-gpu` MUST implement full LZ4 block compression. Zero-page detection is a trivial optimization, not compression. Without GPU-native LZ4, the 5X speedup target is **impossible**.
 
 ---
 
@@ -59,10 +60,10 @@ Target GPU Compression Pipeline:
 
 ### 1.1 Current Kernel Implementation
 
-The existing `Lz4WarpCompressKernel` in `/home/noah/src/trueno/trueno-gpu/src/kernels/lz4.rs`:
+The existing `Lz4WarpCompressKernel` in `trueno-gpu` (referenced in `trueno-zram-core` via `src/gpu/batch.rs`):
 
 ```rust
-// CURRENT STATE: Only detects zero pages, does NOT compress!
+// CURRENT STATE (in trueno-gpu): Only detects zero pages, does NOT compress!
 impl Lz4WarpCompressKernel {
     pub fn emit_ptx(&self) -> String {
         // ... PTX generation ...
@@ -428,6 +429,11 @@ RTX 4090 Memory Bandwidth Analysis:
 
 ## 5. Implementation Roadmap
 
+### 5.0 Prerequisites (setup)
+- [ ] Clone or access `trueno-gpu` repository.
+- [ ] Ensure CUDA 12.8+ is installed.
+- [ ] Verify `rustc` > 1.82 compatibility.
+
 ### 5.1 Phase 1: Core Kernel (P0 - Week 1)
 
 | ID | Task | Acceptance Criteria |
@@ -653,6 +659,7 @@ pub const GPU_MIN_BATCH_SIZE: usize = 2000;
 | PCIe overhead dominates | High | High | Async pipelining, larger batches |
 | Compression ratio lower than CPU | Low | Medium | Same algorithm, should be identical |
 | Register pressure | Medium | Medium | Careful PTX register management |
+| Compatibility (Arch < sm_70) | Low | Low | Fallback to CPU for older GPUs |
 
 ### 8.2 Alternative Approaches
 
@@ -709,12 +716,15 @@ If pure-Rust PTX proves too complex:
 
 [6] Batuta Team, "trueno-gpu: Pure Rust First-Principles GPU Compute Specification," trueno docs, 2025.
 
+[7] Gregg, B. (2011). "Systems Performance: Enterprise and the Cloud." - Source of 5x PCIe rule (adapted).
+
 ---
 
 **Document Control**
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.1 | 2026-01-05 | Gemini Agent | Enhanced with project context, clarified dependencies, and updated paths |
 | 1.0 | 2026-01-05 | Batuta Team | Initial specification |
 
 **Next Steps**:
