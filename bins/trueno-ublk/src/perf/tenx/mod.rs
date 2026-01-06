@@ -41,8 +41,8 @@ use falsify::FalsificationMatrix;
 use fixed_files::FixedFileRegistry;
 use huge_pages::{HugePageAllocator, HugePageConfig};
 use lock_free::{LockFreePageTable, LockFreeQueue};
-use registered_buffers::{RegisteredBufferConfig, RegisteredBufferPool};
 // Re-export for io_uring integration
+pub use registered_buffers::{RegisteredBufferConfig, RegisteredBufferPool};
 pub use sqpoll::SqpollConfig;
 use sqpoll::SqpollRing;
 use zero_copy::ZeroCopyConfig;

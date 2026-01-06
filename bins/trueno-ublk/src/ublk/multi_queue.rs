@@ -28,7 +28,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use crate::perf::tenx::SqpollConfig;
+use nix::libc;
+
+use crate::perf::tenx::{RegisteredBufferConfig, RegisteredBufferPool, SqpollConfig};
 
 /// Wrapper for raw pointers that can be sent across threads.
 ///
@@ -248,6 +250,7 @@ pub fn pin_to_cpu(core: usize) -> std::io::Result<()> {
 /// - Its own io_uring instance
 /// - A view into its portion of the shared mmap'd buffers
 /// - Shared access to the BatchedPageStore
+/// - Optional registered buffer pool (PERF-005)
 #[cfg(not(test))]
 pub struct QueueIoWorker {
     /// Queue ID (0 to nr_hw_queues-1)
@@ -270,6 +273,10 @@ pub struct QueueIoWorker {
     pub stats: Arc<QueueStats>,
     /// Whether to use ioctl encoding
     use_ioctl_encode: bool,
+    /// PERF-005: Registered buffer pool (owned, outlives ring registration)
+    registered_buffers: Option<RegisteredBufferPool>,
+    /// Whether buffers have been registered with io_uring
+    buffers_registered: bool,
 }
 
 #[cfg(not(test))]
@@ -364,6 +371,92 @@ impl QueueIoWorker {
             stop,
             stats: Arc::new(QueueStats::new()),
             use_ioctl_encode,
+            registered_buffers: None,
+            buffers_registered: false,
+        })
+    }
+
+    /// Register buffers with io_uring for zero-copy I/O (PERF-005)
+    ///
+    /// This must be called after the worker is created but before processing I/O.
+    /// The buffer pool will be owned by this worker and outlive the io_uring registration.
+    ///
+    /// # Returns
+    /// - `Ok(true)` if buffers were registered successfully
+    /// - `Ok(false)` if registration was skipped (already registered or config disabled)
+    /// - `Err` if registration failed
+    pub fn register_buffers(
+        &mut self,
+        config: &RegisteredBufferConfig,
+    ) -> Result<bool, super::daemon::DaemonError> {
+        if !config.enabled || self.buffers_registered {
+            return Ok(false);
+        }
+
+        // Create buffer pool
+        let pool = RegisteredBufferPool::new(config.clone()).map_err(|e| {
+            super::daemon::DaemonError::IoUringCreate(std::io::Error::other(format!(
+                "Failed to create buffer pool: {:?}",
+                e
+            )))
+        })?;
+
+        // Build iovec array for registration
+        let io_slices = pool.build_io_slices();
+
+        // Convert IoSliceMut to iovec for io_uring
+        // SAFETY: IoSliceMut has the same layout as iovec
+        let iovecs: Vec<libc::iovec> = io_slices
+            .iter()
+            .map(|s| libc::iovec {
+                iov_base: s.as_ptr() as *mut libc::c_void,
+                iov_len: s.len(),
+            })
+            .collect();
+
+        // Register with io_uring
+        // SAFETY: The iovecs point to valid memory owned by the pool,
+        // which will be stored in self.registered_buffers and outlive the registration.
+        let result = unsafe { self.ring.submitter().register_buffers(&iovecs) };
+
+        match result {
+            Ok(()) => {
+                tracing::info!(
+                    queue_id = self.queue_id,
+                    num_buffers = iovecs.len(),
+                    buffer_size = config.buffer_size(),
+                    "PERF-005: Registered {} buffers with io_uring",
+                    iovecs.len()
+                );
+                self.registered_buffers = Some(pool);
+                self.buffers_registered = true;
+                Ok(true)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    queue_id = self.queue_id,
+                    error = %e,
+                    "PERF-005: Buffer registration failed, continuing without"
+                );
+                // Don't fail - continue without registered buffers
+                Ok(false)
+            }
+        }
+    }
+
+    /// Check if registered buffers are available
+    pub fn has_registered_buffers(&self) -> bool {
+        self.buffers_registered
+    }
+
+    /// Get a registered buffer by index (for use in SQEs)
+    ///
+    /// # Safety
+    /// The returned pointer is only valid while the RegisteredBufferPool exists.
+    pub fn get_registered_buffer(&self, index: usize) -> Option<*mut u8> {
+        self.registered_buffers.as_ref().and_then(|pool| {
+            // SAFETY: The pool is owned by this worker and will outlive any use of this pointer
+            unsafe { pool.get_buffer_ptr(index).ok() }
         })
     }
 
