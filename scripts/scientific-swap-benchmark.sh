@@ -285,14 +285,17 @@ cleanup_environment() {
     log_pass "Cleanup complete"
 }
 
-trap cleanup_environment EXIT
+# Only set trap when not in test mode
+if [[ "${TEST_MODE:-false}" != "true" ]]; then
+    trap cleanup_environment EXIT
+fi
 
 #═══════════════════════════════════════════════════════════════════════════════
 # Swap Setup Functions
 #═══════════════════════════════════════════════════════════════════════════════
 
 setup_regular_swap() {
-    log_info "Setting up regular swap file (${SWAP_SIZE_GB}GB)..."
+    log_info "Setting up regular swap file (${SWAP_SIZE_GB}GB)..." >&2
 
     # Create swap file on fastest available storage
     dd if=/dev/zero of=/swapfile bs=1G count=$SWAP_SIZE_GB status=progress 2>/dev/null
@@ -304,7 +307,7 @@ setup_regular_swap() {
 }
 
 setup_kernel_zram() {
-    log_info "Setting up kernel ZRAM (${SWAP_SIZE_GB}GB, LZ4)..."
+    log_info "Setting up kernel ZRAM (${SWAP_SIZE_GB}GB, LZ4)..." >&2
 
     modprobe zram num_devices=1
 
@@ -319,7 +322,7 @@ setup_kernel_zram() {
 }
 
 setup_trueno_zram() {
-    log_info "Setting up trueno-zram (${SWAP_SIZE_GB}GB)..."
+    log_info "Setting up trueno-zram (${SWAP_SIZE_GB}GB)..." >&2
 
     # Start daemon
     "${PROJECT_ROOT}/target/release/trueno-ublk" --size "${SWAP_SIZE_GB}G" --id 0 &
@@ -333,16 +336,16 @@ setup_trueno_zram() {
     done
 
     if [[ ! -b /dev/ublkb0 ]]; then
-        log_fail "trueno-ublk device not created"
+        log_fail "trueno-ublk device not created" >&2
         return 1
     fi
 
     # Verify mlock (DT-007)
     local vmlck=$(grep VmLck /proc/$daemon_pid/status 2>/dev/null | awk '{print $2}')
     if [[ -z "$vmlck" ]] || [[ "$vmlck" -lt 100000 ]]; then
-        log_warn "DT-007: VmLck = ${vmlck:-0} kB (expected > 100000 kB)"
+        log_warn "DT-007: VmLck = ${vmlck:-0} kB (expected > 100000 kB)" >&2
     else
-        log_pass "DT-007: VmLck = $vmlck kB (mlock active)"
+        log_pass "DT-007: VmLck = $vmlck kB (mlock active)" >&2
     fi
 
     mkswap /dev/ublkb0 >/dev/null
@@ -749,4 +752,7 @@ main() {
     log_pass "Benchmark complete!"
 }
 
-main "$@"
+# Run if executed directly (not sourced for testing)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ "${TEST_MODE:-false}" != "true" ]]; then
+    main "$@"
+fi
