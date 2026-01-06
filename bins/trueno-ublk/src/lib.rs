@@ -40,6 +40,7 @@
 //! println!("Compression ratio: {:.2}x", stats.compression_ratio());
 //! ```
 
+pub mod cleanup;
 pub mod daemon;
 pub mod device;
 pub mod stats;
@@ -48,5 +49,11 @@ pub mod ublk;
 // Re-export commonly used types
 pub use device::{BlockDevice, BlockDeviceStats, DeviceConfig, DeviceStats, UblkDevice};
 pub use ublk::{DaemonError, UblkCtrl, UblkDaemon};
+
+// Re-export duende-mlock for swap deadlock prevention (DT-007)
+pub use duende_mlock::{lock_all as lock_daemon_memory, is_locked as is_memory_locked, MlockStatus};
 #[cfg(not(test))]
-pub use ublk::run_daemon;
+pub use ublk::{run_daemon, run_daemon_batched, BatchedDaemonConfig};
+
+// Re-export batched page store for direct use
+pub use daemon::{BatchConfig, BatchedPageStore, BatchedPageStoreStats, spawn_flush_thread};

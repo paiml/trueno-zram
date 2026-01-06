@@ -19,6 +19,7 @@
 //! trueno-ublk top
 //! ```
 
+mod cleanup;
 mod cli;
 mod daemon;
 mod device;
@@ -39,7 +40,11 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Create(args) => cli::create::run(args),
+        Commands::Create(args) => {
+            // Perform startup cleanup before creating devices (DT-003)
+            cleanup::cleanup_orphaned_devices().ok();
+            cli::create::run(args)
+        }
         Commands::List(args) => cli::list::run(args),
         Commands::Stat(args) => cli::stat::run(args),
         Commands::Reset(args) => cli::reset::run(args),

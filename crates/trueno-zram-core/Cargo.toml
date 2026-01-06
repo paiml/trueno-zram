@@ -15,15 +15,25 @@ thiserror.workspace = true
 cudarc = { version = "0.18", optional = true, features = ["cuda-12080", "nvrtc"] }
 rayon = { version = "1.10", optional = true }
 # Pure Rust PTX generation for GPU LZ4 compression
-trueno-gpu = { version = "0.4.5", optional = true }
+# Note: Local path used for development, publish with version reference
+trueno-gpu = { version = "0.4.5", path = "/home/noah/src/trueno/trueno-gpu", optional = true, features = ["cuda"] }
 
 [dev-dependencies]
 proptest.workspace = true
 criterion.workspace = true
+rayon = "1.10"
 
 [[bench]]
 name = "compression"
 harness = false
+
+[[example]]
+name = "gpu_info"
+required-features = ["cuda"]
+
+[[example]]
+name = "parallel_scaling"
+# No required features - uses dev-dependency rayon
 
 [features]
 default = ["std"]

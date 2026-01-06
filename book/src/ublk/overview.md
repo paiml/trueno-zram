@@ -2,6 +2,18 @@
 
 trueno-ublk is a GPU-accelerated ZRAM replacement that uses the Linux ublk interface to provide a high-performance compressed block device in userspace.
 
+## Production Status (2026-01-06)
+
+**MILESTONE DT-005 ACHIEVED:** trueno-ublk is running as system swap!
+
+- 8GB device active as primary swap (priority 150)
+- CPU SIMD compression at 20-24 GB/s with 3.70x ratio
+- GPU decompression at 137 GB/s
+
+**Known Limitations:**
+- Swap deadlock under extreme memory pressure (fix via DT-007 mlock integration)
+- Docker cannot isolate ublk devices (host kernel resources)
+
 ## What is ublk?
 
 ublk (userspace block device) is a Linux kernel interface that allows implementing block devices entirely in userspace. It uses io_uring for efficient I/O handling, avoiding the overhead of kernel context switches.

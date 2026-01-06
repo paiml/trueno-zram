@@ -1,8 +1,8 @@
 # trueno-ublk Specification: Userspace Block Device with SIMD Acceleration
 
-**Version:** 2.3.0
-**Date:** 2026-01-04
-**Status:** Active Development - QA Mandated
+**Version:** 2.4.0
+**Date:** 2026-01-06
+**Status:** PRODUCTION DEPLOYED - Running as system swap (DT-005). Swap deadlock fix pending (DT-007).
 
 ## 1. Abstract
 
@@ -136,12 +136,21 @@ This checklist is designed to *falsify* the system. Minimum coverage for Section
 59. [ ] **Probador TUI Check:** TUI dashboard renders without flickering (Verified by `jugar-probar`).
 60. [ ] **Probador TUI Check:** TUI handles window resize gracefully (Verified by `jugar-probar`).
 
-### Section F-J: (Remaining 40 points omitted for brevity, focusing on QA Mandates)
-...
+### Section F: TUI & Observability (The "Gemba" Zone)
 91. [ ] **PMAT Checklist:** All tests passed on fresh VM.
 92. [ ] **PMAT Checklist:** >95% code coverage for `PageStore`.
 93. [ ] **PMAT Checklist:** >95% code coverage for `UblkTarget`.
 94. [ ] **PMAT Checklist:** 100% of TUI components have `jugar-probar` test cases.
+
+### Section G: Acceleration Falsification (The "No-Fake" Zone)
+**Objective:** Prevent "Acceleration Washing" where a GPU/SIMD path exists but falls back to scalar/CPU execution silently.
+
+95. [ ] **The "Speed-of-Light" Check:** Verify `kernel_time_ns` implies throughput > 20 GB/s (for GPU) or > 3 GB/s (for SIMD). If "GPU" throughput equals CPU throughput, FAIL.
+96. [ ] **The "Silence of the CPU" Check:** During `GpuBatchCompressor::compress_batch`, verify Host CPU usage < 10% (excluding driver overhead). High CPU usage = fake offload.
+97. [ ] **The "Fallback Detector" Metric:** `GpuBatchStats` MUST report `cpu_fallback_count`. Test asserts this is 0 for valid input.
+98. [ ] **The "Broken Kernel" Injection:** Intentionally corrupt the PTX kernel (e.g., make it output all zeros). Verify the test suite FAILS (it should not silently fallback and pass).
+99. [ ] **PCie Rule Validation:** Verify `pcie_rule_satisfied()` returns TRUE for batch sizes > 2000 and FALSE for batch sizes < 100.
+100. [ ] **Discriminator Test:** Compress data pattern X with CPU-only and GPU-only. Verify bitwise identity BUT distinct timing/performance signatures.
 
 ## 5. ublk Kernel Interface (Linux 6.0+)
 

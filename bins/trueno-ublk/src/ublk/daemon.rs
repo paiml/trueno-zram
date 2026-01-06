@@ -1,9 +1,16 @@
 //! ublk daemon I/O loop
 //!
 //! Uses io_uring to handle block device I/O.
+//!
+//! ## Batched Mode
+//!
+//! For high-throughput scenarios, use `run_daemon_batched` which buffers pages
+//! and compresses in batches using GPU when available.
 
 #[cfg(not(test))]
 use crate::daemon::PageStore;
+#[cfg(not(test))]
+use crate::daemon::{BatchConfig, BatchedPageStore, spawn_flush_thread};
 use crate::ublk::ctrl::{CtrlError, DeviceConfig};
 #[cfg(not(test))]
 use crate::ublk::UblkCtrl;
@@ -23,6 +30,8 @@ use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(test))]
 use std::sync::Arc;
+#[cfg(not(test))]
+use std::time::Duration;
 use thiserror::Error;
 #[cfg(not(test))]
 use tracing::{debug, info, warn};
@@ -119,11 +128,14 @@ impl UblkDaemon {
         let char_fd = char_fd_owned.as_raw_fd();
         std::mem::forget(char_fd_owned);
 
-        // Use regular 64-byte SQE like libublk does - UringCmd16 works for ublk
-        // Enable SQPOLL for kernel-side submission queue polling - this allows
-        // the kernel to process our FETCH commands while we block on START_DEV
+        // FIX B: Disable SQPOLL mode - use standard io_uring submission
+        // SQPOLL creates a kernel polling thread but has race conditions with URING_CMD
+        // operations used by ublk. Standard mode with explicit submit_and_wait is more reliable.
+        //
+        // The Five-Whys analysis (Section 8 of ublk-batched-gpu-compression.md) identified
+        // that SQPOLL may not process FETCH commands before START_DEV is called, causing
+        // the daemon to hang indefinitely.
         let ring: IoUring = IoUring::builder()
-            .setup_sqpoll(100) // Poll for 100ms before sleeping
             .build(queue_depth as u32 * 2)
             .map_err(DaemonError::IoUringCreate)?;
 
@@ -181,117 +193,95 @@ impl UblkDaemon {
 
     pub fn block_dev_path(&self) -> String { self.ctrl.block_dev_path() }
 
+    /// FIX F: Restructured run() to ensure io_uring is blocked in submit_and_wait
+    /// BEFORE START_DEV is called.
+    ///
+    /// The ublk kernel driver requires FETCH commands to be "in flight" in io_uring
+    /// before START_DEV can complete. The previous approach spawned START_DEV in a
+    /// background thread but didn't guarantee io_uring was actively waiting.
+    ///
+    /// New approach:
+    /// 1. Submit all FETCH commands
+    /// 2. Spawn a thread that calls START_DEV after a delay
+    /// 3. Main thread immediately enters submit_and_wait() loop (blocks in kernel)
+    /// 4. START_DEV thread waits to ensure main thread is blocked, then calls START_DEV
+    /// 5. Kernel sees io_uring waiting → START_DEV completes → block device appears
     pub fn run(&mut self, store: &mut PageStore) -> Result<(), DaemonError> {
-        eprintln!("[TRACE] run() starting, queue_depth={}", self.queue_depth);
-        eprintln!("[TRACE] char_fd={}, ring entries={}", self.char_fd, self.queue_depth * 2);
+        info!(queue_depth = self.queue_depth, "Starting ublk daemon (FIX B+F applied)");
+        debug!(char_fd = self.char_fd, "Daemon initialized");
 
-        info!(queue_depth = self.queue_depth, "Submitting initial fetches");
+        // Step 1: Submit all FETCH commands
+        info!(queue_depth = self.queue_depth, "Submitting initial FETCH commands");
         for tag in 0..self.queue_depth {
-            eprintln!("[TRACE] Queuing FETCH for tag {}", tag);
             self.submit_fetch(tag)?;
         }
-        eprintln!("[TRACE] All {} FETCH commands queued", self.queue_depth);
-        debug!("Initial fetches queued, submitting to ring");
 
-        // Submit and trigger kernel to process all SQEs
-        // Note: FETCH commands don't complete (they wait for I/O), but they're processed
-        eprintln!("[TRACE] Syncing submission queue...");
+        // Sync and submit to kernel
         self.ring.submission().sync();
-        eprintln!("[TRACE] Calling ring.submit()...");
         let submitted = self.ring.submit().map_err(DaemonError::Submit)?;
-        eprintln!("[TRACE] ring.submit() returned: {} submitted", submitted);
-        debug!(submitted, "Ring submitted");
+        info!(submitted, "FETCH commands submitted to io_uring");
 
-        // Force kernel to process by entering and exiting - this ensures all SQEs are seen
-        // We use submit() again to trigger io_uring processing without waiting for completions
-        for i in 0..3 {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            let n = self.ring.submit().unwrap_or(0);
-            eprintln!("[TRACE] Extra submit {}: {} submitted", i, n);
-
-            // Check for any completions (errors from rejected commands)
-            self.ring.completion().sync();
-            let cq_len = self.ring.completion().len();
-            eprintln!("[TRACE]   CQ len after sync: {}", cq_len);
-            for cqe in self.ring.completion() {
-                eprintln!("[TRACE]   CQE: user_data={}, result={}", cqe.user_data(), cqe.result());
-                if cqe.result() < 0 {
-                    return Err(DaemonError::Submit(std::io::Error::from_raw_os_error(-cqe.result())));
-                }
-            }
-        }
-
-        // Force io_uring to actually process our FETCH submissions by entering the kernel
-        // The kernel's ublk driver requires the io_uring to have processed the FETCH commands
-        // before START_DEV can complete
-        eprintln!("[TRACE] Entering io_uring to process FETCH commands...");
-        match self.ring.submit_and_wait(0) {
-            Ok(n) => eprintln!("[TRACE]   submit_and_wait(0) returned {} completions", n),
-            Err(e) => eprintln!("[TRACE]   submit_and_wait(0) error: {}", e),
-        }
-
-        eprintln!("[TRACE] Spawning thread to call START_DEV...");
-        let mut ctrl_clone = self.ctrl.clone_handle()?; // We need a way to clone the ctrl handle or pass it
+        // Step 2: Spawn START_DEV thread with delay
+        // This thread waits to ensure the main thread is blocked in submit_and_wait
+        // before calling START_DEV
+        let mut ctrl_clone = self.ctrl.clone_handle()?;
         let ready_fd = self.ready_fd;
         let dev_id = self.ctrl.dev_id();
+        let block_dev_path = self.ctrl.block_dev_path();
+
         std::thread::spawn(move || {
-            debug!("Background thread calling START_DEV");
-            if let Err(e) = ctrl_clone.start() {
-                warn!("Background START_DEV failed: {}", e);
-            } else {
-                info!("Background START_DEV returned OK!");
-                if let Some(fd) = ready_fd {
-                    // Signal parent that device is ready (write dev_id + 1)
-                    let val = (dev_id as u64) + 1;
-                    unsafe {
-                        libc::write(fd, &val as *const u64 as *const libc::c_void, 8);
+            // Wait for main thread to enter submit_and_wait and block
+            // 200ms should be more than enough for the main thread to enter the kernel
+            debug!("START_DEV thread: waiting for io_uring to block...");
+            std::thread::sleep(Duration::from_millis(200));
+
+            debug!("START_DEV thread: calling START_DEV ioctl");
+            match ctrl_clone.start() {
+                Ok(()) => {
+                    info!(block_dev = %block_dev_path, "START_DEV succeeded - block device ready!");
+                    if let Some(fd) = ready_fd {
+                        let val = (dev_id as u64) + 1;
+                        unsafe {
+                            libc::write(fd, &val as *const u64 as *const libc::c_void, 8);
+                        }
                     }
+                }
+                Err(e) => {
+                    warn!(error = %e, "START_DEV failed");
                 }
             }
         });
 
-        info!(block_dev = %self.ctrl.block_dev_path(), "Device start initiated in background");
+        // Step 3: Main thread enters submit_and_wait loop IMMEDIATELY
+        // This is critical - we must be blocked in the kernel when START_DEV is called
+        info!(block_dev = %self.ctrl.block_dev_path(), "Entering I/O loop (waiting for START_DEV)");
 
-        eprintln!("[TRACE] About to enter main I/O loop...");
         loop {
-            eprintln!("[TRACE] Loop iteration: checking stop flag...");
             if self.stop.load(Ordering::Relaxed) {
                 info!("Stop signal received");
                 return Err(DaemonError::Stopped);
             }
 
-            eprintln!("[TRACE] Calling submit_and_wait(1)...");
+            // Block waiting for completions - this is where we must be when START_DEV is called
             match self.ring.submit_and_wait(1) {
-                Ok(n) => {
-                    eprintln!("[TRACE] submit_and_wait(1) returned Ok({})", n);
-                }
-                Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
-                    eprintln!("[TRACE] submit_and_wait(1) EINTR, continuing");
-                    continue;
-                }
-                Err(e) => {
-                    eprintln!("[TRACE] submit_and_wait(1) error: {} (raw_os_error={:?})", e, e.raw_os_error());
-                    return Err(DaemonError::Submit(e));
-                }
+                Ok(_) => {}
+                Err(e) if e.raw_os_error() == Some(libc::EINTR) => continue,
+                Err(e) => return Err(DaemonError::Submit(e)),
             }
 
-            // Process completions - collect tags first to avoid borrow issues
+            // Process completions
             let tags: Vec<(u16, i32)> = {
                 let cq = self.ring.completion();
                 cq.map(|cqe| (cqe.user_data() as u16, cqe.result())).collect()
             };
-            eprintln!("[TRACE] Processing {} completions", tags.len());
 
             for (tag, result) in tags {
-                eprintln!("[TRACE]   CQE tag={}, result={}", tag, result);
                 if result < 0 {
                     if result == -libc::ENODEV {
-                        eprintln!("[TRACE]   ENODEV received for tag {} - device stopped!", tag);
-                        info!(tag, "Device stopped");
+                        info!(tag, "Device stopped (ENODEV)");
                         return Ok(());
                     }
-                    eprintln!("[TRACE]   Error result={}, resubmitting FETCH", result);
-                    warn!(tag, result, "I/O completion error");
+                    warn!(tag, result, "I/O completion error, resubmitting FETCH");
                     self.submit_fetch(tag)?;
                     continue;
                 }
@@ -301,11 +291,8 @@ impl UblkDaemon {
                 let start_sector = iod.start_sector;
                 let nr_sectors = iod.nr_sectors;
 
-                eprintln!("[TRACE]   IOD: op={}, start_sector={}, nr_sectors={}, op_flags=0x{:X}",
-                          op, start_sector, nr_sectors, iod.op_flags);
                 debug!(tag, op, start_sector, nr_sectors, "Processing I/O");
 
-                // Get buffer and fd before match to avoid borrow issues
                 let len = (nr_sectors as usize) * SECTOR_SIZE as usize;
                 let char_fd = self.char_fd;
                 let data_buf_ptr = unsafe {
@@ -314,11 +301,9 @@ impl UblkDaemon {
 
                 let io_result = match op {
                     UBLK_IO_OP_READ => {
-                        // Read from store, then pwrite to kernel
                         let buf = unsafe { std::slice::from_raw_parts_mut(data_buf_ptr, len) };
                         match store.read(start_sector, buf) {
                             Ok(n) => {
-                                // Write data to kernel via pwrite
                                 let offset = ublk_user_copy_offset(0, tag, 0);
                                 let fd = unsafe { BorrowedFd::borrow_raw(char_fd) };
                                 pwrite(fd, buf, offset)
@@ -329,7 +314,6 @@ impl UblkDaemon {
                         }
                     }
                     UBLK_IO_OP_WRITE => {
-                        // pread from kernel, then write to store
                         let buf = unsafe { std::slice::from_raw_parts_mut(data_buf_ptr, len) };
                         let offset = ublk_user_copy_offset(0, tag, 0);
                         let fd = unsafe { BorrowedFd::borrow_raw(char_fd) };
@@ -348,18 +332,160 @@ impl UblkDaemon {
                 };
 
                 let result = match io_result {
-                    Ok(n) => {
-                        eprintln!("[TRACE]   I/O succeeded: {} bytes", n);
-                        n as i32
-                    }
+                    Ok(n) => n as i32,
                     Err(e) => {
-                        eprintln!("[TRACE]   I/O failed: {}", e);
                         warn!(tag, error = %e, "I/O operation failed");
                         -e.raw_os_error().unwrap_or(libc::EIO)
                     }
                 };
 
-                eprintln!("[TRACE]   Submitting COMMIT_AND_FETCH for tag={}, result={}", tag, result);
+                self.submit_commit_and_fetch(tag, result)?;
+            }
+
+            self.ring.submit().map_err(DaemonError::Submit)?;
+        }
+    }
+
+    /// Run daemon with BatchedPageStore for high-throughput batched compression.
+    ///
+    /// This method is similar to `run` but uses `BatchedPageStore` which:
+    /// - Buffers writes until batch threshold (1000+ pages)
+    /// - Uses GPU for large batches when available
+    /// - Falls back to SIMD parallel compression for smaller batches
+    ///
+    /// Uses FIX B+F: Disabled SQPOLL, main thread enters io_uring before START_DEV.
+    #[cfg(not(test))]
+    pub fn run_batched(&mut self, store: &Arc<crate::daemon::BatchedPageStore>) -> Result<(), DaemonError> {
+        info!(queue_depth = self.queue_depth, "Starting batched I/O loop (FIX B+F applied)");
+
+        // Step 1: Submit initial FETCH commands
+        for tag in 0..self.queue_depth {
+            self.submit_fetch(tag)?;
+        }
+        self.ring.submission().sync();
+        let submitted = self.ring.submit().map_err(DaemonError::Submit)?;
+        info!(submitted, "Batched: FETCH commands submitted");
+
+        // Step 2: Spawn START_DEV thread with delay (FIX F)
+        let mut ctrl_clone = self.ctrl.clone_handle()?;
+        let ready_fd = self.ready_fd;
+        let dev_id = self.ctrl.dev_id();
+        let block_dev_path = self.ctrl.block_dev_path();
+
+        std::thread::spawn(move || {
+            // Wait for main thread to enter submit_and_wait
+            debug!("Batched START_DEV thread: waiting for io_uring to block...");
+            std::thread::sleep(Duration::from_millis(200));
+
+            debug!("Batched START_DEV thread: calling START_DEV ioctl");
+            match ctrl_clone.start() {
+                Ok(()) => {
+                    info!(block_dev = %block_dev_path, "Batched START_DEV succeeded!");
+                    if let Some(fd) = ready_fd {
+                        let val = (dev_id as u64) + 1;
+                        unsafe {
+                            libc::write(fd, &val as *const u64 as *const libc::c_void, 8);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "Batched START_DEV failed");
+                }
+            }
+        });
+
+        // Step 3: Enter I/O loop immediately (main thread blocks in kernel)
+        info!(block_dev = %self.ctrl.block_dev_path(), "Batched: entering I/O loop");
+
+        loop {
+            if self.stop.load(Ordering::Relaxed) {
+                info!("Stop signal received");
+                return Err(DaemonError::Stopped);
+            }
+
+            match self.ring.submit_and_wait(1) {
+                Ok(_) => {}
+                Err(e) if e.raw_os_error() == Some(libc::EINTR) => continue,
+                Err(e) => return Err(DaemonError::Submit(e)),
+            }
+
+            // Collect completions
+            let tags: Vec<(u16, i32)> = {
+                let cq = self.ring.completion();
+                cq.map(|cqe| (cqe.user_data() as u16, cqe.result())).collect()
+            };
+
+            for (tag, result) in tags {
+                if result < 0 {
+                    if result == -libc::ENODEV {
+                        info!(tag, "Device stopped");
+                        return Ok(());
+                    }
+                    warn!(tag, result, "I/O completion error");
+                    self.submit_fetch(tag)?;
+                    continue;
+                }
+
+                let iod = self.get_iod(tag);
+                let op = (iod.op_flags & 0xff) as u8;
+                let start_sector = iod.start_sector;
+                let nr_sectors = iod.nr_sectors;
+
+                debug!(tag, op, start_sector, nr_sectors, "Processing batched I/O");
+
+                let len = (nr_sectors as usize) * SECTOR_SIZE as usize;
+                let char_fd = self.char_fd;
+                let data_buf_ptr = unsafe {
+                    self.data_buf.add((tag as usize) * (self.max_io_size as usize))
+                };
+
+                // Process I/O using BatchedPageStore
+                let io_result = match op {
+                    UBLK_IO_OP_READ => {
+                        let buf = unsafe { std::slice::from_raw_parts_mut(data_buf_ptr, len) };
+                        match store.read(start_sector, buf) {
+                            Ok(n) => {
+                                let offset = ublk_user_copy_offset(0, tag, 0);
+                                let fd = unsafe { BorrowedFd::borrow_raw(char_fd) };
+                                pwrite(fd, buf, offset)
+                                    .map(|_| n)
+                                    .map_err(|e| std::io::Error::from_raw_os_error(e as i32))
+                            }
+                            Err(e) => Err(e),
+                        }
+                    }
+                    UBLK_IO_OP_WRITE => {
+                        let buf = unsafe { std::slice::from_raw_parts_mut(data_buf_ptr, len) };
+                        let offset = ublk_user_copy_offset(0, tag, 0);
+                        let fd = unsafe { BorrowedFd::borrow_raw(char_fd) };
+                        match pread(fd, buf, offset) {
+                            Ok(_) => store.write(start_sector, buf),
+                            Err(e) => Err(std::io::Error::from_raw_os_error(e as i32)),
+                        }
+                    }
+                    UBLK_IO_OP_FLUSH => {
+                        // Flush pending batch on FLUSH request
+                        if let Err(e) = store.flush_batch() {
+                            warn!("Flush batch failed: {}", e);
+                        }
+                        Ok(0)
+                    }
+                    UBLK_IO_OP_DISCARD => store.discard(start_sector, nr_sectors),
+                    UBLK_IO_OP_WRITE_ZEROES => store.write_zeroes(start_sector, nr_sectors),
+                    _ => {
+                        warn!(op, "Unknown I/O operation");
+                        Err(std::io::Error::from_raw_os_error(libc::ENOTSUP))
+                    }
+                };
+
+                let result = match io_result {
+                    Ok(n) => n as i32,
+                    Err(e) => {
+                        warn!(tag, error = %e, "Batched I/O operation failed");
+                        -e.raw_os_error().unwrap_or(libc::EIO)
+                    }
+                };
+
                 self.submit_commit_and_fetch(tag, result)?;
             }
 
@@ -463,7 +589,7 @@ impl Drop for UblkDaemon {
     }
 }
 
-/// Start daemon with a new PageStore
+/// Start daemon with a new PageStore (per-page compression)
 #[cfg(not(test))]
 pub fn run_daemon(
     dev_id: i32,
@@ -482,6 +608,105 @@ pub fn run_daemon(
     let mut store = PageStore::new(dev_size, algorithm);
 
     daemon.run(&mut store)
+}
+
+/// Batched daemon configuration
+#[derive(Debug, Clone)]
+pub struct BatchedDaemonConfig {
+    /// Device ID
+    pub dev_id: i32,
+    /// Device size in bytes
+    pub dev_size: u64,
+    /// Compression algorithm
+    pub algorithm: trueno_zram_core::Algorithm,
+    /// Batch threshold (pages before triggering compression)
+    pub batch_threshold: usize,
+    /// Flush timeout for partial batches
+    pub flush_timeout_ms: u64,
+    /// GPU batch size for optimal throughput
+    pub gpu_batch_size: usize,
+}
+
+impl Default for BatchedDaemonConfig {
+    fn default() -> Self {
+        Self {
+            dev_id: -1,
+            dev_size: 1 << 30, // 1GB
+            algorithm: trueno_zram_core::Algorithm::Lz4,
+            batch_threshold: 1000,
+            flush_timeout_ms: 10,
+            gpu_batch_size: 4000,
+        }
+    }
+}
+
+/// Start daemon with BatchedPageStore for high-throughput compression.
+///
+/// This mode buffers pages and compresses them in batches:
+/// - GPU for batches >= 1000 pages
+/// - SIMD parallel for 100-999 pages
+/// - SIMD sequential for < 100 pages
+///
+/// Target: >10 GB/s sequential write throughput.
+#[cfg(not(test))]
+pub fn run_daemon_batched(
+    batch_config: BatchedDaemonConfig,
+    stop: Arc<AtomicBool>,
+    ready_fd: Option<i32>,
+) -> Result<(), DaemonError> {
+    let device_config = DeviceConfig {
+        dev_id: batch_config.dev_id,
+        dev_size: batch_config.dev_size,
+        ..Default::default()
+    };
+
+    let mut daemon = UblkDaemon::new(device_config, stop.clone(), ready_fd)?;
+
+    // Create batched page store
+    let store_config = BatchConfig {
+        batch_threshold: batch_config.batch_threshold,
+        flush_timeout: Duration::from_millis(batch_config.flush_timeout_ms),
+        gpu_batch_size: batch_config.gpu_batch_size,
+    };
+    let store = Arc::new(BatchedPageStore::with_config(batch_config.algorithm, store_config));
+
+    // Spawn background flush thread
+    let flush_handle = spawn_flush_thread(Arc::clone(&store));
+
+    info!(
+        "Starting batched daemon: batch_threshold={}, flush_timeout={}ms, gpu_batch_size={}",
+        batch_config.batch_threshold,
+        batch_config.flush_timeout_ms,
+        batch_config.gpu_batch_size
+    );
+
+    // Run daemon with batched store
+    let result = daemon.run_batched(&store);
+
+    // Signal shutdown to flush thread
+    store.shutdown();
+
+    // Wait for flush thread to complete final flush
+    if let Err(e) = flush_handle.join() {
+        warn!("Flush thread panicked: {:?}", e);
+    }
+
+    // Log final stats
+    let stats = store.stats();
+    info!(
+        "Batched daemon stats: pages={}, gpu_pages={}, simd_pages={}, batch_flushes={}, ratio={:.2}x",
+        stats.pages_stored,
+        stats.gpu_pages,
+        stats.simd_pages,
+        stats.batch_flushes,
+        if stats.bytes_compressed > 0 {
+            stats.bytes_stored as f64 / stats.bytes_compressed as f64
+        } else {
+            1.0
+        }
+    );
+
+    result
 }
 
 // ============================================================================

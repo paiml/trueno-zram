@@ -13,7 +13,7 @@ pub mod avx512;
 #[cfg(target_arch = "aarch64")]
 pub mod neon;
 
-pub use compress::compress;
+pub use compress::{compress, compress_tls};
 pub use decompress::decompress;
 
 use crate::{Result, PAGE_SIZE};

@@ -30,6 +30,26 @@ Violation of this rule wastes user time and destroys unsaved work.
 
 trueno-zram is a SIMD-accelerated memory compression library for Linux systems, part of the PAIML "Batuta Stack" (trueno + bashrs + aprender). It provides userspace Rust implementations of LZ4 and ZSTD compression that leverage modern CPU vector instructions (AVX2, AVX-512, NEON) to replace kernel-level compression.
 
+### Production Status (2026-01-06)
+
+**MILESTONE DT-005 ACHIEVED:** trueno-zram is running as system swap!
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| System Swap | ACTIVE | 8GB device, priority 150 |
+| CPU SIMD Compress | PRODUCTION | 20-24 GB/s at 10GB scale |
+| GPU Decompress | PRODUCTION | 137 GB/s on RTX 4090 |
+| GPU Compress | BLOCKED | NVIDIA F081 bug (Loaded Value Bug) |
+| mlock() Fix | PENDING | DT-007 delegated to duende project |
+
+### Known Issues
+
+1. **Swap Deadlock (DT-006/DT-007):** Under extreme memory pressure, daemon can enter state:D in `__swap_writepage`. Fix requires mlock() to pin daemon memory, delegated to duende project.
+
+2. **GPU Compression Blocked (KF-002):** NVIDIA PTX bug F081 prevents using loaded values from shared memory in stores. Workaround: hybrid architecture (CPU compress + GPU decompress).
+
+3. **Docker Isolation:** ublk devices are host kernel resources and cannot be isolated in Docker containers. Test on host with controlled swap fill.
+
 ## Build Commands
 
 ```bash

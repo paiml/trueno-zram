@@ -137,6 +137,28 @@ pub struct CreateArgs {
     /// Run in foreground (don't daemonize)
     #[arg(short = 'f', long)]
     pub foreground: bool,
+
+    /// Enable batched compression mode for high throughput (>10 GB/s)
+    ///
+    /// In batched mode, pages are buffered until batch-threshold is reached,
+    /// then compressed in parallel using SIMD (19-24 GB/s).
+    /// DEFAULT: enabled. Use --no-batched to disable.
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    pub batched: bool,
+
+    /// Disable batched compression mode (use per-page mode)
+    ///
+    /// Per-page mode has lower latency but lower throughput (~3.7 GB/s).
+    #[arg(long = "no-batched", action = clap::ArgAction::SetTrue)]
+    pub no_batched: bool,
+
+    /// Batch threshold - pages before triggering batch compression (default: 1000)
+    #[arg(long, default_value = "1000")]
+    pub batch_threshold: usize,
+
+    /// Flush timeout in ms - max time before flushing partial batch (default: 10)
+    #[arg(long, default_value = "10")]
+    pub flush_timeout_ms: u64,
 }
 
 /// List command arguments

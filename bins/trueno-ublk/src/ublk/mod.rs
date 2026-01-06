@@ -19,7 +19,7 @@ pub use ctrl::UblkCtrl;
 pub use ctrl::MockUblkCtrl as UblkCtrl;
 pub use daemon::DaemonError;
 #[cfg(not(test))]
-pub use daemon::{run_daemon, UblkDaemon};
+pub use daemon::{run_daemon, run_daemon_batched, BatchedDaemonConfig, UblkDaemon};
 #[cfg(test)]
 pub use daemon::MockUblkDaemon as UblkDaemon;
 pub use io::{build_commit_fetch_cmd, build_fetch_cmd, user_copy_offset, IoOp, IoRequest, IoResult};

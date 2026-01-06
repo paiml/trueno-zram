@@ -7,6 +7,27 @@
 
 SIMD and GPU-accelerated memory compression library for Linux systems. Part of the PAIML "Batuta Stack" (trueno + bashrs + aprender).
 
+## Production Status
+
+**MILESTONE ACHIEVED (2026-01-06):** trueno-zram is running as system swap!
+
+| Status | Description |
+|--------|-------------|
+| **DT-005** | 8GB trueno-zram device active as primary swap (priority 150) |
+| **Performance** | CPU SIMD: 20-24 GB/s compress, GPU: 137 GB/s decompress |
+| **Compression** | 3.70x average ratio validated at 10GB scale |
+| **Known Issue** | Swap deadlock under extreme memory pressure (DT-007 fix pending) |
+
+### Current Architecture: Hybrid CPU/GPU
+
+```
+Production Pipeline:
+  Compress: CPU SIMD (AVX-512) @ 20-24 GB/s, 3.70x ratio
+  Decompress: GPU CUDA @ 137 GB/s (when batch > 2000 pages)
+```
+
+**Note:** GPU compression is blocked by NVIDIA PTX bug F081 (Loaded Value Bug). The hybrid architecture uses CPU SIMD for compression and GPU for decompression, exceeding the 5X kernel ZRAM target.
+
 ## Overview
 
 trueno-zram provides userspace Rust implementations of LZ4 and ZSTD compression that leverage modern CPU vector instructions (AVX2, AVX-512, NEON) and optional CUDA GPU acceleration to replace kernel-level zram compression.
@@ -161,12 +182,23 @@ cargo llvm-cov --workspace --all-features
 
 ## Performance
 
+### vs Linux Kernel ZRAM (Validated 2026-01-06)
+
+| Data Type | Linux Kernel | trueno-zram | Speedup |
+|-----------|--------------|-------------|---------|
+| Compressible | 0.54 GB/s | 3.7 GB/s (seq) / 19-24 GB/s (parallel) | **6.9x / 35-45x** |
+| Random | 0.30 GB/s | 1.6 GB/s | **5.3x** |
+| Same-fill | ~8 GB/s | 22 GB/s | **2.75x** |
+
+### Component Performance
+
 | Metric | Target | Achieved |
 |--------|--------|----------|
 | LZ4 Compression | >= 3 GB/s | 4.4 GB/s (AVX-512) |
 | LZ4 Decompression | >= 5 GB/s | 5.4 GB/s (AVX-512) |
 | ZSTD Compression | >= 8 GB/s | 11.2 GB/s (AVX-512) |
 | ZSTD Decompression | >= 20 GB/s | 46 GB/s (AVX-512) |
+| GPU Decompression | >= 30 GB/s | 137 GB/s (RTX 4090) |
 | SIMD vs Scalar | >= 40% improvement | 45% faster |
 | P99 Latency | < 100us | 85us |
 | Same-fill ratio | 2048:1 | 2048:1 |

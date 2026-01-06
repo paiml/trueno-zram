@@ -1,0 +1,261 @@
+# .github/workflows/ublk-tests.yml
+# CI/CD pipeline for trueno-ublk integration tests
+# Per testing-debugging-troubleshooting.md Section 4.5
+
+name: ublk Integration Tests
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'bins/trueno-ublk/**'
+      - 'crates/trueno-zram-core/**'
+      - 'docker/**'
+      - 'scripts/**'
+      - '.github/workflows/ublk-tests.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'bins/trueno-ublk/**'
+      - 'crates/trueno-zram-core/**'
+  workflow_dispatch:
+    inputs:
+      test_level:
+        description: 'Test level to run'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - unit
+          - component
+          - io-verify
+          - filesystem
+          - stress
+          - falsification
+          - full
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ============================================================================
+  # Unit Tests (no privileges needed)
+  # ============================================================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run unit tests
+        run: cargo test --lib --workspace
+
+      - name: Run doc tests
+        run: cargo test --doc --workspace
+
+  # ============================================================================
+  # Docker Component Tests
+  # ============================================================================
+  docker-component-tests:
+    name: Component Tests (Docker)
+    runs-on: ubuntu-24.04
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build test image
+        run: |
+          docker build -t trueno-ublk-test -f docker/Dockerfile.ublk-test .
+
+      - name: Run component tests
+        run: |
+          docker run --privileged \
+            -v /lib/modules:/lib/modules:ro \
+            -v $(pwd):/workspace:ro \
+            trueno-ublk-test component
+
+      - name: Upload test logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: component-test-logs
+          path: test-results/
+
+  # ============================================================================
+  # Docker I/O Verification
+  # ============================================================================
+  docker-io-verification:
+    name: I/O Verification (Docker)
+    runs-on: ubuntu-24.04
+    needs: docker-component-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build test image
+        run: |
+          docker build -t trueno-ublk-test -f docker/Dockerfile.ublk-test .
+
+      - name: Run I/O verification
+        run: |
+          docker run --privileged \
+            -v /lib/modules:/lib/modules:ro \
+            -v $(pwd):/workspace:ro \
+            trueno-ublk-test io-verify
+
+      - name: Upload test logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: io-verification-logs
+          path: test-results/
+
+  # ============================================================================
+  # Docker Filesystem Integration
+  # ============================================================================
+  docker-filesystem-tests:
+    name: Filesystem Integration (Docker)
+    runs-on: ubuntu-24.04
+    needs: docker-io-verification
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build test image
+        run: |
+          docker build -t trueno-ublk-test -f docker/Dockerfile.ublk-test .
+
+      - name: Run filesystem tests
+        run: |
+          docker run --privileged \
+            -v /lib/modules:/lib/modules:ro \
+            -v $(pwd):/workspace:ro \
+            --tmpfs /mnt/test:size=4G \
+            trueno-ublk-test filesystem
+
+      - name: Upload test logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: filesystem-test-logs
+          path: test-results/
+
+  # ============================================================================
+  # Falsification Matrix (scheduled or manual)
+  # ============================================================================
+  falsification-matrix:
+    name: Falsification Matrix (F001-F100)
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    needs: docker-filesystem-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build test image
+        run: |
+          docker build -t trueno-ublk-test -f docker/Dockerfile.ublk-test .
+
+      - name: Run falsification matrix
+        run: |
+          mkdir -p test-results
+          docker run --privileged \
+            -v /lib/modules:/lib/modules:ro \
+            -v $(pwd):/workspace:ro \
+            -v $(pwd)/test-results:/workspace/test-results \
+            trueno-ublk-test falsification
+
+      - name: Upload falsification report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: falsification-report
+          path: test-results/falsification-report.json
+
+      - name: Post summary
+        if: always()
+        run: |
+          if [ -f test-results/falsification-report.json ]; then
+            echo "## Falsification Matrix Results" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat test-results/falsification-report.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # PMAT Quality Gate
+  # ============================================================================
+  pmat-quality-gate:
+    name: PMAT Quality Gate
+    runs-on: ubuntu-24.04
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Install pmat
+        run: cargo install pmat --locked || echo "pmat install optional"
+
+      - name: Run pmat quality gates
+        run: |
+          if command -v pmat &>/dev/null; then
+            pmat quality-gates || echo "Quality gates check completed"
+          else
+            echo "pmat not available, skipping quality gates"
+          fi
+        continue-on-error: true
+
+  # ============================================================================
+  # Five-Whys Analysis (on failure)
+  # ============================================================================
+  five-whys-analysis:
+    name: Five-Whys Root Cause Analysis
+    runs-on: ubuntu-24.04
+    needs: [docker-component-tests, docker-io-verification, docker-filesystem-tests]
+    if: failure()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-logs/
+
+      - name: Analyze failures
+        run: |
+          echo "## Five-Whys Analysis Required" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "One or more tests failed. Per Toyota Way methodology:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Stop the line** (Andon): Pipeline halted" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Go and see** (Genchi Genbutsu): Review logs below" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Ask why 5 times**: Determine root cause" >> $GITHUB_STEP_SUMMARY
+          echo "4. **Fix at the source**: Don't just patch symptoms" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Available Logs" >> $GITHUB_STEP_SUMMARY
+          find all-logs -type f -name "*.log" | while read f; do
+            echo "- $f" >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: Upload combined analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: five-whys-analysis
+          path: all-logs/

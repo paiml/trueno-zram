@@ -140,6 +140,23 @@ impl ZramDevice {
         Ok(content.trim().to_string())
     }
 
+    /// Read the active compression algorithm.
+    /// Parses the comp_algorithm sysfs file which contains all available algorithms
+    /// with the selected one in brackets, e.g., "lzo lzo-rle [lz4] lz4hc 842 zstd"
+    pub fn read_active_algorithm(&self) -> Result<String> {
+        let raw = self.read_attr_str("comp_algorithm")?;
+        // Extract the algorithm name from brackets [algo]
+        if let Some(start) = raw.find('[') {
+            if let Some(end) = raw.find(']') {
+                if start < end {
+                    return Ok(raw[start + 1..end].to_string());
+                }
+            }
+        }
+        // Fallback: return first word if no brackets found
+        Ok(raw.split_whitespace().next().unwrap_or("unknown").to_string())
+    }
+
     /// Write a sysfs attribute.
     pub fn write_attr(&self, attr: &str, value: &str) -> Result<()> {
         let path = format!("{}/{attr}", self.sys_path);
@@ -163,7 +180,7 @@ impl ZramDevice {
             compr_data_size: self.read_attr_u64("compr_data_size").unwrap_or(0),
             mem_used_total: self.read_attr_u64("mem_used_total").unwrap_or(0),
             algorithm: self
-                .read_attr_str("comp_algorithm")
+                .read_active_algorithm()
                 .unwrap_or_else(|_| "unknown".to_string()),
         })
     }

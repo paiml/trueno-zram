@@ -39,7 +39,19 @@ pub fn run(args: CreateArgs) -> Result<()> {
         entropy_skip_threshold: args.entropy_skip,
         gpu_batch_size: args.gpu_batch,
         foreground: args.foreground,
+        // --no-batched overrides --batched (default: enabled)
+        batched: args.batched && !args.no_batched,
+        batch_threshold: args.batch_threshold,
+        flush_timeout_ms: args.flush_timeout_ms,
     };
+
+    if config.batched {
+        tracing::info!(
+            batch_threshold = args.batch_threshold,
+            flush_timeout_ms = args.flush_timeout_ms,
+            "Batched compression mode enabled (target: >10 GB/s)"
+        );
+    }
 
     let device = UblkDevice::create(config)?;
     println!("{}", device.path().display());

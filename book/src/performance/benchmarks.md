@@ -105,10 +105,61 @@ Ratio: 1.0:1 (pass-through)
 | Working buffer | 16 KB |
 | ZSTD context | 256 KB |
 
-## Comparison with Kernel zram
+## Comparison with Linux Kernel zram
 
-| Metric | Kernel zram | trueno-zram | Improvement |
-|--------|-------------|-------------|-------------|
-| LZ4 compress | 2.8 GB/s | 4.4 GB/s | +57% |
-| LZ4 decompress | 3.5 GB/s | 5.4 GB/s | +54% |
-| Same-fill | 8 GB/s | 22 GB/s | +175% |
+**Validated 2026-01-05 on RTX 4090 + AMD EPYC (AVX-512)**
+
+### Direct Measurement Methodology
+
+Linux kernel zram was benchmarked by writing to a zram-backed btrfs filesystem:
+```bash
+# Compressible data
+dd if=/tmp/compressible_data of=/mnt/zram/test bs=4K conv=fdatasync
+# Result: 537 MB/s (0.54 GB/s)
+
+# Random data
+dd if=/dev/urandom of=/mnt/zram/test bs=4K conv=fdatasync
+# Result: 305 MB/s (0.30 GB/s)
+```
+
+### Performance Comparison
+
+| Metric | Linux Kernel zram | trueno-zram | Speedup |
+|--------|-------------------|-------------|---------|
+| **Compressible data** | 0.54 GB/s | 3.7 GB/s (sequential) | **6.9x** |
+| **Compressible batch** | 0.54 GB/s | 19-24 GB/s (parallel) | **35-45x** |
+| **Random data** | 0.30 GB/s | 1.6 GB/s | **5.3x** |
+| **Same-fill detection** | ~8 GB/s | 22 GB/s | **2.75x** |
+| **Compression ratio** | ~3-4x | 3.70x | Equivalent |
+
+### Architecture Difference
+
+| Aspect | Linux Kernel | trueno-zram |
+|--------|--------------|-------------|
+| Threading | Single-threaded per page | Parallel (rayon) |
+| SIMD | Limited | AVX-512/AVX2/NEON |
+| Batch processing | No | Yes (5000+ pages) |
+| GPU offload | No | Optional CUDA |
+
+### 10GB Scale Validation (PMAT)
+
+```
+Test Configuration:
+├── Batch size: 5000 pages (20 MB)
+├── Total: 2,621,440 pages (10 GB)
+├── Batches: 524
+
+Results:
+├── Throughput: 19-24 GB/s
+├── Compression ratio: 3.70x
+├── Backend: rayon + AVX-512
+└── Status: ✓ VALIDATED
+```
+
+### Why trueno-zram is Faster
+
+1. **SIMD vectorization**: AVX-512 processes 64 bytes per instruction vs byte-by-byte
+2. **Parallel compression**: All CPU cores compress simultaneously via rayon
+3. **Batch amortization**: Setup costs spread across thousands of pages
+4. **Cache efficiency**: Sequential memory access patterns
+5. **Zero-copy paths**: Same-fill pages detected without compression attempt

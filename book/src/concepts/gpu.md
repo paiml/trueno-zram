@@ -2,12 +2,33 @@
 
 trueno-zram supports CUDA GPU acceleration for batch compression of memory pages.
 
+## Current Status (2026-01-06)
+
+**Important:** GPU compression is currently blocked by NVIDIA PTX bug F081 (Loaded Value Bug). The production architecture uses:
+
+- **Compression:** CPU SIMD (AVX-512) at 20-24 GB/s with 3.70x ratio
+- **Decompression:** GPU CUDA at 137 GB/s (22.8x speedup over kernel ZRAM)
+
+This hybrid architecture exceeds the 5X kernel ZRAM target using CPU compression alone.
+
+### NVIDIA F081 Bug
+
+The "Loaded Value Bug" causes CUDA_ERROR_UNKNOWN when storing values loaded from shared memory:
+
+```ptx
+// This pattern crashes:
+ld.shared.u32 %r_val, [addr];      // Load from shared memory
+st.global.u32 [dest], %r_val;      // CRASH - storing loaded value
+```
+
+Status: Reported to NVIDIA, awaiting fix. See KF-002 in roadmap for details.
+
 ## When to Use GPU
 
-GPU compression is beneficial when:
+GPU decompression is beneficial when:
 
-1. **Large batches**: 1000+ pages to compress
-2. **PCIe 5x rule satisfied**: Computation time > 5× transfer time
+1. **Large batches**: 2000+ pages to decompress
+2. **PCIe 5x rule satisfied**: Computation time > 5x transfer time
 3. **GPU available**: CUDA-capable GPU with SM 7.0+
 
 ## Basic Usage

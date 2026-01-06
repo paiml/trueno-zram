@@ -899,6 +899,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "duende-mlock"
+version = "1.0.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2817,9 +2824,8 @@ dependencies = [
 [[package]]
 name = "trueno-gpu"
 version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11adf9d98b8ebe9349d729c79bc755d6ec209a25d0fe03d7e2917db4811e4c93"
 dependencies = [
+ "libloading",
  "thiserror 2.0.17",
 ]
 
@@ -2831,6 +2837,7 @@ dependencies = [
  "clap",
  "crossterm",
  "ctrlc",
+ "duende-mlock",
  "io-uring",
  "jugar-probar",
  "libublk",
@@ -2838,6 +2845,7 @@ dependencies = [
  "procfs",
  "proptest",
  "ratatui",
+ "rayon",
  "serde",
  "serde_json",
  "tempfile",

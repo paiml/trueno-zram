@@ -30,6 +30,10 @@ path = "examples/compression_stats.rs"
 name = "entropy_routing"
 path = "examples/entropy_routing.rs"
 
+[[example]]
+name = "batched_benchmark"
+path = "examples/batched_benchmark.rs"
+
 [dependencies]
 # Internal crates
 trueno-zram-core = { workspace = true, features = ["cuda"] }
@@ -62,9 +66,15 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # System info
-nix = { version = "0.29", features = ["fs", "mount", "event", "ioctl", "mman"] }
+nix = { version = "0.29", features = ["fs", "mount", "event", "ioctl", "mman", "user"] }
 procfs = "0.17"
 libublk = "0.4.5"
+
+# Parallel processing
+rayon = "1.10"
+
+# Memory locking for swap deadlock prevention (DT-007)
+duende-mlock = { path = "../../../duende/crates/duende-mlock" }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -302,3 +302,50 @@ mod edge_cases {
         }
     }
 }
+
+/// DT-007: Test mlock integration for swap deadlock prevention
+mod mlock_integration {
+    use trueno_ublk::{lock_daemon_memory, is_memory_locked, MlockStatus};
+
+    #[test]
+    fn test_dt007_mlock_available() {
+        // Verify duende-mlock API is accessible through trueno-ublk
+        let locked = is_memory_locked();
+        // Just verify the function returns a boolean without panicking
+        println!("DT-007: is_memory_locked() = {}", locked);
+    }
+
+    #[test]
+    fn test_dt007_lock_daemon_memory() {
+        // Test the mlock integration
+        match lock_daemon_memory() {
+            Ok(MlockStatus::Locked { bytes_locked }) => {
+                println!("DT-007: Memory locked ({} bytes) - swap deadlock prevention active", bytes_locked);
+                assert!(bytes_locked > 0, "Expected some bytes to be locked");
+
+                // Verify via /proc/self/status
+                if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+                    for line in status.lines() {
+                        if line.starts_with("VmLck:") {
+                            println!("DT-007: Kernel confirms: {}", line);
+                        }
+                    }
+                }
+            }
+            Ok(MlockStatus::Failed { errno }) => {
+                // This is expected in unprivileged environments
+                println!("DT-007: mlock() failed (errno={}) - need CAP_IPC_LOCK or memlock ulimit", errno);
+                // Common errno values:
+                // EPERM (1) = Permission denied (need CAP_IPC_LOCK)
+                // ENOMEM (12) = Cannot allocate memory (ulimit too low)
+                assert!(errno == 1 || errno == 12, "Unexpected errno: {}", errno);
+            }
+            Ok(MlockStatus::Unsupported) => {
+                println!("DT-007: mlock() not supported on this platform");
+            }
+            Err(e) => {
+                panic!("DT-007: Unexpected error from lock_daemon_memory: {:?}", e);
+            }
+        }
+    }
+}
