@@ -324,21 +324,42 @@ setup_kernel_zram() {
 setup_trueno_zram() {
     log_info "Setting up trueno-zram (${SWAP_SIZE_GB}GB)..." >&2
 
-    # Start daemon
-    "${PROJECT_ROOT}/target/release/trueno-ublk" --size "${SWAP_SIZE_GB}G" --id 0 &
+    # Pre-cleanup: kill any existing daemon and reset devices
+    pkill -9 trueno-ublk 2>/dev/null || true
+    sleep 1
+
+    # Try to reset any existing devices (0, 1, 33 are common)
+    for id in 0 1 33; do
+        "${PROJECT_ROOT}/target/release/trueno-ublk" reset "$id" 2>/dev/null || true
+    done
+
+    log_info "Using auto-assign device ID" >&2
+
+    # Start daemon (new CLI: create subcommand with --foreground)
+    "${PROJECT_ROOT}/target/release/trueno-ublk" create --size "${SWAP_SIZE_GB}G" --foreground &
     local daemon_pid=$!
 
-    # Wait for device
-    local retries=10
-    while [[ $retries -gt 0 ]] && [[ ! -b /dev/ublkb0 ]]; do
+    # Wait for any ublkb device to appear
+    local retries=15
+    local device=""
+    while [[ $retries -gt 0 ]]; do
+        # Find any ublkb device
+        for dev in /dev/ublkb*; do
+            if [[ -b "$dev" ]]; then
+                device="$dev"
+                break 2
+            fi
+        done
         sleep 1
         ((retries--))
     done
 
-    if [[ ! -b /dev/ublkb0 ]]; then
+    if [[ -z "$device" ]] || [[ ! -b "$device" ]]; then
         log_fail "trueno-ublk device not created" >&2
         return 1
     fi
+
+    log_info "Device created: $device" >&2
 
     # Verify mlock (DT-007)
     local vmlck=$(grep VmLck /proc/$daemon_pid/status 2>/dev/null | awk '{print $2}')
@@ -348,10 +369,10 @@ setup_trueno_zram() {
         log_pass "DT-007: VmLck = $vmlck kB (mlock active)" >&2
     fi
 
-    mkswap /dev/ublkb0 >/dev/null
-    swapon /dev/ublkb0 -p 200
+    mkswap "$device" >/dev/null
+    swapon "$device" -p 200
 
-    echo "/dev/ublkb0"
+    echo "$device"
 }
 
 teardown_swap() {
@@ -366,9 +387,13 @@ teardown_swap() {
             echo 1 > /sys/block/zram0/reset 2>/dev/null || true
             rmmod zram 2>/dev/null || true
             ;;
-        /dev/ublkb0)
+        /dev/ublkb*)
+            # Extract device ID and reset
+            local dev_id="${device##/dev/ublkb}"
             pkill -9 trueno-ublk 2>/dev/null || true
             sleep 1
+            # Reset the specific device
+            "${PROJECT_ROOT}/target/release/trueno-ublk" reset "$dev_id" 2>/dev/null || true
             ;;
     esac
 }
