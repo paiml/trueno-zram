@@ -61,6 +61,9 @@ pub struct RegisteredBufferConfig {
 
     /// Pre-fault pages to avoid page faults in hot path
     pub prefault: bool,
+
+    /// PERF-009: Use 2MB huge pages for reduced TLB pressure
+    pub use_huge_pages: bool,
 }
 
 impl Default for RegisteredBufferConfig {
@@ -71,6 +74,7 @@ impl Default for RegisteredBufferConfig {
             pages_per_buffer: DEFAULT_PAGES_PER_BUFFER,
             alignment: PAGE_SIZE,
             prefault: true,
+            use_huge_pages: false,
         }
     }
 }
@@ -84,6 +88,7 @@ impl RegisteredBufferConfig {
             pages_per_buffer: 64,
             alignment: PAGE_SIZE,
             prefault: false,
+            use_huge_pages: false,
         }
     }
 
@@ -95,6 +100,7 @@ impl RegisteredBufferConfig {
             pages_per_buffer: 512,
             alignment: 2 * 1024 * 1024, // 2MB for huge pages
             prefault: true,
+            use_huge_pages: true, // PERF-009: Enable huge pages for TLB efficiency
         }
     }
 
@@ -273,8 +279,8 @@ impl RegisteredBufferPool {
         let buffer_size = config.buffer_size();
         let total_size = config.queue_depth * buffer_size;
 
-        // Allocate aligned memory
-        let memory = Self::allocate_aligned(total_size, config.alignment)?;
+        // Allocate aligned memory (optionally with huge pages)
+        let memory = Self::allocate_aligned(total_size, config.alignment, config.use_huge_pages)?;
 
         // Pre-fault if requested
         if config.prefault {
@@ -296,16 +302,26 @@ impl RegisteredBufferPool {
         })
     }
 
-    /// Allocate aligned memory
+    /// Allocate aligned memory with optional huge page support (PERF-009)
     fn allocate_aligned(
         size: usize,
         alignment: usize,
+        use_huge_pages: bool,
     ) -> Result<NonNull<u8>, RegisteredBufferError> {
-        use nix::libc::{mmap, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE};
+        use nix::libc::{mmap, MAP_ANONYMOUS, MAP_HUGETLB, MAP_PRIVATE, PROT_READ, PROT_WRITE};
         use std::ptr::null_mut;
 
         // Round up size to alignment
         let aligned_size = (size + alignment - 1) & !(alignment - 1);
+
+        // Build mmap flags
+        let mut flags = MAP_PRIVATE | MAP_ANONYMOUS;
+
+        // PERF-009: Add huge page flags if enabled
+        // MAP_HUGE_2MB = 21 << 26
+        if use_huge_pages {
+            flags |= MAP_HUGETLB | (21 << 26);
+        }
 
         // SAFETY: mmap is called with valid parameters for anonymous memory
         let ptr = unsafe {
@@ -313,16 +329,33 @@ impl RegisteredBufferPool {
                 null_mut(),
                 aligned_size,
                 PROT_READ | PROT_WRITE,
-                MAP_PRIVATE | MAP_ANONYMOUS,
+                flags,
                 -1,
                 0,
             )
         };
 
+        // Check for failure
         if ptr == nix::libc::MAP_FAILED {
+            // If huge pages failed and were requested, fall back to regular pages
+            if use_huge_pages {
+                tracing::warn!(
+                    size = aligned_size,
+                    "PERF-009: Huge page allocation failed, falling back to regular pages"
+                );
+                return Self::allocate_aligned(size, alignment, false);
+            }
             return Err(RegisteredBufferError::AllocationFailed(
                 io::Error::last_os_error(),
             ));
+        }
+
+        if use_huge_pages {
+            tracing::info!(
+                size = aligned_size,
+                "PERF-009: Allocated {} bytes with 2MB huge pages",
+                aligned_size
+            );
         }
 
         NonNull::new(ptr as *mut u8).ok_or_else(|| {
