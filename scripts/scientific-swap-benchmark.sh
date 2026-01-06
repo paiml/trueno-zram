@@ -324,19 +324,23 @@ setup_kernel_zram() {
 setup_trueno_zram() {
     log_info "Setting up trueno-zram (${SWAP_SIZE_GB}GB)..." >&2
 
-    # Pre-cleanup: kill any existing daemon and reset devices
+    # Pre-cleanup: kill any existing daemon
     pkill -9 trueno-ublk 2>/dev/null || true
     sleep 1
 
-    # Try to reset any existing devices (0, 1, 33 are common)
-    for id in 0 1 33; do
-        "${PROJECT_ROOT}/target/release/trueno-ublk" reset "$id" 2>/dev/null || true
+    # Find a free device ID (skip orphaned 0, 1, 33)
+    local dev_id=2
+    for candidate in 2 3 4 5 6 7 8 9; do
+        if [[ ! -c "/dev/ublkc${candidate}" ]]; then
+            dev_id=$candidate
+            break
+        fi
     done
 
-    log_info "Using auto-assign device ID" >&2
+    log_info "Using device ID: $dev_id (avoiding orphaned 0,1,33)" >&2
 
     # Start daemon (new CLI: create subcommand with --foreground)
-    "${PROJECT_ROOT}/target/release/trueno-ublk" create --size "${SWAP_SIZE_GB}G" --foreground &
+    "${PROJECT_ROOT}/target/release/trueno-ublk" create --size "${SWAP_SIZE_GB}G" --dev-id "$dev_id" --foreground &
     local daemon_pid=$!
 
     # Wait for any ublkb device to appear
