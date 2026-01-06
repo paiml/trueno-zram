@@ -66,4 +66,4 @@ pub use daemon::{spawn_flush_thread, BatchConfig, BatchedPageStore, BatchedPageS
 // Re-export performance optimization module (PERF-001)
 // Note: Additional types (BatchCoalescer, NumaAllocator, etc.) are available
 // in perf submodules for future PERF-001 integration
-pub use perf::{HiPerfContext, PerfConfig, PollResult, PollingConfig};
+pub use perf::{HiPerfContext, PerfConfig, PollResult, PollingConfig, TenXConfig, TenXContext};

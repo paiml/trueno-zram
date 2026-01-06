@@ -16,6 +16,18 @@
 //! - batch: INTEGRATED - BatchedPageStore handles compression batching
 //! - numa: INTEGRATED - NUMA binding in daemon.rs buffer allocation
 //!
+//! ## 10X Performance Stack (trueno-ublk-spec v3.0.0)
+//!
+//! The `tenx` submodule implements the full 10X optimization stack:
+//! - PERF-005: io_uring Registered Buffers (Target: 1.75x)
+//! - PERF-006: True Zero-Copy (Target: 2.5x)
+//! - PERF-007: SQPOLL Mode (Target: 4x)
+//! - PERF-008: Fixed File Descriptors (Target: 4.5x)
+//! - PERF-009: Huge Pages 2MB (Target: 6x)
+//! - PERF-010: NUMA-Aware Allocation (Target: 7x)
+//! - PERF-011: Lock-Free Multi-Queue (Target: 9x)
+//! - PERF-012: Adaptive Batch Sizing (Target: 10x)
+//!
 //! Note: Many items in submodules are used only by tests (TDD infrastructure).
 //! This is intentional per "extreme TDD" development methodology.
 
@@ -27,10 +39,14 @@ pub mod batch;
 pub mod hiperf_daemon;
 pub mod numa;
 pub mod polling;
+pub mod tenx;
 
 // Active exports - used in daemon
 pub use hiperf_daemon::HiPerfContext;
 pub use polling::{PollResult, PollingConfig};
+
+// 10X optimization stack - integrated into PerfConfig
+pub use tenx::{TenXConfig, TenXContext};
 
 /// Performance configuration for ublk daemon
 #[derive(Debug, Clone)]
@@ -52,6 +68,9 @@ pub struct PerfConfig {
 
     /// NUMA node for memory allocation (-1 = auto)
     pub numa_node: i32,
+
+    /// 10X optimization stack (PERF-005 through PERF-012)
+    pub tenx: TenXConfig,
 }
 
 impl Default for PerfConfig {
@@ -63,6 +82,7 @@ impl Default for PerfConfig {
             batch_timeout_us: 100,
             cpu_cores: Vec::new(),
             numa_node: -1,
+            tenx: TenXConfig::conservative(),
         }
     }
 }
@@ -77,6 +97,7 @@ impl PerfConfig {
             batch_timeout_us: 50,
             cpu_cores: Vec::new(), // Will be auto-detected
             numa_node: -1,         // Auto-detect
+            tenx: TenXConfig::default(),
         }
     }
 
@@ -89,6 +110,7 @@ impl PerfConfig {
             batch_timeout_us: 25,
             cpu_cores: Vec::new(),
             numa_node: -1,
+            tenx: TenXConfig::aggressive(),
         }
     }
 }
@@ -129,5 +151,27 @@ mod tests {
         let cloned = config.clone();
         assert_eq!(config.polling_enabled, cloned.polling_enabled);
         assert_eq!(config.batch_size, cloned.batch_size);
+    }
+
+    #[test]
+    fn test_tenx_context_from_perf_config() {
+        let config = PerfConfig::maximum();
+        let ctx = TenXContext::new(config.tenx).expect("TenXContext creation should succeed");
+        // Verify context was created with expected settings
+        assert!(ctx.config().registered_buffers.enabled);
+        assert!(ctx.config().adaptive_batch_enabled);
+        // Check batch size is working
+        let batch_size = ctx.current_batch_size();
+        assert!(batch_size > 0);
+    }
+
+    #[test]
+    fn test_tenx_context_conservative() {
+        let config = PerfConfig::default();
+        let ctx = TenXContext::new(config.tenx).expect("TenXContext creation should succeed");
+        // Conservative config disables most features
+        assert!(!ctx.config().zero_copy.enabled);
+        assert!(!ctx.config().sqpoll.enabled);
+        assert!(ctx.sqpoll().is_none());
     }
 }

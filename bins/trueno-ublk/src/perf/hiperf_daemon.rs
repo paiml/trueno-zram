@@ -10,7 +10,7 @@
 use super::{
     affinity::CpuAffinity,
     polling::{PollResult, PollingConfig, PollingLoop, PollingStats},
-    PerfConfig,
+    PerfConfig, TenXContext,
 };
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 /// Combines all PERF-001 optimizations into a unified interface.
 /// Note: NUMA allocation is handled directly in daemon.rs during buffer allocation.
 /// Note: Batch coalescing is handled by BatchedPageStore for compression.
+/// Note: 10X optimizations (PERF-005 through PERF-012) handled via TenXContext.
 pub struct HiPerfContext {
     /// Polling loop for spin-wait on completions
     polling: Option<PollingLoop>,
@@ -28,6 +29,8 @@ pub struct HiPerfContext {
     config: PerfConfig,
     /// Statistics
     stats: HiPerfStats,
+    /// 10X optimization context (PERF-005 through PERF-012)
+    tenx: Option<TenXContext>,
 }
 
 /// Statistics for high-performance I/O
@@ -161,11 +164,15 @@ impl HiPerfContext {
             None
         };
 
+        // Initialize 10X context if any optimizations are enabled
+        let tenx = TenXContext::new(config.tenx.clone()).ok();
+
         Self {
             polling,
             affinity,
             config,
             stats: HiPerfStats::new(),
+            tenx,
         }
     }
 
@@ -195,6 +202,7 @@ impl HiPerfContext {
             batch_timeout_us,
             cpu_cores,
             numa_node,
+            tenx: crate::perf::TenXConfig::default(),
         };
 
         Self::new(config)
@@ -202,26 +210,12 @@ impl HiPerfContext {
 
     /// Apply high-perf preset (moderate optimization)
     pub fn high_perf() -> Self {
-        Self::new(PerfConfig {
-            polling_enabled: true,
-            polling: PollingConfig::aggressive(),
-            batch_size: 128,
-            batch_timeout_us: 50,
-            cpu_cores: vec![],
-            numa_node: -1,
-        })
+        Self::new(PerfConfig::high_performance())
     }
 
     /// Apply max-perf preset (aggressive optimization)
     pub fn max_perf() -> Self {
-        Self::new(PerfConfig {
-            polling_enabled: true,
-            polling: PollingConfig::maximum(),
-            batch_size: 256,
-            batch_timeout_us: 25,
-            cpu_cores: vec![],
-            numa_node: -1,
-        })
+        Self::new(PerfConfig::maximum())
     }
 
     /// Initialize the context (apply affinity, NUMA binding)
@@ -309,6 +303,26 @@ impl HiPerfContext {
     /// Get configuration
     pub fn config(&self) -> &PerfConfig {
         &self.config
+    }
+
+    /// Get 10X optimization context (if available)
+    pub fn tenx(&self) -> Option<&TenXContext> {
+        self.tenx.as_ref()
+    }
+
+    /// Get current batch size (from 10X adaptive batching or default)
+    pub fn adaptive_batch_size(&self) -> usize {
+        self.tenx
+            .as_ref()
+            .map(|t| t.current_batch_size())
+            .unwrap_or(self.config.batch_size)
+    }
+
+    /// Record I/O latency for adaptive batching
+    pub fn record_io_latency(&self, latency_us: u64) {
+        if let Some(tenx) = &self.tenx {
+            tenx.record_latency(latency_us);
+        }
     }
 
     /// Resume polling after interrupt mode
@@ -745,6 +759,7 @@ mod tests {
             cpu_cores: vec![0, 1],
             polling_enabled: true,
             polling: PollingConfig::aggressive(),
+            tenx: crate::perf::TenXConfig::default(),
         };
         let ctx = HiPerfContext::new(config);
 
@@ -758,7 +773,7 @@ mod tests {
 
     #[test]
     fn test_hiperf_interrupt_mode_tracking() {
-        let mut ctx = HiPerfContext::high_perf();
+        let ctx = HiPerfContext::high_perf();
 
         // Record some completions from interrupt mode
         ctx.record_interrupt_completions(5);

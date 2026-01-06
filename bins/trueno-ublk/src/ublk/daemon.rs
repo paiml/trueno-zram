@@ -2066,7 +2066,7 @@ mod tests {
 
     #[test]
     fn test_batched_daemon_config_custom_perf() {
-        use crate::perf::PollingConfig;
+        use crate::perf::{PollingConfig, TenXConfig};
 
         let custom = PerfConfig {
             polling_enabled: true,
@@ -2079,6 +2079,7 @@ mod tests {
             batch_timeout_us: 75,
             cpu_cores: vec![1, 2, 3],
             numa_node: 0,
+            tenx: TenXConfig::default(),
         };
 
         let config = BatchedDaemonConfig::default().with_perf(custom);
