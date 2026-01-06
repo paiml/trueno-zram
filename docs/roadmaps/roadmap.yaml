@@ -425,7 +425,7 @@ roadmap:
     - TRUENO-ZRAM IS NOW RUNNING AS SYSTEM SWAP!
 - id: DT-005
   github_issue: null
-  item_type: milestone
+  item_type: task
   title: 'MILESTONE: trueno-zram Running as System Swap'
   status: completed
   priority: critical
