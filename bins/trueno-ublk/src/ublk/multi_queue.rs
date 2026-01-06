@@ -16,10 +16,19 @@
 //! - 1 queue: ~162K IOPS (baseline)
 //! - 4 queues: ~500K IOPS (3.5x)
 //! - 8 queues: ~800K IOPS (6x)
+//!
+//! ## 10X Optimization Stack (PERF-005 through PERF-012)
+//!
+//! When TenXConfig is provided, enables:
+//! - SQPOLL mode for zero-syscall submissions
+//! - Registered buffers for reduced kernel mapping
+//! - Fixed file descriptors for faster fd lookup
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
+
+use crate::perf::tenx::SqpollConfig;
 
 /// Wrapper for raw pointers that can be sent across threads.
 ///
@@ -283,15 +292,64 @@ impl QueueIoWorker {
         stop: Arc<AtomicBool>,
         use_ioctl_encode: bool,
     ) -> Result<Self, super::daemon::DaemonError> {
+        Self::new_with_sqpoll(
+            queue_id,
+            queue_depth,
+            max_io_size,
+            char_fd,
+            iod_buf,
+            data_buf,
+            stop,
+            use_ioctl_encode,
+            None,
+        )
+    }
+
+    /// Create a new queue worker with optional SQPOLL configuration (PERF-007)
+    ///
+    /// # Safety
+    /// The iod_buf and data_buf pointers must be valid for this queue's region
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn new_with_sqpoll(
+        queue_id: u16,
+        queue_depth: u16,
+        max_io_size: u32,
+        char_fd: i32,
+        iod_buf: *mut u8,
+        data_buf: *mut u8,
+        stop: Arc<AtomicBool>,
+        use_ioctl_encode: bool,
+        sqpoll_config: Option<&SqpollConfig>,
+    ) -> Result<Self, super::daemon::DaemonError> {
         // Create per-queue io_uring with peak performance optimizations
         // PERF-004: io_uring tuning for maximum IOPS
-        let ring = io_uring::IoUring::builder()
-            // SINGLE_ISSUER: Only one thread submits to this ring (per-queue threading)
-            .setup_single_issuer()
-            // COOP_TASKRUN: Cooperative task running reduces kernel overhead
-            .setup_coop_taskrun()
-            // Larger CQ to handle burst completions without overflow
-            .setup_cqsize(queue_depth as u32 * 4)
+        let mut builder = io_uring::IoUring::builder();
+
+        // SINGLE_ISSUER: Only one thread submits to this ring (per-queue threading)
+        builder.setup_single_issuer();
+        // COOP_TASKRUN: Cooperative task running reduces kernel overhead
+        builder.setup_coop_taskrun();
+        // Larger CQ to handle burst completions without overflow
+        builder.setup_cqsize(queue_depth as u32 * 4);
+
+        // PERF-007: Apply SQPOLL configuration if enabled
+        // WARNING: SQPOLL has known race conditions with ublk URING_CMD (FIX B)
+        // Only enable if explicitly configured and tested
+        if let Some(cfg) = sqpoll_config {
+            if cfg.enabled {
+                builder.setup_sqpoll(cfg.idle_timeout_ms);
+                if cfg.cpu >= 0 {
+                    builder.setup_sqpoll_cpu(cfg.cpu as u32);
+                }
+                tracing::info!(
+                    queue_id,
+                    idle_ms = cfg.idle_timeout_ms,
+                    "PERF-007: SQPOLL mode enabled for queue"
+                );
+            }
+        }
+
+        let ring = builder
             .build(queue_depth as u32 * 2)
             .map_err(super::daemon::DaemonError::IoUringCreate)?;
 

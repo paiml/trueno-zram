@@ -42,7 +42,9 @@ use fixed_files::FixedFileRegistry;
 use huge_pages::{HugePageAllocator, HugePageConfig};
 use lock_free::{LockFreePageTable, LockFreeQueue};
 use registered_buffers::{RegisteredBufferConfig, RegisteredBufferPool};
-use sqpoll::{SqpollConfig, SqpollRing};
+// Re-export for io_uring integration
+pub use sqpoll::SqpollConfig;
+use sqpoll::SqpollRing;
 use zero_copy::ZeroCopyConfig;
 
 
