@@ -35,15 +35,16 @@ pub mod registered_buffers;
 pub mod sqpoll;
 pub mod zero_copy;
 
+// Re-export for io_uring integration
+pub use fixed_files::FixedFileRegistry;
+pub use registered_buffers::{RegisteredBufferConfig, RegisteredBufferPool};
+pub use sqpoll::SqpollConfig;
+
 // Internal imports for TenXContext
 use adaptive_batch::{AdaptiveBatcher, BatchMetrics};
 use falsify::FalsificationMatrix;
-use fixed_files::FixedFileRegistry;
 use huge_pages::{HugePageAllocator, HugePageConfig};
 use lock_free::{LockFreePageTable, LockFreeQueue};
-// Re-export for io_uring integration
-pub use registered_buffers::{RegisteredBufferConfig, RegisteredBufferPool};
-pub use sqpoll::SqpollConfig;
 use sqpoll::SqpollRing;
 use zero_copy::ZeroCopyConfig;
 

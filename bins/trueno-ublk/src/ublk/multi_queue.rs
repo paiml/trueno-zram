@@ -30,7 +30,7 @@ use std::thread::JoinHandle;
 
 use nix::libc;
 
-use crate::perf::tenx::{RegisteredBufferConfig, RegisteredBufferPool, SqpollConfig};
+use crate::perf::tenx::{FixedFileRegistry, RegisteredBufferConfig, RegisteredBufferPool, SqpollConfig};
 
 /// Wrapper for raw pointers that can be sent across threads.
 ///
@@ -277,6 +277,10 @@ pub struct QueueIoWorker {
     registered_buffers: Option<RegisteredBufferPool>,
     /// Whether buffers have been registered with io_uring
     buffers_registered: bool,
+    /// PERF-008: Fixed file registry (owned, outlives ring registration)
+    fixed_files: Option<FixedFileRegistry>,
+    /// Whether files have been registered with io_uring
+    files_registered: bool,
 }
 
 #[cfg(not(test))]
@@ -373,6 +377,8 @@ impl QueueIoWorker {
             use_ioctl_encode,
             registered_buffers: None,
             buffers_registered: false,
+            fixed_files: None,
+            files_registered: false,
         })
     }
 
@@ -458,6 +464,88 @@ impl QueueIoWorker {
             // SAFETY: The pool is owned by this worker and will outlive any use of this pointer
             unsafe { pool.get_buffer_ptr(index).ok() }
         })
+    }
+
+    /// Register file descriptors with io_uring for faster fd lookup (PERF-008)
+    ///
+    /// This eliminates per-I/O fd table lookup overhead (~50ns per I/O).
+    /// Must be called after worker creation but before processing I/O.
+    ///
+    /// # Arguments
+    /// * `fds` - File descriptors to register (typically the ublk char device)
+    ///
+    /// # Returns
+    /// - `Ok(true)` if files were registered successfully
+    /// - `Ok(false)` if registration was skipped (already registered or empty)
+    /// - `Err` if registration failed
+    pub fn register_files(&mut self, fds: &[i32]) -> Result<bool, super::daemon::DaemonError> {
+        if fds.is_empty() || self.files_registered {
+            return Ok(false);
+        }
+
+        // Create fixed file registry
+        let mut registry = FixedFileRegistry::new(fds.len());
+
+        // Register each fd
+        for &fd in fds {
+            if registry.register(fd).is_err() {
+                tracing::warn!(
+                    queue_id = self.queue_id,
+                    "PERF-008: Fixed file registry full"
+                );
+                break;
+            }
+        }
+
+        // Get fds with placeholders for io_uring registration
+        let all_fds = registry.get_fds_with_placeholders();
+
+        // Register with io_uring
+        // Note: register_files is safe (unlike register_buffers)
+        let result = self.ring.submitter().register_files(&all_fds);
+
+        match result {
+            Ok(()) => {
+                registry.mark_registered();
+                tracing::info!(
+                    queue_id = self.queue_id,
+                    num_files = fds.len(),
+                    "PERF-008: Registered {} fixed files with io_uring",
+                    fds.len()
+                );
+                self.fixed_files = Some(registry);
+                self.files_registered = true;
+                Ok(true)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    queue_id = self.queue_id,
+                    error = %e,
+                    "PERF-008: Fixed file registration failed, continuing without"
+                );
+                // Don't fail - continue without fixed files
+                Ok(false)
+            }
+        }
+    }
+
+    /// Check if fixed files are registered
+    pub fn has_fixed_files(&self) -> bool {
+        self.files_registered
+    }
+
+    /// Get fixed file index for the char device (always index 0 if registered)
+    pub fn char_fd_fixed_index(&self) -> Option<u32> {
+        if self.files_registered {
+            Some(0) // char_fd is always registered first
+        } else {
+            None
+        }
+    }
+
+    /// Get the fixed file registry for statistics
+    pub fn fixed_files_stats(&self) -> Option<&FixedFileRegistry> {
+        self.fixed_files.as_ref()
     }
 
     /// Get IOD for a tag in this queue
