@@ -901,8 +901,19 @@ dependencies = [
 [[package]]
 name = "duende-mlock"
 version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a79abd55ed5f318a0ebddd9ab6027b393caee1e28f1840fe7bd29e1b5aa0af9"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "duende-ublk"
+version = "0.1.0"
+dependencies = [
+ "io-uring",
+ "libc",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -2831,13 +2842,14 @@ dependencies = [
 
 [[package]]
 name = "trueno-ublk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
  "crossterm",
  "ctrlc",
  "duende-mlock",
+ "duende-ublk",
  "io-uring",
  "jugar-probar",
  "libublk",
@@ -2859,7 +2871,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-zram-adaptive"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proptest",
  "thiserror 2.0.17",
@@ -2868,7 +2880,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-zram-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "serde",
@@ -2882,7 +2894,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-zram-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "cudarc",
@@ -2894,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-zram-generator"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.17",

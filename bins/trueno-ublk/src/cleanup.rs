@@ -4,12 +4,12 @@
 //! stale ublk device state that causes I/O errors (see F083 root cause analysis).
 //!
 //! ## Features
-//! - Detects orphaned ublk character devices on startup
+//! - Detects orphaned ublk character devices on startup (via duende-ublk)
 //! - Cleans up orphaned devices before creating new ones
 //! - Provides graceful shutdown via SIGTERM/SIGINT handlers
 
-use std::fs;
-use std::path::Path;
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -28,103 +28,51 @@ pub enum CleanupError {
 
     #[error("Cleanup timed out after {timeout_ms}ms")]
     Timeout { timeout_ms: u64 },
+
+    #[error("duende-ublk error: {0}")]
+    DuendeUblk(#[from] duende_ublk::Error),
 }
 
 /// Detect orphaned ublk character devices.
 ///
 /// Returns a list of device IDs that have character devices (/dev/ublkcN)
 /// but no corresponding block devices (/dev/ublkbN) or running daemon.
+///
+/// Delegates to duende-ublk for the actual detection.
 pub fn detect_orphaned_devices() -> CleanupResult<Vec<u32>> {
-    let mut orphans = Vec::new();
-
-    // Scan /dev for ublkc* devices
-    let dev_path = Path::new("/dev");
-    if !dev_path.exists() {
-        return Ok(orphans);
-    }
-
-    for entry in fs::read_dir(dev_path)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-
-        // Look for character devices: ublkcN
-        if name_str.starts_with("ublkc") {
-            if let Some(id_str) = name_str.strip_prefix("ublkc") {
-                if let Ok(dev_id) = id_str.parse::<u32>() {
-                    // Check if block device exists
-                    let block_path = format!("/dev/ublkb{}", dev_id);
-                    if !Path::new(&block_path).exists() {
-                        debug!(dev_id, "Found orphaned character device (no block device)");
-                        orphans.push(dev_id);
-                    }
-                }
+    match duende_ublk::detect_orphaned_devices() {
+        Ok(orphans) => {
+            if !orphans.is_empty() {
+                info!(count = orphans.len(), "Detected orphaned ublk devices: {:?}", orphans);
             }
+            Ok(orphans)
+        }
+        Err(e) => {
+            debug!(error = %e, "Failed to detect orphaned devices");
+            Ok(Vec::new()) // Return empty on error - don't fail startup
         }
     }
-
-    if !orphans.is_empty() {
-        info!(count = orphans.len(), "Detected orphaned ublk devices: {:?}", orphans);
-    }
-
-    Ok(orphans)
 }
 
 /// Clean up orphaned ublk devices.
 ///
 /// This function attempts to reset any orphaned devices found by `detect_orphaned_devices`.
 /// It's designed to be called at startup before creating new devices.
+///
+/// Delegates to duende-ublk for the actual cleanup.
 pub fn cleanup_orphaned_devices() -> CleanupResult<usize> {
-    let orphans = detect_orphaned_devices()?;
-    let mut cleaned = 0;
-
-    for dev_id in orphans {
-        match reset_device(dev_id) {
-            Ok(()) => {
-                info!(dev_id, "Cleaned up orphaned device");
-                cleaned += 1;
+    match duende_ublk::cleanup_orphaned_devices() {
+        Ok(cleaned) => {
+            if cleaned > 0 {
+                info!(cleaned, "Orphan cleanup completed");
             }
-            Err(e) => {
-                warn!(dev_id, error = %e, "Failed to clean up orphaned device");
-            }
+            Ok(cleaned)
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to clean up orphaned devices");
+            Ok(0) // Don't fail startup due to cleanup errors
         }
     }
-
-    if cleaned > 0 {
-        info!(cleaned, "Orphan cleanup completed");
-    }
-
-    Ok(cleaned)
-}
-
-/// Reset a specific ublk device by ID.
-///
-/// This uses the ublk control ioctl directly to send DEL_DEV command.
-/// For orphaned devices, we use a low-level approach that doesn't require
-/// creating a full UblkCtrl handle.
-fn reset_device(dev_id: u32) -> CleanupResult<()> {
-    use nix::libc;
-    use std::os::unix::io::AsRawFd;
-
-    debug!(dev_id, "Attempting to reset device");
-
-    // Open the control device directly
-    let ctrl_path = std::ffi::CString::new("/dev/ublk-control").unwrap();
-    let ctrl_fd = unsafe { libc::open(ctrl_path.as_ptr(), libc::O_RDWR) };
-    if ctrl_fd < 0 {
-        debug!(dev_id, "Cannot open /dev/ublk-control");
-        return Ok(()); // Not an error - ublk may not be loaded
-    }
-
-    // Try to delete using ioctl (fallback for simple cleanup)
-    // The device will be cleaned up when the UblkCtrl Drop runs
-    // or when the module is reloaded
-    unsafe {
-        libc::close(ctrl_fd);
-    }
-
-    debug!(dev_id, "Reset device attempt completed");
-    Ok(())
 }
 
 /// Set up graceful shutdown signal handlers.
