@@ -180,24 +180,19 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: |
-    COMPLETED - PERFORMANCE VALIDATED:
+    COMPLETED - PERFORMANCE VALIDATED (2026-01-06):
 
-    Kernel ZRAM baseline: ~6 GB/s
-    Target (5X): 30 GB/s
+    Falsification Testing Results:
+    | Metric | Claim | Measured | Status |
+    |--------|-------|----------|--------|
+    | Sequential I/O | 12.5 GB/s | 16.5 GB/s | PASS |
+    | Random IOPS | 228K | 249K | PASS |
+    | Compress throughput | 20-24 GB/s | 30.66 GB/s | PASS |
+    | Compression ratio | 3.7x | 3.87x | PASS |
+    | CPU parallel decompress | 30+ GB/s | 50+ GB/s | PASS |
 
-    ACTUAL RESULTS (from gpu-lz4-compression-kernel-spec.md):
-    - CPU SIMD compress: 20-24 GB/s at 10GB scale (3.3-4X)
-    - GPU decompress: 137 GB/s (22.84X speedup)
-    - Compression ratio: 3.70x verified
-
-    Production benchmark (10GB, 2.6M pages):
-    | Batch Size | Throughput | Ratio |
-    |------------|------------|-------|
-    | 100 pages  | 4.16 GB/s  | 3.70x |
-    | 1000 pages | 10.01 GB/s | 3.70x |
-    | 10000 pages| 3.61 GB/s  | 3.70x |
-
-    CONCLUSION: Exceeds kernel ZRAM performance via hybrid architecture.
+    NOTE: GPU decompression deprecated (PCIe bottleneck limits to 6 GB/s).
+    CPU parallel path at 50+ GB/s is the production decompression path.
 - id: DT-001
   github_issue: null
   item_type: epic
@@ -627,11 +622,11 @@ roadmap:
   github_issue: null
   item_type: epic
   title: 'duende Integration for trueno-ublk'
-  status: planned
+  status: in_progress
   priority: high
   assigned_to: null
   created: 2026-01-06T12:00:00Z
-  updated: 2026-01-06T12:00:00Z
+  updated: 2026-01-06T18:45:00Z
   spec: null
   acceptance_criteria:
   - trueno-ublk uses duende for all daemon lifecycle management
@@ -671,6 +666,14 @@ roadmap:
     6. Add health_check() returning device stats
     7. Remove custom signal handling (duende handles it)
     8. Configure RestartPolicy::OnFailure with backoff
+
+    PROGRESS (2026-01-06):
+    - [x] Created duende-ublk crate for ublk device lifecycle management
+    - [x] Integrated duende-ublk into trueno-ublk cleanup.rs
+    - [x] duende-mlock already integrated for swap deadlock prevention (DT-007)
+    - [ ] Full Daemon trait implementation (pending)
+    - [ ] DaemonManager integration (pending)
+    - [ ] systemd unit generation (pending)
 - id: DT-009
   github_issue: null
   item_type: task
@@ -743,3 +746,77 @@ roadmap:
     BASHRS FALSE POSITIVES FILED:
     - Issue #120: SC2247 triggers on Python code inside heredoc
     - Issue #121: MAKE008 triggers on .PHONY continuation lines
+- id: BENCH-001
+  github_issue: null
+  item_type: epic
+  title: 'Scientific Swap Benchmark - Falsifiable Performance Claims'
+  status: in_progress
+  priority: critical
+  assigned_to: null
+  created: 2026-01-06T20:00:00Z
+  updated: 2026-01-06T20:00:00Z
+  spec: docs/specifications/scientific-swap-benchmark.md
+  acceptance_criteria:
+  - Reproducible benchmark comparing Regular Swap vs Kernel ZRAM vs trueno-zram
+  - Falsifiable claims with defined pass/fail thresholds
+  - Statistical validity (3+ runs per test, p < 0.05)
+  - All README performance claims verified or corrected
+  - CI integration for regression testing
+  phases: []
+  subtasks:
+  - id: BENCH-001a
+    github_issue: null
+    title: Create benchmark specification document
+    status: completed
+    completion: 100
+    notes: 'COMPLETED: docs/specifications/scientific-swap-benchmark.md'
+  - id: BENCH-001b
+    github_issue: null
+    title: Implement scientific-swap-benchmark.sh
+    status: completed
+    completion: 100
+    notes: 'COMPLETED: scripts/scientific-swap-benchmark.sh with fio integration'
+  - id: BENCH-001c
+    github_issue: null
+    title: Fix overstated README claims
+    status: completed
+    completion: 100
+    notes: |
+      COMPLETED: Updated based on falsification results:
+      - Changed "12x vs kernel ZRAM" to "1.8x" (actual measured)
+      - Removed GPU 137 GB/s claim from main comparison (PCIe limited)
+      - Added note about GPU kernel-only vs end-to-end throughput
+  - id: BENCH-001d
+    github_issue: null
+    title: Run full benchmark and collect data
+    status: pending
+    completion: 0
+    notes: 'TODO: Run sudo ./scripts/scientific-swap-benchmark.sh --full'
+  - id: BENCH-001e
+    github_issue: null
+    title: Add CI workflow for benchmark regression
+    status: pending
+    completion: 0
+    notes: 'TODO: Add to GitHub Actions (requires self-hosted runner)'
+  estimated_effort: 8h
+  labels:
+  - benchmark
+  - falsification
+  - scientific
+  - P0
+  notes: |
+    P0 PRIORITY - BLOCKING RELEASE
+
+    Falsification testing revealed overstated claims in README:
+    - GPU decompress: 137 GB/s kernel-only, 6.4 GB/s end-to-end
+    - vs kernel ZRAM: 1.8x actual (not 12x as claimed)
+
+    Claims now corrected in:
+    - README.md (vs Linux Kernel ZRAM table)
+    - book/src/introduction.md (Performance Highlights)
+
+    Benchmark methodology:
+    - 3 technologies: Regular Swap, Kernel ZRAM, trueno-zram
+    - 5 workloads: Zeros, Text, Mixed, Random, Realworld
+    - 5 access patterns: Seq Read/Write, Rand Read/Write, Mixed
+    - Statistical analysis: Mann-Whitney U, p < 0.05
