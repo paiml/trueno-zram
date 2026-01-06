@@ -468,7 +468,7 @@ mod tests {
             pages_compressed: 1000,
             pages_decompressed_gpu: 1000,
             pages_decompressed_cpu: 0,
-            compress_time_ns: 1_000_000_000, // 1 second
+            compress_time_ns: 1_000_000_000,   // 1 second
             decompress_time_ns: 1_000_000_000, // 1 second
             total_bytes: 1000 * PAGE_SIZE as u64,
         };
@@ -599,6 +599,9 @@ mod tests {
 
         // At 40 GB/s, 2TB should take ~51 seconds
         let estimate = 2048.0 / throughput;
-        assert!(estimate < 60.0, "2TB restore should be <60s at {throughput} GB/s");
+        assert!(
+            estimate < 60.0,
+            "2TB restore should be <60s at {throughput} GB/s"
+        );
     }
 }

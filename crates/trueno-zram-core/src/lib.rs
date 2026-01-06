@@ -666,9 +666,9 @@ mod tests {
 
         // Test with various edge case patterns that might trigger buffer issues
         let edge_cases: [[u8; PAGE_SIZE]; 4] = [
-            [0xFF; PAGE_SIZE],           // All bits set
-            [0x00; PAGE_SIZE],           // All zeros
-            [0x80; PAGE_SIZE],           // High bit pattern
+            [0xFF; PAGE_SIZE], // All bits set
+            [0x00; PAGE_SIZE], // All zeros
+            [0x80; PAGE_SIZE], // High bit pattern
             {
                 let mut p = [0u8; PAGE_SIZE];
                 // Boundary-crossing pattern
@@ -1157,7 +1157,9 @@ mod tests {
         let mut rng = 0xCAFEBABE_u64;
         for byte in &mut page {
             // PCG-style PRNG for maximum entropy
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             *byte = (rng >> 56) as u8;
         }
 
@@ -1178,7 +1180,10 @@ mod tests {
             .unwrap();
 
         // Create page with repeated 16-byte pattern
-        let pattern = [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10];
+        let pattern = [
+            0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54,
+            0x32, 0x10,
+        ];
         let mut page = [0u8; PAGE_SIZE];
         for (i, byte) in page.iter_mut().enumerate() {
             *byte = pattern[i % pattern.len()];
@@ -1367,8 +1372,8 @@ mod tests {
 
         // Test various patterns and verify reasonable compression
         let test_cases = [
-            ([0u8; PAGE_SIZE], "zeros", 50),              // Should compress to < 50 bytes
-            ([0xAA; PAGE_SIZE], "uniform", 50),           // Should compress to < 50 bytes
+            ([0u8; PAGE_SIZE], "zeros", 50),    // Should compress to < 50 bytes
+            ([0xAA; PAGE_SIZE], "uniform", 50), // Should compress to < 50 bytes
         ];
 
         for (page, name, max_size) in test_cases {

@@ -3,6 +3,8 @@
 //! Provides abstraction over libublk for managing trueno-ublk devices.
 //! Also provides a pure Rust `BlockDevice` for testing without kernel dependencies.
 
+#![allow(dead_code)]
+
 use crate::daemon::PageStore;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -33,6 +35,11 @@ pub struct DeviceConfig {
     pub batch_threshold: usize,
     /// Flush timeout in milliseconds
     pub flush_timeout_ms: u64,
+    /// PERF-001: High-performance configuration (polling, affinity, NUMA)
+    pub perf: Option<crate::perf::PerfConfig>,
+    /// PERF-003: Number of hardware queues (1-8)
+    /// Multiple queues enable parallel I/O with separate io_uring per queue.
+    pub nr_hw_queues: u16,
 }
 
 /// Device statistics (zram-compatible)
@@ -148,10 +155,16 @@ impl UblkDevice {
         use duende_mlock::{lock_all, MlockStatus};
         match lock_all() {
             Ok(MlockStatus::Locked { bytes_locked }) => {
-                tracing::info!("DT-007: Memory locked ({} bytes) - swap deadlock prevention active", bytes_locked);
+                tracing::info!(
+                    "DT-007: Memory locked ({} bytes) - swap deadlock prevention active",
+                    bytes_locked
+                );
             }
             Ok(MlockStatus::Failed { errno }) => {
-                tracing::warn!("DT-007: mlock() failed (errno={}) - daemon may deadlock under swap pressure", errno);
+                tracing::warn!(
+                    "DT-007: mlock() failed (errno={}) - daemon may deadlock under swap pressure",
+                    errno
+                );
             }
             Ok(MlockStatus::Unsupported) => {
                 tracing::debug!("DT-007: mlock() not supported on this platform");
@@ -197,7 +210,7 @@ impl UblkDevice {
 
         // Register device
         {
-            let mut devices = DEVICES.write().unwrap();
+            let mut devices = DEVICES.write().expect("rwlock poisoned");
             devices.insert(id, inner.clone());
         }
 
@@ -227,7 +240,7 @@ impl UblkDevice {
 
         // Register device
         {
-            let mut devices = DEVICES.write().unwrap();
+            let mut devices = DEVICES.write().expect("rwlock poisoned");
             devices.insert(id, inner.clone());
         }
 
@@ -238,7 +251,7 @@ impl UblkDevice {
     pub fn open(path: &Path) -> Result<Self> {
         let id = Self::parse_device_id(path)?;
 
-        let devices = DEVICES.read().unwrap();
+        let devices = DEVICES.read().expect("rwlock poisoned");
         let inner = devices
             .get(&id)
             .cloned()
@@ -249,7 +262,7 @@ impl UblkDevice {
 
     /// List all trueno-ublk devices
     pub fn list_all() -> Result<Vec<Self>> {
-        let devices = DEVICES.read().unwrap();
+        let devices = DEVICES.read().expect("rwlock poisoned");
         Ok(devices
             .values()
             .map(|inner| Self {
@@ -260,7 +273,7 @@ impl UblkDevice {
 
     /// Find the next free device ID
     pub fn next_free_id() -> Result<u32> {
-        let devices = DEVICES.read().unwrap();
+        let devices = DEVICES.read().expect("rwlock poisoned");
         let mut id = 0;
         while devices.contains_key(&id) {
             id += 1;
@@ -280,7 +293,7 @@ impl UblkDevice {
 
     /// Get device configuration
     pub fn config(&self) -> DeviceConfig {
-        self.inner.config.read().unwrap().clone()
+        self.inner.config.read().expect("rwlock poisoned").clone()
     }
 
     /// Get device statistics
@@ -344,7 +357,7 @@ impl UblkDevice {
     pub fn remove(&self) -> Result<()> {
         Self::stop_ublk_daemon(self.inner.id)?;
 
-        let mut devices = DEVICES.write().unwrap();
+        let mut devices = DEVICES.write().expect("rwlock poisoned");
         devices.remove(&self.inner.id);
 
         Ok(())
@@ -380,42 +393,42 @@ impl UblkDevice {
 
     /// Set memory limit
     pub fn set_mem_limit(&self, limit: u64) -> Result<()> {
-        let mut config = self.inner.config.write().unwrap();
+        let mut config = self.inner.config.write().expect("rwlock poisoned");
         config.mem_limit = Some(limit);
         Ok(())
     }
 
     /// Set GPU enabled/disabled
     pub fn set_gpu_enabled(&self, enabled: bool) -> Result<()> {
-        let mut config = self.inner.config.write().unwrap();
+        let mut config = self.inner.config.write().expect("rwlock poisoned");
         config.gpu_enabled = enabled;
 
         // Reinitialize compressor with new settings
         let compressor = CompressorBuilder::new()
             .algorithm(config.algorithm)
             .build()?;
-        *self.inner.compressor.write().unwrap() = Some(compressor);
+        *self.inner.compressor.write().expect("rwlock poisoned") = Some(compressor);
 
         Ok(())
     }
 
     /// Set entropy skip threshold
     pub fn set_entropy_threshold(&self, threshold: f64) -> Result<()> {
-        let mut config = self.inner.config.write().unwrap();
+        let mut config = self.inner.config.write().expect("rwlock poisoned");
         config.entropy_skip_threshold = threshold;
         Ok(())
     }
 
     /// Set writeback limit
     pub fn set_writeback_limit(&self, limit: u64) -> Result<()> {
-        let mut config = self.inner.config.write().unwrap();
+        let mut config = self.inner.config.write().expect("rwlock poisoned");
         config.writeback_limit = Some(limit);
         Ok(())
     }
 
     /// Enable/disable writeback limit
     pub fn set_writeback_limit_enabled(&self, enabled: bool) -> Result<()> {
-        let mut config = self.inner.config.write().unwrap();
+        let mut config = self.inner.config.write().expect("rwlock poisoned");
         if !enabled {
             config.writeback_limit = None;
         }
@@ -441,9 +454,7 @@ impl UblkDevice {
             .context("Invalid device path")?;
 
         if let Some(id_str) = name.strip_prefix("ublkb") {
-            id_str
-                .parse()
-                .context("Invalid device ID in path")
+            id_str.parse().context("Invalid device ID in path")
         } else {
             anyhow::bail!("Not a ublk device: {}", path.display())
         }
@@ -465,49 +476,62 @@ impl UblkDevice {
         .ok();
 
         // Helper to run daemon with batched or non-batched mode
-        let run_with_mode = |stop: Arc<AtomicBool>, ready_fd: Option<i32>| -> Result<(), DaemonError> {
-            if config.batched {
-                // Batched mode: high-throughput compression (>10 GB/s)
-                tracing::info!("Starting daemon in batched mode (threshold={}, flush={}ms)",
-                    config.batch_threshold, config.flush_timeout_ms);
-                let batch_config = BatchedDaemonConfig {
-                    dev_id: id as i32,
-                    dev_size: config.size,
-                    algorithm: config.algorithm,
-                    batch_threshold: config.batch_threshold,
-                    flush_timeout_ms: config.flush_timeout_ms,
-                    gpu_batch_size: config.gpu_batch_size,
-                };
-                run_daemon_batched(batch_config, stop, ready_fd)
-            } else {
-                // Standard mode: per-page compression
-                run_daemon(id as i32, config.size, config.algorithm, stop, ready_fd)
-            }
-        };
+        let run_with_mode =
+            |stop: Arc<AtomicBool>, ready_fd: Option<i32>| -> Result<(), DaemonError> {
+                if config.batched {
+                    // Batched mode: high-throughput compression (>10 GB/s)
+                    tracing::info!(
+                        "Starting daemon in batched mode (threshold={}, flush={}ms, perf={})",
+                        config.batch_threshold,
+                        config.flush_timeout_ms,
+                        config.perf.is_some()
+                    );
+                    let batch_config = BatchedDaemonConfig {
+                        dev_id: id as i32,
+                        dev_size: config.size,
+                        algorithm: config.algorithm,
+                        batch_threshold: config.batch_threshold,
+                        flush_timeout_ms: config.flush_timeout_ms,
+                        gpu_batch_size: config.gpu_batch_size,
+                        perf: config.perf.clone(), // PERF-001: Pass performance config
+                        nr_hw_queues: config.nr_hw_queues, // PERF-003: Multi-queue
+                    };
+                    run_daemon_batched(batch_config, stop, ready_fd)
+                } else {
+                    // Standard mode: per-page compression
+                    run_daemon(id as i32, config.size, config.algorithm, stop, ready_fd)
+                }
+            };
 
         // Foreground mode - run directly
         if config.foreground {
             tracing::info!("Running in foreground mode");
             // DT-007e: Lock memory in the daemon process (this IS the daemon)
             Self::lock_daemon_memory();
-            return run_with_mode(stop, None)
-                .map_err(|e| anyhow::anyhow!("Daemon failed: {}", e));
+            return run_with_mode(stop, None).map_err(|e| anyhow::anyhow!("Daemon failed: {}", e));
         }
 
         // Create eventfd for synchronization
+        // SAFETY: eventfd creates a file descriptor for event notification.
+        // Return value is checked below for errors.
         let efd = unsafe { libc::eventfd(0, 0) };
         if efd < 0 {
             anyhow::bail!("Failed to create eventfd");
         }
 
         // Fork for daemon mode
+        // SAFETY: fork() creates a new child process. Return value is checked
+        // to handle error (-1), child (0), and parent (>0) cases.
         match unsafe { libc::fork() } {
             -1 => {
+                // SAFETY: efd is a valid file descriptor from eventfd() above
                 unsafe { libc::close(efd) };
                 anyhow::bail!("Fork failed");
             }
             0 => {
                 // Child process - run daemon
+                // SAFETY: setsid() creates a new session with the calling process as leader.
+                // Called in child process after fork to detach from controlling terminal.
                 unsafe { libc::setsid() };
 
                 // DT-007e: Lock memory in child process AFTER fork
@@ -517,11 +541,14 @@ impl UblkDevice {
                 // Daemon will signal readiness via efd
                 match run_with_mode(stop, Some(efd)) {
                     Ok(()) | Err(DaemonError::Stopped) => {
+                        // SAFETY: efd is a valid file descriptor inherited from parent
                         unsafe { libc::close(efd) };
                         std::process::exit(0);
                     }
                     Err(e) => {
                         tracing::error!("Daemon failed: {}", e);
+                        // SAFETY: efd is a valid file descriptor inherited from parent.
+                        // Writing 0 signals failure to parent process waiting on read().
                         unsafe {
                             // Signal failure with 0
                             libc::write(efd, &0u64 as *const u64 as *const libc::c_void, 8);
@@ -534,7 +561,10 @@ impl UblkDevice {
             _pid => {
                 // Parent process - wait for device ID
                 let mut val: u64 = 0;
+                // SAFETY: efd is a valid eventfd, val is a properly aligned u64.
+                // read() blocks until child writes success (device_id+1) or failure (0).
                 let n = unsafe { libc::read(efd, &mut val as *mut u64 as *mut libc::c_void, 8) };
+                // SAFETY: efd is a valid file descriptor, close releases it
                 unsafe { libc::close(efd) };
 
                 if n == 8 && val > 0 {
@@ -933,8 +963,7 @@ mod tests {
     #[test]
     fn test_entropy_routing_high_entropy() {
         // Use threshold of 7.0 for testing
-        let mut device =
-            BlockDevice::with_entropy_threshold(1 << 20, test_compressor(), 7.0);
+        let mut device = BlockDevice::with_entropy_threshold(1 << 20, test_compressor(), 7.0);
 
         // Write high-entropy (pseudo-random) data
         let random: Vec<u8> = (0..PAGE_SIZE).map(|i| (i * 17 + 31) as u8).collect();
@@ -950,8 +979,7 @@ mod tests {
     #[test]
     fn test_entropy_routing_low_entropy() {
         // Use threshold of 7.0 for testing
-        let mut device =
-            BlockDevice::with_entropy_threshold(1 << 20, test_compressor(), 7.0);
+        let mut device = BlockDevice::with_entropy_threshold(1 << 20, test_compressor(), 7.0);
 
         // Write low-entropy (repetitive pattern) data
         let repetitive: Vec<u8> = (0..PAGE_SIZE).map(|i| (i % 4) as u8).collect();
@@ -983,7 +1011,10 @@ mod tests {
         // Should now read zeros
         let mut buf = vec![0xFFu8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
-        assert!(buf.iter().all(|&b| b == 0), "Discarded page should read as zeros");
+        assert!(
+            buf.iter().all(|&b| b == 0),
+            "Discarded page should read as zeros"
+        );
     }
 
     #[test]
@@ -1012,7 +1043,10 @@ mod tests {
         let mut buf = vec![0xFFu8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
 
-        assert!(buf.iter().all(|&b| b == 0), "Unwritten page should read as zeros");
+        assert!(
+            buf.iter().all(|&b| b == 0),
+            "Unwritten page should read as zeros"
+        );
     }
 
     #[test]
@@ -1081,13 +1115,18 @@ mod tests {
             // All ones
             vec![0xFF; PAGE_SIZE],
             // Alternating bytes
-            (0..PAGE_SIZE).map(|i| if i % 2 == 0 { 0xAA } else { 0x55 }).collect(),
+            (0..PAGE_SIZE)
+                .map(|i| if i % 2 == 0 { 0xAA } else { 0x55 })
+                .collect(),
             // Sequential bytes
             (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect(),
             // Repeating short pattern
             (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect(),
             // Text-like data
-            "The quick brown fox jumps over the lazy dog. ".repeat(100).into_bytes()[..PAGE_SIZE].to_vec(),
+            "The quick brown fox jumps over the lazy dog. "
+                .repeat(100)
+                .into_bytes()[..PAGE_SIZE]
+                .to_vec(),
         ];
 
         for (i, pattern) in patterns.iter().enumerate() {
@@ -1114,13 +1153,19 @@ mod tests {
             scalar_pages: 0,
         };
 
-        assert!((stats.compression_ratio() - 4.0).abs() < 0.001, "4:1 compression ratio expected");
+        assert!(
+            (stats.compression_ratio() - 4.0).abs() < 0.001,
+            "4:1 compression ratio expected"
+        );
     }
 
     #[test]
     fn test_block_device_stats_compression_ratio_no_data() {
         let stats = BlockDeviceStats::default();
-        assert!((stats.compression_ratio() - 1.0).abs() < 0.001, "Default ratio should be 1.0");
+        assert!(
+            (stats.compression_ratio() - 1.0).abs() < 0.001,
+            "Default ratio should be 1.0"
+        );
     }
 
     // ========================================================================
@@ -1171,7 +1216,10 @@ mod tests {
         device.read(0, &mut buf).unwrap();
 
         assert_eq!(zeros, buf, "A3: Zero page roundtrip failed");
-        assert!(device.stats().zero_pages >= 1, "A3: Should track zero pages");
+        assert!(
+            device.stats().zero_pages >= 1,
+            "A3: Should track zero pages"
+        );
     }
 
     /// A4: Write 4KB random high-entropy (uncompressible), Read, Verify.
@@ -1183,7 +1231,9 @@ mod tests {
         let mut state: u64 = 0xDEADBEEF;
         let random_data: Vec<u8> = (0..PAGE_SIZE)
             .map(|_| {
-                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 (state >> 33) as u8
             })
             .collect();
@@ -1211,7 +1261,11 @@ mod tests {
             let mut buf = vec![0u8; PAGE_SIZE];
             device.read(offset, &mut buf).unwrap();
 
-            assert_eq!(data, buf, "A5: Repeated byte 0x{:02X} roundtrip failed", byte_val);
+            assert_eq!(
+                data, buf,
+                "A5: Repeated byte 0x{:02X} roundtrip failed",
+                byte_val
+            );
         }
     }
 
@@ -1247,7 +1301,10 @@ mod tests {
         // Read from last sector
         let mut buf = vec![0u8; PAGE_SIZE];
         let result = device.read(last_offset, &mut buf);
-        assert!(result.is_ok(), "A7: Reading from last sector should succeed");
+        assert!(
+            result.is_ok(),
+            "A7: Reading from last sector should succeed"
+        );
         assert_eq!(data, buf, "A7: Last sector read should match written data");
     }
 
@@ -1312,7 +1369,10 @@ mod tests {
         let data = vec![0xAB; 1]; // 1 byte
 
         let result = device.write(0, &data);
-        assert!(result.is_err(), "A11: Partial write (1 byte) should be rejected");
+        assert!(
+            result.is_err(),
+            "A11: Partial write (1 byte) should be rejected"
+        );
     }
 
     /// A12: Read 1 byte (partial read) - tests error handling for non-page-aligned.
@@ -1323,7 +1383,10 @@ mod tests {
         let mut buf = vec![0u8; 1]; // 1 byte
 
         let result = device.read(0, &mut buf);
-        assert!(result.is_err(), "A12: Partial read (1 byte) should be rejected");
+        assert!(
+            result.is_err(),
+            "A12: Partial read (1 byte) should be rejected"
+        );
     }
 
     /// A13: Overwrite scalar compressed page with SIMD compressed page.
@@ -1342,7 +1405,10 @@ mod tests {
 
         device.write(0, &high_entropy).unwrap();
         let stats1 = device.stats();
-        assert!(stats1.scalar_pages > 0, "A13: First write should use scalar path");
+        assert!(
+            stats1.scalar_pages > 0,
+            "A13: First write should use scalar path"
+        );
 
         // Overwrite with low-entropy data (will use SIMD path)
         let low_entropy: Vec<u8> = (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect();
@@ -1351,7 +1417,10 @@ mod tests {
         // Verify correct data is returned
         let mut buf = vec![0u8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
-        assert_eq!(low_entropy, buf, "A13: SIMD data should overwrite scalar data");
+        assert_eq!(
+            low_entropy, buf,
+            "A13: SIMD data should overwrite scalar data"
+        );
     }
 
     /// A14: Overwrite SIMD compressed page with zero page.
@@ -1400,7 +1469,10 @@ mod tests {
         // Verify correct data
         let mut buf = vec![0u8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
-        assert_eq!(high_entropy, buf, "A15: Scalar data should overwrite zero page");
+        assert_eq!(
+            high_entropy, buf,
+            "A15: Scalar data should overwrite zero page"
+        );
     }
 
     /// A16: Persistence test - N/A for in-memory device (skip with documentation).
@@ -1427,11 +1499,18 @@ mod tests {
         let compressed = compressor.compress(page).unwrap();
 
         // Verify compressed data has reasonable structure
-        assert!(!compressed.data.is_empty(), "A17: Compressed data should not be empty");
+        assert!(
+            !compressed.data.is_empty(),
+            "A17: Compressed data should not be empty"
+        );
 
         // Decompress and verify
         let decompressed = compressor.decompress(&compressed).unwrap();
-        assert_eq!(data, decompressed.as_slice(), "A17: Roundtrip should preserve data");
+        assert_eq!(
+            data,
+            decompressed.as_slice(),
+            "A17: Roundtrip should preserve data"
+        );
     }
 
     /// A18: Concurrent Read/Write atomicity.
@@ -1440,12 +1519,17 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let device = Arc::new(std::sync::RwLock::new(
-            BlockDevice::new(1 << 20, test_compressor())
-        ));
+        let device = Arc::new(std::sync::RwLock::new(BlockDevice::new(
+            1 << 20,
+            test_compressor(),
+        )));
 
         let data = vec![0xCC; PAGE_SIZE];
-        device.write().unwrap().write(0, &data).unwrap();
+        device
+            .write()
+            .expect("rwlock poisoned")
+            .write(0, &data)
+            .unwrap();
 
         let mut handles = vec![];
 
@@ -1455,7 +1539,10 @@ mod tests {
             handles.push(thread::spawn(move || {
                 for _ in 0..100 {
                     let mut buf = vec![0u8; PAGE_SIZE];
-                    dev.read().unwrap().read(0, &mut buf).unwrap();
+                    dev.read()
+                        .expect("rwlock poisoned")
+                        .read(0, &mut buf)
+                        .unwrap();
                     // Data should be either all 0xCC or all 0xDD (not mixed)
                     let first = buf[0];
                     assert!(
@@ -1471,7 +1558,10 @@ mod tests {
         handles.push(thread::spawn(move || {
             let new_data = vec![0xDD; PAGE_SIZE];
             for _ in 0..50 {
-                dev.write().unwrap().write(0, &new_data).unwrap();
+                dev.write()
+                    .expect("rwlock poisoned")
+                    .write(0, &new_data)
+                    .unwrap();
             }
         }));
 
@@ -1486,9 +1576,10 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let device = Arc::new(std::sync::Mutex::new(
-            BlockDevice::new(1 << 20, test_compressor())
-        ));
+        let device = Arc::new(std::sync::Mutex::new(BlockDevice::new(
+            1 << 20,
+            test_compressor(),
+        )));
 
         let mut handles = vec![];
 
@@ -1532,8 +1623,14 @@ mod tests {
         device.write(0, &data).unwrap();
 
         let stats_before = device.stats();
-        assert_eq!(stats_before.pages_stored, 1, "A20: Should have 1 page stored");
-        assert!(stats_before.bytes_compressed > 0, "A20: Should have compressed bytes");
+        assert_eq!(
+            stats_before.pages_stored, 1,
+            "A20: Should have 1 page stored"
+        );
+        assert!(
+            stats_before.bytes_compressed > 0,
+            "A20: Should have compressed bytes"
+        );
 
         // Discard
         device.discard(0, PAGE_SIZE as u64).unwrap();
@@ -1541,7 +1638,10 @@ mod tests {
         // Verify page is freed (reads as zeros, not counted in storage)
         let mut buf = vec![0xFFu8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
-        assert!(buf.iter().all(|&b| b == 0), "A20: Discarded page should read as zeros");
+        assert!(
+            buf.iter().all(|&b| b == 0),
+            "A20: Discarded page should read as zeros"
+        );
 
         // Note: Current PageStore::remove decrements page count but may not track freed memory.
         // The spec requirement is that data reads as zeros, which we verify above.
@@ -1593,8 +1693,7 @@ mod tests {
 
         let stats = device.stats();
         assert_eq!(
-            stats.zero_pages,
-            num_pages as u64,
+            stats.zero_pages, num_pages as u64,
             "B22: All pages should be zero-deduplicated"
         );
 
@@ -1690,7 +1789,10 @@ mod tests {
 
         // Writing beyond capacity should fail gracefully
         let result = device.write(device_size, &data);
-        assert!(result.is_err(), "B25: Write beyond capacity should fail gracefully");
+        assert!(
+            result.is_err(),
+            "B25: Write beyond capacity should fail gracefully"
+        );
     }
 
     /// B26: CPU affinity (simplified test for single-threaded operation).
@@ -1741,9 +1843,7 @@ mod tests {
         let mut device = BlockDevice::new(1 << 24, test_compressor()); // 16MB
 
         // Perform many rapid writes with varying patterns
-        let patterns: Vec<Vec<u8>> = (0..256)
-            .map(|i| vec![(i % 256) as u8; PAGE_SIZE])
-            .collect();
+        let patterns: Vec<Vec<u8>> = (0..256).map(|i| vec![(i % 256) as u8; PAGE_SIZE]).collect();
 
         // Rapid write/read cycles
         for iteration in 0..100 {
@@ -1823,7 +1923,9 @@ mod tests {
                 .map(|i| ((page_idx + i) % 256) as u8)
                 .collect();
             let mut buf = vec![0u8; PAGE_SIZE];
-            device.read((page_idx * PAGE_SIZE) as u64, &mut buf).unwrap();
+            device
+                .read((page_idx * PAGE_SIZE) as u64, &mut buf)
+                .unwrap();
             assert_eq!(
                 expected, buf,
                 "B30: Page {} verification failed after fragmented writes",
@@ -1992,7 +2094,9 @@ mod tests {
         let start = Instant::now();
         for i in 0..iterations {
             let page_idx = access_order[i % num_pages];
-            device.read((page_idx * PAGE_SIZE) as u64, &mut buf).unwrap();
+            device
+                .read((page_idx * PAGE_SIZE) as u64, &mut buf)
+                .unwrap();
         }
         let duration = start.elapsed();
 
@@ -2052,9 +2156,10 @@ mod tests {
         use std::thread;
         use std::time::Instant;
 
-        let device = Arc::new(std::sync::Mutex::new(
-            BlockDevice::new(1 << 24, test_compressor())
-        ));
+        let device = Arc::new(std::sync::Mutex::new(BlockDevice::new(
+            1 << 24,
+            test_compressor(),
+        )));
 
         let num_threads = 8;
         let ops_per_thread = 500;
@@ -2106,9 +2211,12 @@ mod tests {
 
         for num_threads in [1, 2, 4] {
             let devices: Vec<_> = (0..num_threads)
-                .map(|_| Arc::new(std::sync::Mutex::new(
-                    BlockDevice::new(device_size, test_compressor())
-                )))
+                .map(|_| {
+                    Arc::new(std::sync::Mutex::new(BlockDevice::new(
+                        device_size,
+                        test_compressor(),
+                    )))
+                })
                 .collect();
 
             let start = Instant::now();
@@ -2164,10 +2272,7 @@ mod tests {
         println!("C38: Detected SIMD backend: {}", backend);
 
         // Should detect something
-        assert!(
-            !backend.is_empty(),
-            "C38: Should detect a SIMD backend"
-        );
+        assert!(!backend.is_empty(), "C38: Should detect a SIMD backend");
 
         // On x86_64, should be avx512, avx2, sse4.2, or scalar
         #[cfg(target_arch = "x86_64")]
@@ -2258,12 +2363,15 @@ mod tests {
         // Write similar small patterns (would benefit from dictionary)
         let patterns: Vec<Vec<u8>> = (0..10)
             .map(|i| {
-                format!("{{\"id\": {}, \"name\": \"user_{}\", \"active\": true}}", i, i)
-                    .into_bytes()
-                    .into_iter()
-                    .chain(std::iter::repeat(0u8))
-                    .take(PAGE_SIZE)
-                    .collect()
+                format!(
+                    "{{\"id\": {}, \"name\": \"user_{}\", \"active\": true}}",
+                    i, i
+                )
+                .into_bytes()
+                .into_iter()
+                .chain(std::iter::repeat(0u8))
+                .take(PAGE_SIZE)
+                .collect()
             })
             .collect();
 
@@ -2274,7 +2382,10 @@ mod tests {
         let stats = device.stats();
         let ratio = stats.compression_ratio();
 
-        println!("C40: JSON-like data compression ratio (no dict): {:.2}:1", ratio);
+        println!(
+            "C40: JSON-like data compression ratio (no dict): {:.2}:1",
+            ratio
+        );
 
         // Even without dictionary, should compress somewhat
         assert!(

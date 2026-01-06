@@ -17,7 +17,9 @@
 pub mod batch;
 pub mod hybrid;
 
-pub use batch::{BatchDecompressResult, BatchResult, GpuBatchCompressor, GpuBatchConfig, GpuBatchStats};
+pub use batch::{
+    BatchDecompressResult, BatchResult, GpuBatchCompressor, GpuBatchConfig, GpuBatchStats,
+};
 pub use hybrid::{HybridConfig, HybridScheduler, HybridStats, ParallelDecompressResult};
 
 use crate::{Algorithm, CompressedPage, Error, Result, PAGE_SIZE};

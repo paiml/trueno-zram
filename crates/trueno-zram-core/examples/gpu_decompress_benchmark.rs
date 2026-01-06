@@ -76,7 +76,12 @@ fn main() {
         let elapsed = start.elapsed();
 
         let input_mb = (batch_size * 4096) as f64 / 1e6;
-        let output_mb: f64 = result.pages.iter().map(|p| p.data.len() as f64).sum::<f64>() / 1e6;
+        let output_mb: f64 = result
+            .pages
+            .iter()
+            .map(|p| p.data.len() as f64)
+            .sum::<f64>()
+            / 1e6;
         let throughput_gbps = input_mb / elapsed.as_secs_f64() / 1000.0;
         let ratio = input_mb / output_mb;
 
@@ -151,14 +156,19 @@ fn main() {
 
     println!();
     println!("  Measured GPU decompression: {:.2} GB/s", decompress_gbps);
-    println!("  Estimated 2TB restore time: {:.1} seconds", estimate_seconds);
+    println!(
+        "  Estimated 2TB restore time: {:.1} seconds",
+        estimate_seconds
+    );
     println!();
 
     if estimate_seconds < 60.0 {
         println!("  ✓ G.119 TARGET MET: 2TB restore in <60s");
     } else {
-        println!("  ✗ G.119 TARGET NOT MET: Need {:.2} GB/s, have {:.2} GB/s",
-            34.0, decompress_gbps);
+        println!(
+            "  ✗ G.119 TARGET NOT MET: Need {:.2} GB/s, have {:.2} GB/s",
+            34.0, decompress_gbps
+        );
         println!();
         println!("  Note: PCIe 4.0 x16 theoretical max is ~25 GB/s bidirectional.");
         println!("  For 34+ GB/s, consider:");

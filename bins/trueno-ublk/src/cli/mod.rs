@@ -159,6 +159,75 @@ pub struct CreateArgs {
     /// Flush timeout in ms - max time before flushing partial batch (default: 10)
     #[arg(long, default_value = "10")]
     pub flush_timeout_ms: u64,
+
+    // =========================================================================
+    // PERF-001: Performance Optimization Options
+    // =========================================================================
+    /// Enable polling mode (spin-wait on io_uring completions)
+    ///
+    /// Reduces latency by avoiding interrupt overhead. Increases CPU usage.
+    /// Recommended for high-IOPS workloads.
+    #[arg(long)]
+    pub polling: bool,
+
+    /// Polling spin cycles before yielding (default: 10000)
+    #[arg(long, default_value = "10000")]
+    pub poll_spin_cycles: u32,
+
+    /// Enable adaptive polling (reduces CPU when idle)
+    #[arg(long, default_value = "true")]
+    pub poll_adaptive: bool,
+
+    /// Page batch size for coalescing (64-256, default: 64)
+    ///
+    /// Groups sequential I/O requests for better throughput.
+    /// Higher values improve throughput but may increase latency.
+    #[arg(long, default_value = "64")]
+    pub batch_pages: usize,
+
+    /// Batch timeout in microseconds (default: 100)
+    #[arg(long, default_value = "100")]
+    pub batch_timeout_us: u64,
+
+    /// CPU cores to pin workers to (comma-separated, e.g., "1,2,3,4")
+    ///
+    /// Pin ublk worker threads to specific cores for cache locality.
+    /// Leave empty for no pinning (default).
+    #[arg(long)]
+    pub cpu_affinity: Option<String>,
+
+    /// NUMA node for memory allocation (-1 for auto, default: -1)
+    ///
+    /// Allocate compression buffers on the specified NUMA node.
+    /// Use -1 for automatic detection based on worker CPU.
+    #[arg(long, default_value = "-1")]
+    pub numa_node: i32,
+
+    /// Use high-performance preset (enables polling, larger batches)
+    ///
+    /// Equivalent to: --polling --batch-pages 128 --batch-timeout-us 50
+    #[arg(long)]
+    pub high_perf: bool,
+
+    /// Use maximum performance preset (highest CPU usage)
+    ///
+    /// Equivalent to: --polling --batch-pages 256 --batch-timeout-us 25 --poll-spin-cycles 100000
+    /// WARNING: High CPU usage. Use only when targeting maximum IOPS.
+    #[arg(long)]
+    pub max_perf: bool,
+
+    // =========================================================================
+    // PERF-003: Multi-Queue Parallelism Options
+    // =========================================================================
+    /// Number of hardware queues (1-8, default: 1)
+    ///
+    /// Multiple queues enable parallel I/O processing with separate io_uring
+    /// instances per queue. Each queue runs in its own thread pinned to a CPU core.
+    /// More queues = higher IOPS but more CPU usage.
+    ///
+    /// Scaling: 1q=162K, 2q=~300K, 4q=~500K, 8q=~800K IOPS
+    #[arg(long, default_value = "1", value_parser = clap::value_parser!(u16).range(1..=8))]
+    pub queues: u16,
 }
 
 /// List command arguments
@@ -516,12 +585,11 @@ mod tests {
     fn popperian_e52_invalid_size_rejected() {
         // Malformed size strings
         let invalid_sizes = [
-            "invalid",
-            "1X",        // Unknown suffix
-            "-1G",       // Negative
-            "1.5.5G",    // Multiple decimals
-            "",          // Empty
-            "   ",       // Whitespace only
+            "invalid", "1X",     // Unknown suffix
+            "-1G",    // Negative
+            "1.5.5G", // Multiple decimals
+            "",       // Empty
+            "   ",    // Whitespace only
         ];
 
         for size_str in &invalid_sizes {
@@ -574,7 +642,10 @@ mod tests {
             debug: false,
         };
 
-        assert!(stat_args.mm_stat, "E54: mm_stat should be available for compression ratio");
+        assert!(
+            stat_args.mm_stat,
+            "E54: mm_stat should be available for compression ratio"
+        );
         assert!(stat_args.entropy, "E54: entropy stat should be available");
     }
 
@@ -584,21 +655,15 @@ mod tests {
         use clap::Parser;
 
         // Reset all devices
-        let result = Cli::try_parse_from([
-            "trueno-ublk",
-            "reset",
-            "--all",
-        ]);
+        let result = Cli::try_parse_from(["trueno-ublk", "reset", "--all"]);
         assert!(result.is_ok(), "E55: Reset --all should parse");
 
         // Reset specific devices
-        let result = Cli::try_parse_from([
-            "trueno-ublk",
-            "reset",
-            "/dev/ublkb0",
-            "/dev/ublkb1",
-        ]);
-        assert!(result.is_ok(), "E55: Reset with multiple devices should parse");
+        let result = Cli::try_parse_from(["trueno-ublk", "reset", "/dev/ublkb0", "/dev/ublkb1"]);
+        assert!(
+            result.is_ok(),
+            "E55: Reset with multiple devices should parse"
+        );
 
         if let Ok(cli) = result {
             if let Commands::Reset(args) = cli.command {
@@ -682,11 +747,7 @@ mod tests {
         for level in &log_levels {
             // This tests that the level string is valid for tracing
             let filter = tracing_subscriber::filter::LevelFilter::from_str(level);
-            assert!(
-                filter.is_ok(),
-                "E58: Log level '{}' should be valid",
-                level
-            );
+            assert!(filter.is_ok(), "E58: Log level '{}' should be valid", level);
         }
 
         // Verify module-specific filtering pattern
@@ -702,11 +763,7 @@ mod tests {
     fn popperian_e59_tui_demo_mode() {
         use clap::Parser;
 
-        let result = Cli::try_parse_from([
-            "trueno-ublk",
-            "top",
-            "--demo",
-        ]);
+        let result = Cli::try_parse_from(["trueno-ublk", "top", "--demo"]);
 
         assert!(result.is_ok(), "E59: top --demo should parse");
 
@@ -722,11 +779,7 @@ mod tests {
     fn popperian_e60_tui_report_mode() {
         use clap::Parser;
 
-        let result = Cli::try_parse_from([
-            "trueno-ublk",
-            "top",
-            "--report",
-        ]);
+        let result = Cli::try_parse_from(["trueno-ublk", "top", "--report"]);
 
         assert!(result.is_ok(), "E60: top --report should parse");
 

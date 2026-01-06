@@ -48,8 +48,8 @@ pub fn detect_same_fill(page: &[u8; PAGE_SIZE]) -> SameFillResult {
     let remainder = chunks.remainder();
 
     for chunk in chunks {
-        // SAFETY: chunks_exact guarantees 8-byte chunks
-        let word = u64::from_ne_bytes(chunk.try_into().unwrap());
+        // chunks_exact guarantees exactly 8-byte chunks, so try_into always succeeds
+        let word = u64::from_ne_bytes(chunk.try_into().expect("chunks_exact guarantees 8 bytes"));
         if word != fill_word {
             return SameFillResult::NotSameFill;
         }

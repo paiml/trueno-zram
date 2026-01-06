@@ -257,14 +257,7 @@ fn render_overview(f: &mut Frame, area: Rect, app: &App) {
 
 fn render_device_list(f: &mut Frame, area: Rect, app: &App) {
     let header = Row::new(vec![
-        "NAME",
-        "SIZE",
-        "DATA",
-        "COMPR",
-        "RATIO",
-        "ALGO",
-        "GPU",
-        "BACKEND",
+        "NAME", "SIZE", "DATA", "COMPR", "RATIO", "ALGO", "GPU", "BACKEND",
     ])
     .style(Style::default().add_modifier(Modifier::BOLD))
     .height(1);
@@ -400,7 +393,9 @@ fn render_device_details(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(entropy, chunks[0]);
 
     // I/O stats
-    let io_block = Block::default().title(" I/O Statistics ").borders(Borders::ALL);
+    let io_block = Block::default()
+        .title(" I/O Statistics ")
+        .borders(Borders::ALL);
 
     let (failed_r, failed_w, invalid, zero_pages) = if app.demo_mode {
         (0, 0, 0, 50000 + app.demo_counter)

@@ -17,9 +17,9 @@
 //!
 //! NOTE: This test requires root privileges and the ublk_drv kernel module.
 
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use std::path::Path;
 
 /// Test that START_DEV completes and block device appears
 ///
@@ -55,7 +55,14 @@ fn g107_start_dev_fix_block_device_appears() {
     // Start daemon in background
     eprintln!("G.107: Starting trueno-ublk daemon...");
     let mut daemon = Command::new("trueno-ublk")
-        .args(["create", "--size", "256M", "--algorithm", "lz4", "--foreground"])
+        .args([
+            "create",
+            "--size",
+            "256M",
+            "--algorithm",
+            "lz4",
+            "--foreground",
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -93,7 +100,10 @@ fn g107_start_dev_fix_block_device_appears() {
         eprintln!("╔══════════════════════════════════════════════════════════════╗");
         eprintln!("║  G.107 HYPOTHESIS VERIFIED!                                   ║");
         eprintln!("║                                                              ║");
-        eprintln!("║  Block device appeared within {} seconds                     ║", start.elapsed().as_secs());
+        eprintln!(
+            "║  Block device appeared within {} seconds                     ║",
+            start.elapsed().as_secs()
+        );
         eprintln!("║  FIX B+F resolves START_DEV blocking!                        ║");
         eprintln!("╚══════════════════════════════════════════════════════════════╝");
     } else {
@@ -120,14 +130,22 @@ fn g107_io_operations_succeed() {
     let device_exists = Path::new("/dev/ublkb0").exists();
 
     if !device_exists {
-        eprintln!("SKIPPED: No ublk device available (run g107_start_dev_fix_block_device_appears first)");
+        eprintln!(
+            "SKIPPED: No ublk device available (run g107_start_dev_fix_block_device_appears first)"
+        );
         return;
     }
 
     // Test write
     eprintln!("G.107: Testing write I/O...");
     let write_result = Command::new("dd")
-        .args(["if=/dev/zero", "of=/dev/ublkb0", "bs=4K", "count=100", "oflag=direct"])
+        .args([
+            "if=/dev/zero",
+            "of=/dev/ublkb0",
+            "bs=4K",
+            "count=100",
+            "oflag=direct",
+        ])
         .output()
         .expect("dd write failed");
 
@@ -137,7 +155,13 @@ fn g107_io_operations_succeed() {
     // Test read
     eprintln!("G.107: Testing read I/O...");
     let read_result = Command::new("dd")
-        .args(["if=/dev/ublkb0", "of=/dev/null", "bs=4K", "count=100", "iflag=direct"])
+        .args([
+            "if=/dev/ublkb0",
+            "of=/dev/null",
+            "bs=4K",
+            "count=100",
+            "iflag=direct",
+        ])
         .output()
         .expect("dd read failed");
 

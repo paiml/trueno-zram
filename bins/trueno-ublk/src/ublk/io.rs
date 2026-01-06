@@ -96,12 +96,15 @@ impl IoOp {
     /// Check if this is a write operation
     #[inline]
     pub fn is_write(&self) -> bool {
-        matches!(self, IoOp::Write | IoOp::WriteZeroes | IoOp::WriteSame | IoOp::Discard)
+        matches!(
+            self,
+            IoOp::Write | IoOp::WriteZeroes | IoOp::WriteSame | IoOp::Discard
+        )
     }
 
     /// Convert to u8 opcode
     #[inline]
-    pub fn to_opcode(&self) -> u8 {
+    pub fn to_opcode(self) -> u8 {
         match self {
             IoOp::Read => UBLK_IO_OP_READ,
             IoOp::Write => UBLK_IO_OP_WRITE,
@@ -109,7 +112,7 @@ impl IoOp {
             IoOp::Discard => UBLK_IO_OP_DISCARD,
             IoOp::WriteZeroes => UBLK_IO_OP_WRITE_ZEROES,
             IoOp::WriteSame => UBLK_IO_OP_WRITE_SAME,
-            IoOp::Unknown(op) => *op,
+            IoOp::Unknown(op) => op,
         }
     }
 }
@@ -136,7 +139,7 @@ impl IoRequest {
     /// Calculate byte offset for this request
     #[inline]
     pub fn byte_offset(&self) -> u64 {
-        self.start_sector * (SECTOR_SIZE as u64)
+        self.start_sector * SECTOR_SIZE
     }
 
     /// Validate the request against device size
@@ -147,7 +150,9 @@ impl IoRequest {
         }
 
         // Check bounds
-        let end_sector = self.start_sector.checked_add(self.nr_sectors as u64)
+        let end_sector = self
+            .start_sector
+            .checked_add(self.nr_sectors as u64)
             .ok_or_else(|| io::Error::from_raw_os_error(libc::EOVERFLOW))?;
 
         if end_sector > dev_sectors {
@@ -419,22 +424,26 @@ mod tests {
     #[test]
     fn test_user_copy_offset_with_tag() {
         let offset = user_copy_offset(0, 1, 0);
-        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF));
+        assert_eq!(
+            offset as u64,
+            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF)
+        );
     }
 
     #[test]
     fn test_user_copy_offset_with_queue() {
         let offset = user_copy_offset(1, 0, 0);
-        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF));
+        assert_eq!(
+            offset as u64,
+            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF)
+        );
     }
 
     #[test]
     fn test_user_copy_offset_combined() {
         let offset = user_copy_offset(2, 5, 1024u32);
-        let expected = UBLKSRV_IO_BUF_OFFSET
-            + (2u64 << UBLK_QID_OFF)
-            + (5u64 << UBLK_TAG_OFF)
-            + 1024;
+        let expected =
+            UBLKSRV_IO_BUF_OFFSET + (2u64 << UBLK_QID_OFF) + (5u64 << UBLK_TAG_OFF) + 1024;
         assert_eq!(offset as u64, expected);
     }
 

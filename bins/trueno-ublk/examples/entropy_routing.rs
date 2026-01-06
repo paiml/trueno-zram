@@ -33,9 +33,7 @@ fn main() -> anyhow::Result<()> {
     println!("===================================\n");
 
     // Create device with custom entropy threshold
-    let compressor = CompressorBuilder::new()
-        .algorithm(Algorithm::Lz4)
-        .build()?;
+    let compressor = CompressorBuilder::new().algorithm(Algorithm::Lz4).build()?;
 
     // Threshold of 7.0 bits/byte (out of 8.0 max)
     let mut device = BlockDevice::with_entropy_threshold(64 * 1024 * 1024, compressor, 7.0);
@@ -66,38 +64,35 @@ fn main() -> anyhow::Result<()> {
             (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect(),
         ),
         // Medium-high entropy
-        (
-            "LCG pseudo-random (~6.5 bits)",
-            {
-                let mut data = vec![0u8; PAGE_SIZE];
-                let mut x: u32 = 12345;
-                for byte in &mut data {
-                    x = x.wrapping_mul(1103515245).wrapping_add(12345);
-                    *byte = (x >> 16) as u8;
-                }
-                data
-            },
-        ),
+        ("LCG pseudo-random (~6.5 bits)", {
+            let mut data = vec![0u8; PAGE_SIZE];
+            let mut x: u32 = 12345;
+            for byte in &mut data {
+                x = x.wrapping_mul(1103515245).wrapping_add(12345);
+                *byte = (x >> 16) as u8;
+            }
+            data
+        }),
         // High entropy - nearly random
-        (
-            "XorShift random (~7.5 bits)",
-            {
-                let mut data = vec![0u8; PAGE_SIZE];
-                let mut x: u64 = 88172645463325252;
-                for chunk in data.chunks_mut(8) {
-                    x ^= x << 13;
-                    x ^= x >> 7;
-                    x ^= x << 17;
-                    for (i, byte) in chunk.iter_mut().enumerate() {
-                        *byte = (x >> (i * 8)) as u8;
-                    }
+        ("XorShift random (~7.5 bits)", {
+            let mut data = vec![0u8; PAGE_SIZE];
+            let mut x: u64 = 88172645463325252;
+            for chunk in data.chunks_mut(8) {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                for (i, byte) in chunk.iter_mut().enumerate() {
+                    *byte = (x >> (i * 8)) as u8;
                 }
-                data
-            },
-        ),
+            }
+            data
+        }),
     ];
 
-    println!("{:<30} {:>12} {:>15}", "Pattern", "Entropy", "Expected Route");
+    println!(
+        "{:<30} {:>12} {:>15}",
+        "Pattern", "Entropy", "Expected Route"
+    );
     println!("{:-<60}", "");
 
     for (i, (name, data)) in test_cases.iter().enumerate() {
@@ -120,12 +115,27 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n{:-<60}", "");
     println!("\nRouting Statistics:");
-    println!("  GPU pages:    {} (low entropy, highly compressible)", stats.gpu_pages);
-    println!("  SIMD pages:   {} (medium entropy, normal data)", stats.simd_pages);
-    println!("  Scalar pages: {} (high entropy, incompressible)", stats.scalar_pages);
-    println!("  Zero pages:   {} (all zeros, deduplicated)", stats.zero_pages);
+    println!(
+        "  GPU pages:    {} (low entropy, highly compressible)",
+        stats.gpu_pages
+    );
+    println!(
+        "  SIMD pages:   {} (medium entropy, normal data)",
+        stats.simd_pages
+    );
+    println!(
+        "  Scalar pages: {} (high entropy, incompressible)",
+        stats.scalar_pages
+    );
+    println!(
+        "  Zero pages:   {} (all zeros, deduplicated)",
+        stats.zero_pages
+    );
 
-    println!("\nTotal compression ratio: {:.2}x", stats.compression_ratio());
+    println!(
+        "\nTotal compression ratio: {:.2}x",
+        stats.compression_ratio()
+    );
 
     // Verify routing worked correctly
     println!("\nRouting Verification:");

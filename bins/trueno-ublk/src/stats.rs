@@ -1,5 +1,7 @@
 //! Statistics module - real-time stats collection and aggregation
 
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -31,11 +33,11 @@ impl ThroughputCalculator {
     /// Update throughput calculation (call periodically)
     pub fn update(&self) -> f64 {
         let now = Instant::now();
-        let mut last_update = self.last_update.write().unwrap();
+        let mut last_update = self.last_update.write().expect("rwlock poisoned");
         let elapsed = now.duration_since(*last_update);
 
         if elapsed < Duration::from_millis(100) {
-            return *self.ema_throughput.read().unwrap();
+            return *self.ema_throughput.read().expect("rwlock poisoned");
         }
 
         let current_bytes = self.bytes_total.load(Ordering::Relaxed);
@@ -44,7 +46,7 @@ impl ThroughputCalculator {
 
         let instant_throughput = bytes_delta as f64 / elapsed.as_secs_f64() / 1e9; // GB/s
 
-        let mut ema = self.ema_throughput.write().unwrap();
+        let mut ema = self.ema_throughput.write().expect("rwlock poisoned");
         *ema = self.alpha * instant_throughput + (1.0 - self.alpha) * *ema;
         *last_update = now;
 
@@ -53,7 +55,7 @@ impl ThroughputCalculator {
 
     /// Get current throughput in GB/s
     pub fn throughput_gbps(&self) -> f64 {
-        *self.ema_throughput.read().unwrap()
+        *self.ema_throughput.read().expect("rwlock poisoned")
     }
 }
 

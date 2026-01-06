@@ -40,9 +40,12 @@
 //! println!("Compression ratio: {:.2}x", stats.compression_ratio());
 //! ```
 
+#![allow(dead_code, unused_imports)] // Daemon has helper functions and re-exports for future use
+
 pub mod cleanup;
 pub mod daemon;
 pub mod device;
+pub mod perf;
 pub mod stats;
 pub mod ublk;
 
@@ -51,9 +54,16 @@ pub use device::{BlockDevice, BlockDeviceStats, DeviceConfig, DeviceStats, UblkD
 pub use ublk::{DaemonError, UblkCtrl, UblkDaemon};
 
 // Re-export duende-mlock for swap deadlock prevention (DT-007)
-pub use duende_mlock::{lock_all as lock_daemon_memory, is_locked as is_memory_locked, MlockStatus};
+pub use duende_mlock::{
+    is_locked as is_memory_locked, lock_all as lock_daemon_memory, MlockStatus,
+};
 #[cfg(not(test))]
 pub use ublk::{run_daemon, run_daemon_batched, BatchedDaemonConfig};
 
 // Re-export batched page store for direct use
-pub use daemon::{BatchConfig, BatchedPageStore, BatchedPageStoreStats, spawn_flush_thread};
+pub use daemon::{spawn_flush_thread, BatchConfig, BatchedPageStore, BatchedPageStoreStats};
+
+// Re-export performance optimization module (PERF-001)
+// Note: Additional types (BatchCoalescer, NumaAllocator, etc.) are available
+// in perf submodules for future PERF-001 integration
+pub use perf::{HiPerfContext, PerfConfig, PollResult, PollingConfig};

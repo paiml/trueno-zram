@@ -23,6 +23,7 @@ mod cleanup;
 mod cli;
 mod daemon;
 mod device;
+mod perf; // PERF-001: Performance optimization module
 mod stats;
 mod tui;
 mod ublk;

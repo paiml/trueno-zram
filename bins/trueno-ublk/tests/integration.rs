@@ -31,11 +31,33 @@ mod roundtrip {
         let patterns: Vec<(&str, Vec<u8>)> = vec![
             ("zeros", vec![0u8; PAGE_SIZE]),
             ("ones", vec![0xFF; PAGE_SIZE]),
-            ("alternating", (0..PAGE_SIZE).map(|i| if i % 2 == 0 { 0xAA } else { 0x55 }).collect()),
-            ("sequential", (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect()),
-            ("short_pattern", (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect()),
-            ("pseudo_random", (0..PAGE_SIZE).map(|i| ((i * 17 + 31) % 256) as u8).collect()),
-            ("text_like", "The quick brown fox jumps over the lazy dog. ".repeat(100).into_bytes()[..PAGE_SIZE].to_vec()),
+            (
+                "alternating",
+                (0..PAGE_SIZE)
+                    .map(|i| if i % 2 == 0 { 0xAA } else { 0x55 })
+                    .collect(),
+            ),
+            (
+                "sequential",
+                (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect(),
+            ),
+            (
+                "short_pattern",
+                (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect(),
+            ),
+            (
+                "pseudo_random",
+                (0..PAGE_SIZE)
+                    .map(|i| ((i * 17 + 31) % 256) as u8)
+                    .collect(),
+            ),
+            (
+                "text_like",
+                "The quick brown fox jumps over the lazy dog. "
+                    .repeat(100)
+                    .into_bytes()[..PAGE_SIZE]
+                    .to_vec(),
+            ),
         ];
 
         for (name, data) in patterns {
@@ -43,13 +65,22 @@ mod roundtrip {
             let page: &[u8; PAGE_SIZE] = data.as_slice().try_into().unwrap();
 
             // Compress
-            let compressed = compressor.compress(page).expect(&format!("Compress failed for {}", name));
+            let compressed = compressor
+                .compress(page)
+                .expect(&format!("Compress failed for {}", name));
 
             // Decompress
-            let decompressed = compressor.decompress(&compressed).expect(&format!("Decompress failed for {}", name));
+            let decompressed = compressor
+                .decompress(&compressed)
+                .expect(&format!("Decompress failed for {}", name));
 
             // Verify
-            assert_eq!(data, decompressed.as_slice(), "Roundtrip failed for pattern: {}", name);
+            assert_eq!(
+                data,
+                decompressed.as_slice(),
+                "Roundtrip failed for pattern: {}",
+                name
+            );
         }
     }
 }
@@ -112,7 +143,10 @@ mod compression_ratio {
             // Struct-like data (repeating patterns)
             (0..PAGE_SIZE).map(|i| ((i / 8) % 256) as u8).collect(),
             // Text data
-            "Hello, world! This is some text data that should compress well. ".repeat(70).into_bytes()[..PAGE_SIZE].to_vec(),
+            "Hello, world! This is some text data that should compress well. "
+                .repeat(70)
+                .into_bytes()[..PAGE_SIZE]
+                .to_vec(),
         ];
 
         let mut total_orig = 0u64;
@@ -185,7 +219,8 @@ mod throughput {
 
         let bytes_processed = iterations as u64 * PAGE_SIZE as u64;
         let compress_throughput = bytes_processed as f64 / compress_duration.as_secs_f64() / 1e9;
-        let decompress_throughput = bytes_processed as f64 / decompress_duration.as_secs_f64() / 1e9;
+        let decompress_throughput =
+            bytes_processed as f64 / decompress_duration.as_secs_f64() / 1e9;
 
         println!(
             "{} throughput: compress={:.2} GB/s, decompress={:.2} GB/s",
@@ -241,7 +276,8 @@ mod throughput {
 
         let bytes_processed = batch_size as u64 * PAGE_SIZE as u64;
         let compress_throughput = bytes_processed as f64 / compress_duration.as_secs_f64() / 1e9;
-        let decompress_throughput = bytes_processed as f64 / decompress_duration.as_secs_f64() / 1e9;
+        let decompress_throughput =
+            bytes_processed as f64 / decompress_duration.as_secs_f64() / 1e9;
 
         println!(
             "Batch ({} pages) throughput: compress={:.2} GB/s, decompress={:.2} GB/s",
@@ -268,7 +304,9 @@ mod edge_cases {
         let mut data = vec![0u8; PAGE_SIZE];
         let mut state: u64 = 0xDEADBEEF;
         for byte in data.iter_mut() {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             *byte = (state >> 33) as u8;
         }
 
@@ -276,7 +314,11 @@ mod edge_cases {
         let compressed = compressor.compress(page).unwrap();
         let decompressed = compressor.decompress(&compressed).unwrap();
 
-        assert_eq!(data, decompressed.as_slice(), "Random data roundtrip failed");
+        assert_eq!(
+            data,
+            decompressed.as_slice(),
+            "Random data roundtrip failed"
+        );
 
         // High entropy data may actually expand
         println!(
@@ -298,14 +340,19 @@ mod edge_cases {
             let compressed = compressor.compress(page).unwrap();
             let decompressed = compressor.decompress(&compressed).unwrap();
 
-            assert_eq!(data, decompressed.as_slice(), "Single byte {} roundtrip failed", byte_val);
+            assert_eq!(
+                data,
+                decompressed.as_slice(),
+                "Single byte {} roundtrip failed",
+                byte_val
+            );
         }
     }
 }
 
 /// DT-007: Test mlock integration for swap deadlock prevention
 mod mlock_integration {
-    use trueno_ublk::{lock_daemon_memory, is_memory_locked, MlockStatus};
+    use trueno_ublk::{is_memory_locked, lock_daemon_memory, MlockStatus};
 
     #[test]
     fn test_dt007_mlock_available() {
@@ -320,7 +367,10 @@ mod mlock_integration {
         // Test the mlock integration
         match lock_daemon_memory() {
             Ok(MlockStatus::Locked { bytes_locked }) => {
-                println!("DT-007: Memory locked ({} bytes) - swap deadlock prevention active", bytes_locked);
+                println!(
+                    "DT-007: Memory locked ({} bytes) - swap deadlock prevention active",
+                    bytes_locked
+                );
                 assert!(bytes_locked > 0, "Expected some bytes to be locked");
 
                 // Verify via /proc/self/status
@@ -334,7 +384,10 @@ mod mlock_integration {
             }
             Ok(MlockStatus::Failed { errno }) => {
                 // This is expected in unprivileged environments
-                println!("DT-007: mlock() failed (errno={}) - need CAP_IPC_LOCK or memlock ulimit", errno);
+                println!(
+                    "DT-007: mlock() failed (errno={}) - need CAP_IPC_LOCK or memlock ulimit",
+                    errno
+                );
                 // Common errno values:
                 // EPERM (1) = Permission denied (need CAP_IPC_LOCK)
                 // ENOMEM (12) = Cannot allocate memory (ulimit too low)

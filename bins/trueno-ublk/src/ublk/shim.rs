@@ -125,7 +125,7 @@ impl Default for RealKernelShim {
 impl CtrlShim for RealKernelShim {
     fn open_ctrl_device(&self) -> io::Result<OwnedFd> {
         use std::ffi::CString;
-        let path = CString::new(UBLK_CTRL_DEV).unwrap();
+        let path = CString::new(UBLK_CTRL_DEV).expect("UBLK_CTRL_DEV is a valid C string");
         let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR) };
         if fd < 0 {
             return Err(io::Error::last_os_error());
@@ -160,7 +160,7 @@ impl CtrlShim for RealKernelShim {
         unsafe {
             ring.submission()
                 .push(&sqe)
-                .map_err(|_| io::Error::new(io::ErrorKind::Other, "SQ full"))?;
+                .map_err(|_| io::Error::other("SQ full"))?;
         }
 
         ring.submit_and_wait(1)?;
@@ -168,7 +168,7 @@ impl CtrlShim for RealKernelShim {
         let cqe = ring
             .completion()
             .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "No CQE"))?;
+            .ok_or_else(|| io::Error::other("No CQE"))?;
 
         let result = cqe.result();
         if result < 0 {
@@ -191,7 +191,7 @@ impl CtrlShim for RealKernelShim {
     fn open_char_device(&self, dev_id: i32) -> io::Result<OwnedFd> {
         use std::ffi::CString;
         let path = format!("{}{}", UBLK_CHAR_DEV_FMT, dev_id);
-        let path = CString::new(path).unwrap();
+        let path = CString::new(path).expect("char device path is a valid C string");
         let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR) };
         if fd < 0 {
             return Err(io::Error::last_os_error());
@@ -322,7 +322,7 @@ impl IoUringOps for RealIoUring {
             self.ring
                 .submission()
                 .push(&sqe)
-                .map_err(|_| io::Error::new(io::ErrorKind::Other, "SQ full"))?;
+                .map_err(|_| io::Error::other("SQ full"))?;
         }
         Ok(())
     }
@@ -353,13 +353,15 @@ impl IoUringOps for RealIoUring {
             self.ring
                 .submission()
                 .push(&sqe)
-                .map_err(|_| io::Error::new(io::ErrorKind::Other, "SQ full"))?;
+                .map_err(|_| io::Error::other("SQ full"))?;
         }
         Ok(())
     }
 
     fn submit_and_wait(&mut self, wait_nr: u32) -> io::Result<u32> {
-        self.ring.submit_and_wait(wait_nr as usize).map(|n| n as u32)
+        self.ring
+            .submit_and_wait(wait_nr as usize)
+            .map(|n| n as u32)
     }
 
     fn get_completions(&mut self) -> Vec<IoCompletion> {
@@ -449,10 +451,7 @@ impl CtrlShim for MockKernelShim {
 
         match cmd_op {
             UBLK_U_CMD_ADD_DEV => {
-                if self
-                    .fail_add_dev
-                    .load(std::sync::atomic::Ordering::SeqCst)
-                {
+                if self.fail_add_dev.load(std::sync::atomic::Ordering::SeqCst) {
                     return Err(io::Error::from_raw_os_error(libc::EBUSY));
                 }
                 let dev_id = self
@@ -469,7 +468,9 @@ impl CtrlShim for MockKernelShim {
                     dev_info: Some(dev_info),
                 })
             }
-            UBLK_U_CMD_SET_PARAMS | UBLK_U_CMD_START_DEV | UBLK_U_CMD_STOP_DEV
+            UBLK_U_CMD_SET_PARAMS
+            | UBLK_U_CMD_START_DEV
+            | UBLK_U_CMD_STOP_DEV
             | UBLK_U_CMD_DEL_DEV => Ok(CtrlCmdResult {
                 retval: 0,
                 dev_info: None,
@@ -599,13 +600,10 @@ impl IoUringOps for MockIoUring {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // Add a mock completion
         let user_data = (tag as u64) | ((queue_id as u64) << 16);
-        self.pending_completions
-            .lock()
-            .unwrap()
-            .push(IoCompletion {
-                user_data,
-                result: 0,
-            });
+        self.pending_completions.lock().unwrap().push(IoCompletion {
+            user_data,
+            result: 0,
+        });
         Ok(())
     }
 
@@ -619,13 +617,10 @@ impl IoUringOps for MockIoUring {
         self.commit_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let user_data = (tag as u64) | ((queue_id as u64) << 16);
-        self.pending_completions
-            .lock()
-            .unwrap()
-            .push(IoCompletion {
-                user_data,
-                result: 0,
-            });
+        self.pending_completions.lock().unwrap().push(IoCompletion {
+            user_data,
+            result: 0,
+        });
         Ok(())
     }
 

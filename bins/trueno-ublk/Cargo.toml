@@ -77,12 +77,17 @@ rayon = "1.10"
 duende-mlock = "1.0"
 
 # ublk device lifecycle management (cleanup orphaned devices)
-duende-ublk = { path = "/home/noah/src/duende/crates/duende-ublk" }
+duende-ublk = "0.1"
 
 [dev-dependencies]
 proptest = { workspace = true }
 tempfile = "3.14"
 jugar-probar = { version = "0.4", default-features = false, features = ["tui"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "iops"
+harness = false
 
 [features]
 default = []

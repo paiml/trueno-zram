@@ -2,8 +2,8 @@
 
 #[cfg(feature = "cuda")]
 fn main() {
-    use trueno_zram_core::Algorithm;
     use trueno_zram_core::gpu::{GpuBatchCompressor, GpuBatchConfig};
+    use trueno_zram_core::Algorithm;
 
     println!("=== DEBUG: GpuBatchCompressor Decompression ===\n");
 
@@ -17,8 +17,7 @@ fn main() {
     };
 
     println!("Step 1: Creating GpuBatchCompressor...");
-    let mut compressor = GpuBatchCompressor::new(config)
-        .expect("Should create compressor");
+    let mut compressor = GpuBatchCompressor::new(config).expect("Should create compressor");
     println!("  ✓ Created\n");
 
     // Create test data - use same pattern as benchmark
@@ -50,25 +49,44 @@ fn main() {
 
     // Compress using CPU (like benchmark does)
     println!("Step 3: Compressing with CPU...");
-    let compress_result = compressor.compress_batch(&pages)
+    let compress_result = compressor
+        .compress_batch(&pages)
         .expect("Compression should work");
 
-    let compressed: Vec<Vec<u8>> = compress_result.pages.iter()
+    let compressed: Vec<Vec<u8>> = compress_result
+        .pages
+        .iter()
         .map(|p| p.data.clone())
         .collect();
     let sizes: Vec<u32> = compressed.iter().map(|c| c.len() as u32).collect();
 
     let total_compressed: usize = compressed.iter().map(|c| c.len()).sum();
-    println!("  Compressed {} pages: {} bytes ({:.2}x ratio)",
-             NUM_PAGES, total_compressed, (NUM_PAGES * 4096) as f64 / total_compressed as f64);
-    println!("  Size range: {} - {} bytes",
-             sizes.iter().min().unwrap(), sizes.iter().max().unwrap());
+    println!(
+        "  Compressed {} pages: {} bytes ({:.2}x ratio)",
+        NUM_PAGES,
+        total_compressed,
+        (NUM_PAGES * 4096) as f64 / total_compressed as f64
+    );
+    println!(
+        "  Size range: {} - {} bytes",
+        sizes.iter().min().unwrap(),
+        sizes.iter().max().unwrap()
+    );
 
     // DEBUG: Print first 16 bytes of first few compressed pages
     println!("  First 3 compressed pages:");
     for i in 0..3.min(NUM_PAGES) {
-        let bytes: Vec<String> = compressed[i].iter().take(16).map(|b| format!("{:02x}", b)).collect();
-        println!("    Page {}: [{}...] ({} bytes)", i, bytes.join(" "), compressed[i].len());
+        let bytes: Vec<String> = compressed[i]
+            .iter()
+            .take(16)
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        println!(
+            "    Page {}: [{}...] ({} bytes)",
+            i,
+            bytes.join(" "),
+            compressed[i].len()
+        );
     }
     println!();
 

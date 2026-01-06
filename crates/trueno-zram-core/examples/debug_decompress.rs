@@ -24,16 +24,15 @@ fn main() {
     let compress_kernel = Lz4WarpShuffleKernel::new(65536);
     let compress_ptx = compress_kernel.emit_ptx();
     println!("  Compression PTX: {} bytes", compress_ptx.len());
-    let _compress_module = CudaModule::from_ptx(&ctx, &compress_ptx)
-        .expect("Compression PTX should load");
+    let _compress_module =
+        CudaModule::from_ptx(&ctx, &compress_ptx).expect("Compression PTX should load");
     println!("  ✓ Compression kernel loaded");
 
     // Then load decompression kernel (use 65536 like GpuBatchCompressor)
     let kernel = Lz4DecompressKernel::new(65536);
     let ptx = kernel.emit_ptx();
     println!("  Decompression PTX: {} bytes", ptx.len());
-    let mut module = CudaModule::from_ptx(&ctx, &ptx)
-        .expect("Decompression PTX should load");
+    let mut module = CudaModule::from_ptx(&ctx, &ptx).expect("Decompression PTX should load");
     println!("  ✓ Decompression kernel loaded\n");
 
     // Step 3: Create test data - MULTIPLE pages (like the benchmark)
@@ -67,21 +66,32 @@ fn main() {
         originals.push(original);
 
         // Use crate's LZ4 compression (same as benchmark)
-        let compressed = lz4_compress_crate(&original)
-            .expect("Compression should succeed");
+        let compressed = lz4_compress_crate(&original).expect("Compression should succeed");
         compressed_pages.push(compressed);
     }
 
     let total_compressed: usize = compressed_pages.iter().map(|p| p.len()).sum();
     println!("  Original: {} bytes total", NUM_PAGES * 4096);
-    println!("  Compressed: {} bytes total ({:.2}x ratio)",
-             total_compressed, (NUM_PAGES * 4096) as f64 / total_compressed as f64);
+    println!(
+        "  Compressed: {} bytes total ({:.2}x ratio)",
+        total_compressed,
+        (NUM_PAGES * 4096) as f64 / total_compressed as f64
+    );
 
     // DEBUG: Print first 3 compressed pages for comparison
     println!("  First 3 compressed pages:");
     for i in 0..3.min(NUM_PAGES) {
-        let bytes: Vec<String> = compressed_pages[i].iter().take(16).map(|b| format!("{:02x}", b)).collect();
-        println!("    Page {}: [{}...] ({} bytes)", i, bytes.join(" "), compressed_pages[i].len());
+        let bytes: Vec<String> = compressed_pages[i]
+            .iter()
+            .take(16)
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        println!(
+            "    Page {}: [{}...] ({} bytes)",
+            i,
+            bytes.join(" "),
+            compressed_pages[i].len()
+        );
     }
 
     // Step 4: Allocate GPU buffers
@@ -98,23 +108,31 @@ fn main() {
         input_flat[offset..offset + compressed.len()].copy_from_slice(compressed);
     }
 
-    let input_dev: GpuBuffer<u8> = GpuBuffer::from_host(&ctx, &input_flat)
-        .expect("Input buffer");
-    println!("  Input buffer: {} bytes ({} pages at stride {})",
-             input_flat.len(), batch_size, input_stride);
+    let input_dev: GpuBuffer<u8> = GpuBuffer::from_host(&ctx, &input_flat).expect("Input buffer");
+    println!(
+        "  Input buffer: {} bytes ({} pages at stride {})",
+        input_flat.len(),
+        batch_size,
+        input_stride
+    );
 
     // Sizes buffer - one u32 per page
     let sizes: Vec<u32> = compressed_pages.iter().map(|p| p.len() as u32).collect();
-    let sizes_dev: GpuBuffer<u32> = GpuBuffer::from_host(&ctx, &sizes)
-        .expect("Sizes buffer");
+    let sizes_dev: GpuBuffer<u32> = GpuBuffer::from_host(&ctx, &sizes).expect("Sizes buffer");
     println!("  Sizes buffer: {} entries", sizes.len());
-    println!("  Size range: {} - {} bytes",
-             sizes.iter().min().unwrap(), sizes.iter().max().unwrap());
+    println!(
+        "  Size range: {} - {} bytes",
+        sizes.iter().min().unwrap(),
+        sizes.iter().max().unwrap()
+    );
 
     // Output buffer - 4096 bytes per page
-    let output_dev: GpuBuffer<u8> = GpuBuffer::new(&ctx, batch_size * 4096)
-        .expect("Output buffer");
-    println!("  Output buffer: {} bytes ({} pages)", batch_size * 4096, batch_size);
+    let output_dev: GpuBuffer<u8> = GpuBuffer::new(&ctx, batch_size * 4096).expect("Output buffer");
+    println!(
+        "  Output buffer: {} bytes ({} pages)",
+        batch_size * 4096,
+        batch_size
+    );
 
     // Step 5: Launch kernel
     println!("\nStep 5: Launching kernel...");
@@ -124,13 +142,19 @@ fn main() {
     // Grid: ceil(batch_size / 256) blocks
     let num_blocks = (batch_size_u32 + 255) / 256;
     let config = LaunchConfig {
-        grid: (num_blocks, 1, 1),    // ceil(batch_size / 256) blocks
-        block: (256, 1, 1),          // 256 threads per block
+        grid: (num_blocks, 1, 1), // ceil(batch_size / 256) blocks
+        block: (256, 1, 1),       // 256 threads per block
         shared_mem: 0,
     };
 
-    println!("  Grid: ({}, {}, {})", config.grid.0, config.grid.1, config.grid.2);
-    println!("  Block: ({}, {}, {})", config.block.0, config.block.1, config.block.2);
+    println!(
+        "  Grid: ({}, {}, {})",
+        config.grid.0, config.grid.1, config.grid.2
+    );
+    println!(
+        "  Block: ({}, {}, {})",
+        config.block.0, config.block.1, config.block.2
+    );
     println!("  Batch size: {}", batch_size_u32);
 
     // Debug: print pointer values
@@ -148,7 +172,8 @@ fn main() {
 
     let kernel_start = std::time::Instant::now();
     unsafe {
-        stream.launch_kernel(&mut module, "lz4_decompress", &config, &mut args)
+        stream
+            .launch_kernel(&mut module, "lz4_decompress", &config, &mut args)
             .expect("Kernel launch");
     }
 
@@ -156,8 +181,11 @@ fn main() {
     let kernel_time = kernel_start.elapsed();
     let output_bytes = batch_size * 4096;
     let kernel_gbps = (output_bytes as f64) / kernel_time.as_secs_f64() / 1e9;
-    println!("  ✓ Kernel completed in {:.2} ms ({:.2} GB/s)\n",
-             kernel_time.as_secs_f64() * 1000.0, kernel_gbps);
+    println!(
+        "  ✓ Kernel completed in {:.2} ms ({:.2} GB/s)\n",
+        kernel_time.as_secs_f64() * 1000.0,
+        kernel_gbps
+    );
 
     // Step 6: Read output and verify all pages
     println!("Step 6: Reading output and verifying...");
@@ -189,20 +217,31 @@ fn main() {
         }
     }
 
-    println!("\n  Total matches: {} / {}", total_matches, NUM_PAGES * 4096);
+    println!(
+        "\n  Total matches: {} / {}",
+        total_matches,
+        NUM_PAGES * 4096
+    );
     println!("  Total mismatches: {}", total_mismatches);
     println!("  Failed pages: {} / {}", failed_pages.len(), NUM_PAGES);
 
     if !failed_pages.is_empty() && failed_pages.len() <= 10 {
         println!("\n  Failed page details:");
         for (page_idx, mismatch_count) in &failed_pages {
-            println!("    Page {}: {} mismatches (compressed size: {} bytes)",
-                     page_idx, mismatch_count, compressed_pages[*page_idx].len());
+            println!(
+                "    Page {}: {} mismatches (compressed size: {} bytes)",
+                page_idx,
+                mismatch_count,
+                compressed_pages[*page_idx].len()
+            );
         }
     }
 
     if total_mismatches == 0 {
-        println!("\n✓ SUCCESS: All {} pages decompressed correctly!", NUM_PAGES);
+        println!(
+            "\n✓ SUCCESS: All {} pages decompressed correctly!",
+            NUM_PAGES
+        );
     } else {
         println!("\n✗ FAILED: {} pages with mismatches", failed_pages.len());
     }

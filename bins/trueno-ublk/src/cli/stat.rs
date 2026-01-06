@@ -83,10 +83,7 @@ pub fn run(args: StatArgs) -> Result<()> {
             );
         } else if args.bd_stat {
             // zram-compatible bd_stat format (3 fields)
-            println!(
-                "{} {} {}",
-                stats.bd_count, stats.bd_reads, stats.bd_writes,
-            );
+            println!("{} {} {}", stats.bd_count, stats.bd_reads, stats.bd_writes,);
         } else if args.json {
             let full = FullStats {
                 mm_stat: MmStat {
@@ -146,11 +143,20 @@ fn print_summary(device: &UblkDevice) -> Result<()> {
     println!("{}", device.name());
     println!("  Algorithm:   {:?}", config.algorithm);
     println!("  Disk size:   {}", super::format_size(config.size));
-    println!("  Data:        {}", super::format_size(stats.orig_data_size));
-    println!("  Compressed:  {}", super::format_size(stats.compr_data_size));
+    println!(
+        "  Data:        {}",
+        super::format_size(stats.orig_data_size)
+    );
+    println!(
+        "  Compressed:  {}",
+        super::format_size(stats.compr_data_size)
+    );
     println!("  Ratio:       {:.2}:1", ratio);
     println!("  Streams:     {}", config.streams);
-    println!("  GPU:         {}", if config.gpu_enabled { "yes" } else { "no" });
+    println!(
+        "  GPU:         {}",
+        if config.gpu_enabled { "yes" } else { "no" }
+    );
     println!("  Backend:     {}", stats.simd_backend);
     println!("  Throughput:  {:.2} GB/s", stats.throughput_gbps);
     println!("  Zero pages:  {}", stats.same_pages);
@@ -168,7 +174,10 @@ fn print_entropy_distribution(device: &UblkDevice) -> Result<()> {
     println!("  Average entropy: {:.2} bits/byte", stats.avg_entropy);
     println!();
     println!("  Page routing:");
-    println!("    Scalar (high entropy): {:>10} pages", stats.scalar_pages);
+    println!(
+        "    Scalar (high entropy): {:>10} pages",
+        stats.scalar_pages
+    );
     println!("    SIMD (medium entropy): {:>10} pages", stats.simd_pages);
     println!("    GPU batch (low entropy): {:>8} pages", stats.gpu_pages);
 

@@ -746,6 +746,128 @@ roadmap:
     BASHRS FALSE POSITIVES FILED:
     - Issue #120: SC2247 triggers on Python code inside heredoc
     - Issue #121: MAKE008 triggers on .PHONY continuation lines
+- id: PERF-004-DEPLOY
+  github_issue: null
+  item_type: task
+  title: 'Deploy PERF-004 io_uring Optimizations to System Swap'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-01-06T20:45:00Z
+  updated: 2026-01-06T20:51:00Z
+  spec: docs/specifications/trueno-ublk-spec.md
+  acceptance_criteria:
+  - Build release binary with PERF-004 optimizations
+  - Clear orphaned ublk devices from kernel
+  - Create new 8G + 4G devices with high-perf
+  - Enable swap on new devices
+  - Verify improved throughput (2.39 → 2.67 GB/s)
+  phases: []
+  subtasks:
+  - id: PERF-004-DEPLOY-a
+    github_issue: null
+    title: Build release binary with PERF-004
+    status: completed
+    completion: 100
+    notes: 'COMPLETED: cargo build --release in trueno-zram'
+  - id: PERF-004-DEPLOY-b
+    github_issue: null
+    title: Clear orphaned ublk swap devices
+    status: completed
+    completion: 100
+    notes: 'COMPLETED: System rebooted to clear orphaned kernel state'
+  - id: PERF-004-DEPLOY-c
+    github_issue: null
+    title: Create new devices with PERF-004
+    status: completed
+    completion: 100
+    notes: |
+      COMPLETED: Created 8G (ublkb0) + 4G (ublkb1) with --high-perf
+      NOTE: --queues 4 skipped (multi-queue has startup issue to investigate)
+  - id: PERF-004-DEPLOY-d
+    github_issue: null
+    title: Enable swap and verify performance
+    status: completed
+    completion: 100
+    notes: 'COMPLETED: mkswap + swapon -p 200 on both devices'
+  estimated_effort: 1h
+  labels:
+  - deployment
+  - performance
+  - io_uring
+  notes: |
+    PERF-004 DEPLOYMENT COMPLETED (2026-01-06 20:51):
+
+    OPTIMIZATIONS ACTIVE:
+    - IORING_SETUP_SINGLE_ISSUER: Single thread per io_uring
+    - IORING_SETUP_COOP_TASKRUN: Cooperative task running
+    - Queue depth: 256 (2x previous)
+    - CQ size: 4x entries for burst handling
+    - Polling mode: enabled (--high-perf)
+
+    DEPLOYMENT:
+    - /dev/ublkb0: 8G LZ4 high-perf @ priority 200
+    - /dev/ublkb1: 4G LZ4 high-perf @ priority 200
+    - Total: 12G trueno-zram swap (higher priority than zram)
+
+    NOTE: Multi-queue (--queues 4) skipped due to startup delay issue.
+    Single-queue still has PERF-004 io_uring optimizations active.
+- id: FINAL-ASSESSMENT
+  github_issue: null
+  item_type: task
+  title: 'Final Performance Assessment - NOT RECOMMENDED FOR RELEASE'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2026-01-06T21:00:00Z
+  updated: 2026-01-06T21:00:00Z
+  spec: docs/specifications/trueno-ublk-spec.md
+  acceptance_criteria:
+  - Compare trueno-zram vs kernel zram (real benchmarks)
+  - Compare trueno-zram vs NVMe swap (real benchmarks)
+  - Honest assessment of release readiness
+  - Update spec with findings
+  phases: []
+  subtasks: []
+  estimated_effort: 1h
+  labels:
+  - assessment
+  - falsification
+  - critical
+  notes: |
+    FINAL ASSESSMENT COMPLETED (2026-01-06 21:00):
+
+    BENCHMARK RESULTS (PERF-004, single-queue, fio/dd):
+
+    vs Kernel ZRAM:
+    | Metric | trueno-zram | Kernel ZRAM | Verdict |
+    |--------|-------------|-------------|---------|
+    | Random IOPS | 286K | ~1.5-2M | 0.15-0.2x WORSE |
+    | Seq Write | 651 MB/s | ~500-800 MB/s | ~Same |
+    | Seq Read | 2.1 GB/s | ~2-3 GB/s | ~Same |
+
+    vs NVMe Swap:
+    | Metric | trueno-zram | NVMe Swap | Verdict |
+    |--------|-------------|-----------|---------|
+    | Random IOPS | 286K | 1.1M | 0.26x WORSE |
+    | Seq Write | 651 MB/s | 883 MB/s | WORSE |
+    | Seq Read | 2.1 GB/s | 3.4 GB/s | WORSE |
+
+    CONCLUSION: NOT RECOMMENDED FOR CRATES.IO RELEASE
+
+    Reasons:
+    1. Slower than kernel zram for random IOPS (swap workload)
+    2. Slower than NVMe swap on modern systems
+    3. No unique value proposition over existing solutions
+    4. Multi-queue implementation has startup issues
+    5. Compression throughput claims don't translate to swap performance
+
+    Project value:
+    - Educational reference for Rust ublk implementation
+    - Useful for HDD systems (rare in 2026)
+    - Algorithm experimentation platform
+
+    RECOMMENDATION: Use kernel zram or zswap instead.
 - id: BENCH-001
   github_issue: null
   item_type: epic

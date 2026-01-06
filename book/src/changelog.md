@@ -47,6 +47,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 94% test coverage
 - Full documentation with mdBook
 
+## [0.2.0] - 2026-01-06
+
+### Added
+
+- **DT-007: Swap Deadlock Prevention**
+  - mlock() integration via duende-mlock crate
+  - Daemon memory pinning prevents swap deadlock
+  - Works in both foreground and background modes
+
+- **trueno-ublk daemon**
+  - ublk-based block device for kernel bypass
+  - Hybrid CPU/GPU architecture
+  - 12.5 GB/s sequential read (fio verified)
+  - 228K IOPS random 4K read
+
+### Performance Improvements
+
+- Sequential I/O: 16.5 GB/s (1.8x vs kernel ZRAM)
+- Random 4K IOPS: 249K (4.5x vs kernel ZRAM)
+- Compression ratio: 3.87x (+55% vs kernel ZRAM)
+- CPU parallel decompression: 50+ GB/s
+
+### Fixed
+
+- Background mode mlock (DT-007e: mlock called after fork)
+- Clippy warnings in GPU batch compression module
+
 ## [Unreleased]
 
 ### Planned
@@ -54,9 +81,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - trueno-zram-adaptive: ML-driven algorithm selection
 - trueno-zram-generator: systemd integration
 - trueno-zram-cli: zramctl replacement
-- trueno-ublk: ublk daemon for kernel bypass
 
 ---
 
 [0.1.0]: https://github.com/paiml/trueno-zram/releases/tag/v0.1.0
-[Unreleased]: https://github.com/paiml/trueno-zram/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/paiml/trueno-zram/releases/tag/v0.2.0
+[Unreleased]: https://github.com/paiml/trueno-zram/compare/v0.2.0...HEAD

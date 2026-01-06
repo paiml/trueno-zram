@@ -150,7 +150,8 @@ mod tests {
 
             // Decompress with AVX-512
             let mut avx512_output = [0u8; PAGE_SIZE];
-            let avx512_len = unsafe { avx512::decompress_avx512(&compressed, &mut avx512_output) }.unwrap();
+            let avx512_len =
+                unsafe { avx512::decompress_avx512(&compressed, &mut avx512_output) }.unwrap();
 
             assert_eq!(scalar_len, avx512_len, "Length mismatch");
             assert_eq!(scalar_output, avx512_output, "Output mismatch");
@@ -280,18 +281,27 @@ mod tests {
         }
 
         let counters: Vec<_> = (0..4)
-            .map(|_| Arc::new(CacheLinePadded {
-                counter: AtomicU64::new(0),
-                _padding: [0; 56],
-            }))
+            .map(|_| {
+                Arc::new(CacheLinePadded {
+                    counter: AtomicU64::new(0),
+                    _padding: [0; 56],
+                })
+            })
             .collect();
 
         // Verify each counter is on separate cache line
         for i in 0..counters.len() - 1 {
             let addr1 = &counters[i].counter as *const _ as usize;
             let addr2 = &counters[i + 1].counter as *const _ as usize;
-            let diff = if addr2 > addr1 { addr2 - addr1 } else { addr1 - addr2 };
-            assert!(diff >= 64, "Counters should be >= 64 bytes apart, got {diff}");
+            let diff = if addr2 > addr1 {
+                addr2 - addr1
+            } else {
+                addr1 - addr2
+            };
+            assert!(
+                diff >= 64,
+                "Counters should be >= 64 bytes apart, got {diff}"
+            );
         }
     }
 
@@ -318,10 +328,10 @@ mod tests {
     fn test_f035_simd_no_exceptions() {
         // Test with edge cases that might cause SIMD exceptions
         let test_cases: Vec<[u8; PAGE_SIZE]> = vec![
-            [0u8; PAGE_SIZE],         // All zeros
-            [0xFFu8; PAGE_SIZE],      // All ones
-            [0x80u8; PAGE_SIZE],      // Sign bit set
-            [0x7Fu8; PAGE_SIZE],      // Max positive
+            [0u8; PAGE_SIZE],    // All zeros
+            [0xFFu8; PAGE_SIZE], // All ones
+            [0x80u8; PAGE_SIZE], // Sign bit set
+            [0x7Fu8; PAGE_SIZE], // Max positive
         ];
 
         for input in test_cases {

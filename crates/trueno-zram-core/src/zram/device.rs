@@ -154,7 +154,11 @@ impl ZramDevice {
             }
         }
         // Fallback: return first word if no brackets found
-        Ok(raw.split_whitespace().next().unwrap_or("unknown").to_string())
+        Ok(raw
+            .split_whitespace()
+            .next()
+            .unwrap_or("unknown")
+            .to_string())
     }
 
     /// Write a sysfs attribute.

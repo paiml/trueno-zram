@@ -58,7 +58,10 @@ impl CtrlError {
             | Self::StartDev { source, .. }
             | Self::StopDev { source, .. }
             | Self::DelDev { source, .. } => {
-                matches!(source.raw_os_error(), Some(libc::EAGAIN) | Some(libc::EBUSY))
+                matches!(
+                    source.raw_os_error(),
+                    Some(libc::EAGAIN) | Some(libc::EBUSY)
+                )
             }
             _ => false,
         }
@@ -69,7 +72,10 @@ impl CtrlError {
     pub fn is_resource_error(&self) -> bool {
         match self {
             Self::IoUring(e) | Self::OpenCtrl(e) | Self::OpenChar { source: e, .. } => {
-                matches!(e.raw_os_error(), Some(libc::ENOMEM) | Some(libc::EMFILE) | Some(libc::ENFILE))
+                matches!(
+                    e.raw_os_error(),
+                    Some(libc::ENOMEM) | Some(libc::EMFILE) | Some(libc::ENFILE)
+                )
             }
             _ => false,
         }
@@ -141,23 +147,31 @@ pub struct UblkCtrl {
 impl UblkCtrl {
     /// Open control device and add a new ublk device via io_uring
     pub fn new(config: DeviceConfig) -> Result<Self, CtrlError> {
-        let ctrl_path = CString::new(UBLK_CTRL_DEV).unwrap();
+        let ctrl_path = CString::new(UBLK_CTRL_DEV).expect("UBLK_CTRL_DEV is a valid C string");
+        // SAFETY: libc::open is called with:
+        // - ctrl_path is a valid null-terminated C string (verified by CString::new)
+        // - O_RDWR is a valid flag for opening the control device
+        // - Return value is checked for negative (error) before use
         let ctrl_fd = unsafe { libc::open(ctrl_path.as_ptr(), O_RDWR) };
         if ctrl_fd < 0 {
             return Err(CtrlError::OpenCtrl(std::io::Error::last_os_error()));
         }
+        // SAFETY: ctrl_fd is a valid file descriptor (verified by check above)
+        // and will be owned exclusively by this OwnedFd
         let ctrl_fd = unsafe { OwnedFd::from_raw_fd(ctrl_fd) };
 
         // Create io_uring with 128-byte SQE support for URING_CMD
-        let ring: IoUring128 = IoUring128::builder()
-            .build(4)
-            .map_err(CtrlError::IoUring)?;
+        let ring: IoUring128 = IoUring128::builder().build(4).map_err(CtrlError::IoUring)?;
 
         let mut dev_info = UblkCtrlDevInfo {
             nr_hw_queues: config.nr_hw_queues,
             queue_depth: config.queue_depth,
             max_io_buf_bytes: UBLK_MAX_IO_BUF_BYTES,
-            dev_id: if config.dev_id < 0 { u32::MAX } else { config.dev_id as u32 },
+            dev_id: if config.dev_id < 0 {
+                u32::MAX
+            } else {
+                config.dev_id as u32
+            },
             ublksrv_pid: std::process::id() as i32,
             flags: config.flags,
             ..Default::default()
@@ -183,7 +197,10 @@ impl UblkCtrl {
         };
 
         ctrl.submit_ctrl_cmd(UBLK_U_CMD_ADD_DEV, cmd)
-            .map_err(|e| CtrlError::AddDev { dev_id: config.dev_id, source: e })?;
+            .map_err(|e| CtrlError::AddDev {
+                dev_id: config.dev_id,
+                source: e,
+            })?;
 
         ctrl.dev_id = ctrl.dev_info.dev_id as i32;
 
@@ -219,7 +236,10 @@ impl UblkCtrl {
     /// Submit a control command via io_uring URING_CMD
     fn submit_ctrl_cmd(&mut self, cmd_op: u32, cmd: UblkCtrlCmd) -> Result<i32, std::io::Error> {
         // Wrap in UblkCtrlCmdExt (80 bytes) for io_uring SQE cmd field
-        let cmd_ext = UblkCtrlCmdExt { cmd, padding: [0; 48] };
+        let cmd_ext = UblkCtrlCmdExt {
+            cmd,
+            padding: [0; 48],
+        };
         let cmd_bytes: [u8; 80] = unsafe { std::mem::transmute(cmd_ext) };
 
         let sqe = opcode::UringCmd80::new(types::Fd(self.ctrl_fd.as_raw_fd()), cmd_op)
@@ -228,17 +248,24 @@ impl UblkCtrl {
             .user_data(0x100);
 
         unsafe {
-            self.ring.submission().push(&sqe).map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::Other, "SQ full")
-            })?;
+            self.ring
+                .submission()
+                .push(&sqe)
+                .map_err(|_| std::io::Error::other("SQ full"))?;
         }
 
-        tracing::info!(cmd_op, "Submitting control command, waiting for completion...");
+        tracing::info!(
+            cmd_op,
+            "Submitting control command, waiting for completion..."
+        );
         self.ring.submit_and_wait(1)?;
         tracing::info!(cmd_op, "Control command completed");
 
-        let cqe = self.ring.completion().next()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "No CQE"))?;
+        let cqe = self
+            .ring
+            .completion()
+            .next()
+            .ok_or_else(|| std::io::Error::other("No CQE"))?;
 
         let result = cqe.result();
         if result < 0 {
@@ -253,9 +280,7 @@ impl UblkCtrl {
     /// Cloned handles do NOT clean up the device on Drop - only the primary handle does.
     pub fn clone_handle(&self) -> Result<Self, CtrlError> {
         let ctrl_fd = self.ctrl_fd.try_clone().map_err(CtrlError::OpenCtrl)?;
-        let ring: IoUring128 = IoUring128::builder()
-            .build(4)
-            .map_err(CtrlError::IoUring)?;
+        let ring: IoUring128 = IoUring128::builder().build(4).map_err(CtrlError::IoUring)?;
 
         Ok(Self {
             ctrl_fd,
@@ -276,7 +301,10 @@ impl UblkCtrl {
         };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_SET_PARAMS, cmd)
-            .map_err(|e| CtrlError::SetParams { dev_id: self.dev_id, source: e })?;
+            .map_err(|e| CtrlError::SetParams {
+                dev_id: self.dev_id,
+                source: e,
+            })?;
 
         Ok(())
     }
@@ -289,7 +317,10 @@ impl UblkCtrl {
         cmd.data[0] = self.dev_info.ublksrv_pid as u64;
 
         self.submit_ctrl_cmd(UBLK_U_CMD_START_DEV, cmd)
-            .map_err(|e| CtrlError::StartDev { dev_id: self.dev_id, source: e })?;
+            .map_err(|e| CtrlError::StartDev {
+                dev_id: self.dev_id,
+                source: e,
+            })?;
 
         Ok(())
     }
@@ -301,7 +332,10 @@ impl UblkCtrl {
         };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_STOP_DEV, cmd)
-            .map_err(|e| CtrlError::StopDev { dev_id: self.dev_id, source: e })?;
+            .map_err(|e| CtrlError::StopDev {
+                dev_id: self.dev_id,
+                source: e,
+            })?;
 
         Ok(())
     }
@@ -313,14 +347,17 @@ impl UblkCtrl {
         };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_DEL_DEV, cmd)
-            .map_err(|e| CtrlError::DelDev { dev_id: self.dev_id, source: e })?;
+            .map_err(|e| CtrlError::DelDev {
+                dev_id: self.dev_id,
+                source: e,
+            })?;
 
         Ok(())
     }
 
     pub fn open_char_dev(&self) -> Result<OwnedFd, CtrlError> {
         let path = format!("{}{}", UBLK_CHAR_DEV_FMT, self.dev_id);
-        let cpath = CString::new(path).unwrap();
+        let cpath = CString::new(path).expect("char device path is a valid C string");
         let fd = unsafe { libc::open(cpath.as_ptr(), O_RDWR) };
         if fd < 0 {
             return Err(CtrlError::OpenChar {
@@ -332,16 +369,24 @@ impl UblkCtrl {
     }
 
     #[inline]
-    pub fn dev_id(&self) -> i32 { self.dev_id }
+    pub fn dev_id(&self) -> i32 {
+        self.dev_id
+    }
 
     #[inline]
-    pub fn dev_info(&self) -> &UblkCtrlDevInfo { &self.dev_info }
+    pub fn dev_info(&self) -> &UblkCtrlDevInfo {
+        &self.dev_info
+    }
 
     #[inline]
-    pub fn queue_depth(&self) -> u16 { self.dev_info.queue_depth }
+    pub fn queue_depth(&self) -> u16 {
+        self.dev_info.queue_depth
+    }
 
     #[inline]
-    pub fn max_io_buf_bytes(&self) -> u32 { self.dev_info.max_io_buf_bytes }
+    pub fn max_io_buf_bytes(&self) -> u32 {
+        self.dev_info.max_io_buf_bytes
+    }
 
     pub fn block_dev_path(&self) -> String {
         format!("{}{}", UBLK_BLOCK_DEV_FMT, self.dev_id)
@@ -418,7 +463,11 @@ impl MockUblkCtrl {
         })
     }
 
-    pub fn submit_ctrl_cmd(&mut self, cmd_op: u32, cmd: UblkCtrlCmd) -> Result<i32, std::io::Error> {
+    pub fn submit_ctrl_cmd(
+        &mut self,
+        cmd_op: u32,
+        cmd: UblkCtrlCmd,
+    ) -> Result<i32, std::io::Error> {
         // Record the command
         self.commands_issued.push((cmd_op, cmd));
 
@@ -451,7 +500,10 @@ impl MockUblkCtrl {
         };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_SET_PARAMS, cmd)
-            .map_err(|e| CtrlError::SetParams { dev_id: self.dev_id, source: e })?;
+            .map_err(|e| CtrlError::SetParams {
+                dev_id: self.dev_id,
+                source: e,
+            })?;
 
         Ok(())
     }
@@ -464,7 +516,10 @@ impl MockUblkCtrl {
         cmd.data[0] = self.dev_info.ublksrv_pid as u64;
 
         self.submit_ctrl_cmd(UBLK_U_CMD_START_DEV, cmd)
-            .map_err(|e| CtrlError::StartDev { dev_id: self.dev_id, source: e })?;
+            .map_err(|e| CtrlError::StartDev {
+                dev_id: self.dev_id,
+                source: e,
+            })?;
 
         Ok(())
     }
@@ -476,7 +531,10 @@ impl MockUblkCtrl {
         };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_STOP_DEV, cmd)
-            .map_err(|e| CtrlError::StopDev { dev_id: self.dev_id, source: e })?;
+            .map_err(|e| CtrlError::StopDev {
+                dev_id: self.dev_id,
+                source: e,
+            })?;
 
         Ok(())
     }
@@ -488,7 +546,10 @@ impl MockUblkCtrl {
         };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_DEL_DEV, cmd)
-            .map_err(|e| CtrlError::DelDev { dev_id: self.dev_id, source: e })?;
+            .map_err(|e| CtrlError::DelDev {
+                dev_id: self.dev_id,
+                source: e,
+            })?;
 
         Ok(())
     }
@@ -507,16 +568,24 @@ impl MockUblkCtrl {
     }
 
     #[inline]
-    pub fn dev_id(&self) -> i32 { self.dev_id }
+    pub fn dev_id(&self) -> i32 {
+        self.dev_id
+    }
 
     #[inline]
-    pub fn dev_info(&self) -> &UblkCtrlDevInfo { &self.dev_info }
+    pub fn dev_info(&self) -> &UblkCtrlDevInfo {
+        &self.dev_info
+    }
 
     #[inline]
-    pub fn queue_depth(&self) -> u16 { self.dev_info.queue_depth }
+    pub fn queue_depth(&self) -> u16 {
+        self.dev_info.queue_depth
+    }
 
     #[inline]
-    pub fn max_io_buf_bytes(&self) -> u32 { self.dev_info.max_io_buf_bytes }
+    pub fn max_io_buf_bytes(&self) -> u32 {
+        self.dev_info.max_io_buf_bytes
+    }
 
     pub fn block_dev_path(&self) -> String {
         format!("{}{}", UBLK_BLOCK_DEV_FMT, self.dev_id)
@@ -593,7 +662,10 @@ mod tests {
         ctrl.set_params().unwrap();
 
         // Verify SET_PARAMS command was issued
-        assert!(ctrl.commands_issued.iter().any(|(op, _)| *op == UBLK_U_CMD_SET_PARAMS));
+        assert!(ctrl
+            .commands_issued
+            .iter()
+            .any(|(op, _)| *op == UBLK_U_CMD_SET_PARAMS));
     }
 
     #[test]
@@ -719,19 +791,23 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
-        assert!(ctrl.commands_issued.iter().any(|(op, _)| *op == UBLK_U_CMD_ADD_DEV));
+        assert!(ctrl
+            .commands_issued
+            .iter()
+            .any(|(op, _)| *op == UBLK_U_CMD_ADD_DEV));
     }
 
     // ========================================================================
     // DeviceConfig Tests
     // ========================================================================
 
+    /// PERF-004: Default queue depth increased to 256 for higher IOPS
     #[test]
     fn test_device_config_default() {
         let config = DeviceConfig::default();
         assert_eq!(config.dev_id, -1);
         assert_eq!(config.nr_hw_queues, 1);
-        assert_eq!(config.queue_depth, 128);
+        assert_eq!(config.queue_depth, 256); // PERF-004: 128 -> 256
         assert!(config.flags & UBLK_F_USER_COPY != 0);
     }
 
@@ -994,7 +1070,10 @@ mod tests {
             data: [0x11223344],
             ..Default::default()
         };
-        let cmd_ext = UblkCtrlCmdExt { cmd, padding: [0; 48] };
+        let cmd_ext = UblkCtrlCmdExt {
+            cmd,
+            padding: [0; 48],
+        };
         let bytes: [u8; 80] = unsafe { std::mem::transmute(cmd_ext) };
         let recovered: UblkCtrlCmdExt = unsafe { std::mem::transmute(bytes) };
         assert_eq!(recovered.cmd.dev_id, 123);
@@ -1098,7 +1177,11 @@ mod tests {
             nr_hw_queues: config.nr_hw_queues,
             queue_depth: config.queue_depth,
             max_io_buf_bytes: UBLK_MAX_IO_BUF_BYTES,
-            dev_id: if config.dev_id < 0 { u32::MAX } else { config.dev_id as u32 },
+            dev_id: if config.dev_id < 0 {
+                u32::MAX
+            } else {
+                config.dev_id as u32
+            },
             ublksrv_pid: std::process::id() as i32,
             flags: config.flags,
             ..Default::default()
@@ -1146,7 +1229,10 @@ mod tests {
             data: [0x12345678],
             ..Default::default()
         };
-        let cmd_ext = UblkCtrlCmdExt { cmd, padding: [0; 48] };
+        let cmd_ext = UblkCtrlCmdExt {
+            cmd,
+            padding: [0; 48],
+        };
         let cmd_bytes: [u8; 80] = unsafe { std::mem::transmute(cmd_ext) };
 
         // Verify first 4 bytes are dev_id (little-endian)
@@ -1260,12 +1346,30 @@ mod tests {
         let errors = vec![
             CtrlError::OpenCtrl(std::io::Error::from_raw_os_error(1)),
             CtrlError::IoUring(std::io::Error::from_raw_os_error(2)),
-            CtrlError::AddDev { dev_id: 0, source: std::io::Error::from_raw_os_error(3) },
-            CtrlError::SetParams { dev_id: 0, source: std::io::Error::from_raw_os_error(4) },
-            CtrlError::StartDev { dev_id: 0, source: std::io::Error::from_raw_os_error(5) },
-            CtrlError::StopDev { dev_id: 0, source: std::io::Error::from_raw_os_error(6) },
-            CtrlError::DelDev { dev_id: 0, source: std::io::Error::from_raw_os_error(7) },
-            CtrlError::OpenChar { dev_id: 0, source: std::io::Error::from_raw_os_error(8) },
+            CtrlError::AddDev {
+                dev_id: 0,
+                source: std::io::Error::from_raw_os_error(3),
+            },
+            CtrlError::SetParams {
+                dev_id: 0,
+                source: std::io::Error::from_raw_os_error(4),
+            },
+            CtrlError::StartDev {
+                dev_id: 0,
+                source: std::io::Error::from_raw_os_error(5),
+            },
+            CtrlError::StopDev {
+                dev_id: 0,
+                source: std::io::Error::from_raw_os_error(6),
+            },
+            CtrlError::DelDev {
+                dev_id: 0,
+                source: std::io::Error::from_raw_os_error(7),
+            },
+            CtrlError::OpenChar {
+                dev_id: 0,
+                source: std::io::Error::from_raw_os_error(8),
+            },
         ];
 
         for err in errors {

@@ -16,17 +16,31 @@ fn main() -> anyhow::Result<()> {
     let test_data: Vec<(&str, Vec<u8>)> = vec![
         ("All zeros", vec![0u8; PAGE_SIZE]),
         ("All ones", vec![0xFF; PAGE_SIZE]),
-        ("Repeating pattern", (0..PAGE_SIZE).map(|i| (i % 4) as u8).collect()),
-        ("Sequential bytes", (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect()),
+        (
+            "Repeating pattern",
+            (0..PAGE_SIZE).map(|i| (i % 4) as u8).collect(),
+        ),
+        (
+            "Sequential bytes",
+            (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect(),
+        ),
         (
             "Mixed pattern",
             (0..PAGE_SIZE)
-                .map(|i| if i < PAGE_SIZE / 2 { 0xAA } else { (i % 256) as u8 })
+                .map(|i| {
+                    if i < PAGE_SIZE / 2 {
+                        0xAA
+                    } else {
+                        (i % 256) as u8
+                    }
+                })
                 .collect(),
         ),
         (
             "High entropy",
-            (0..PAGE_SIZE).map(|i| ((i * 17 + 31) % 256) as u8).collect(),
+            (0..PAGE_SIZE)
+                .map(|i| ((i * 17 + 31) % 256) as u8)
+                .collect(),
         ),
     ];
 
@@ -65,9 +79,7 @@ fn main() -> anyhow::Result<()> {
     println!("Progressive Statistics Demo");
     println!("{:-<60}", "");
 
-    let compressor = CompressorBuilder::new()
-        .algorithm(Algorithm::Lz4)
-        .build()?;
+    let compressor = CompressorBuilder::new().algorithm(Algorithm::Lz4).build()?;
 
     let mut device = BlockDevice::new(64 * 1024 * 1024, compressor);
 
@@ -76,7 +88,9 @@ fn main() -> anyhow::Result<()> {
         let data: Vec<u8> = if i % 2 == 0 {
             vec![0xAA; PAGE_SIZE] // Highly compressible
         } else {
-            (0..PAGE_SIZE).map(|j| ((j * (i + 1) * 17) % 256) as u8).collect()
+            (0..PAGE_SIZE)
+                .map(|j| ((j * (i + 1) * 17) % 256) as u8)
+                .collect()
         };
 
         device.write((i * PAGE_SIZE) as u64, &data)?;

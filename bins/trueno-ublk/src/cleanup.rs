@@ -43,7 +43,10 @@ pub fn detect_orphaned_devices() -> CleanupResult<Vec<u32>> {
     match duende_ublk::detect_orphaned_devices() {
         Ok(orphans) => {
             if !orphans.is_empty() {
-                info!(count = orphans.len(), "Detected orphaned ublk devices: {:?}", orphans);
+                info!(
+                    count = orphans.len(),
+                    "Detected orphaned ublk devices: {:?}", orphans
+                );
             }
             Ok(orphans)
         }

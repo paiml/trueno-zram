@@ -45,14 +45,22 @@ const UBLK_CMD_SET_PARAMS: u32 = 0x08;
 const UBLK_CMD_GET_PARAMS: u32 = 0x09;
 
 // ioctl-encoded commands (UBLK_U_CMD_*)
-pub const UBLK_U_CMD_GET_QUEUE_AFFINITY: u32 = _ior(UBLK_MAGIC, UBLK_CMD_GET_QUEUE_AFFINITY, size_of::<UblkCtrlCmd>());
-pub const UBLK_U_CMD_GET_DEV_INFO: u32 = _ior(UBLK_MAGIC, UBLK_CMD_GET_DEV_INFO, size_of::<UblkCtrlCmd>());
+pub const UBLK_U_CMD_GET_QUEUE_AFFINITY: u32 = _ior(
+    UBLK_MAGIC,
+    UBLK_CMD_GET_QUEUE_AFFINITY,
+    size_of::<UblkCtrlCmd>(),
+);
+pub const UBLK_U_CMD_GET_DEV_INFO: u32 =
+    _ior(UBLK_MAGIC, UBLK_CMD_GET_DEV_INFO, size_of::<UblkCtrlCmd>());
 pub const UBLK_U_CMD_ADD_DEV: u32 = _iowr(UBLK_MAGIC, UBLK_CMD_ADD_DEV, size_of::<UblkCtrlCmd>());
 pub const UBLK_U_CMD_DEL_DEV: u32 = _iowr(UBLK_MAGIC, UBLK_CMD_DEL_DEV, size_of::<UblkCtrlCmd>());
-pub const UBLK_U_CMD_START_DEV: u32 = _iowr(UBLK_MAGIC, UBLK_CMD_START_DEV, size_of::<UblkCtrlCmd>());
+pub const UBLK_U_CMD_START_DEV: u32 =
+    _iowr(UBLK_MAGIC, UBLK_CMD_START_DEV, size_of::<UblkCtrlCmd>());
 pub const UBLK_U_CMD_STOP_DEV: u32 = _iowr(UBLK_MAGIC, UBLK_CMD_STOP_DEV, size_of::<UblkCtrlCmd>());
-pub const UBLK_U_CMD_SET_PARAMS: u32 = _iowr(UBLK_MAGIC, UBLK_CMD_SET_PARAMS, size_of::<UblkCtrlCmd>());
-pub const UBLK_U_CMD_GET_PARAMS: u32 = _ior(UBLK_MAGIC, UBLK_CMD_GET_PARAMS, size_of::<UblkCtrlCmd>());
+pub const UBLK_U_CMD_SET_PARAMS: u32 =
+    _iowr(UBLK_MAGIC, UBLK_CMD_SET_PARAMS, size_of::<UblkCtrlCmd>());
+pub const UBLK_U_CMD_GET_PARAMS: u32 =
+    _ior(UBLK_MAGIC, UBLK_CMD_GET_PARAMS, size_of::<UblkCtrlCmd>());
 
 // I/O command opcodes (raw)
 /// Raw I/O command opcodes (used when UBLK_F_CMD_IOCTL_ENCODE is NOT set)
@@ -61,7 +69,11 @@ pub const UBLK_IO_COMMIT_AND_FETCH_REQ: u32 = 0x21;
 
 // I/O commands (ioctl-encoded for io_uring on /dev/ublkcN)
 pub const UBLK_U_IO_FETCH_REQ: u32 = _iowr(UBLK_MAGIC, UBLK_IO_FETCH_REQ, size_of::<UblkIoCmd>());
-pub const UBLK_U_IO_COMMIT_AND_FETCH_REQ: u32 = _iowr(UBLK_MAGIC, UBLK_IO_COMMIT_AND_FETCH_REQ, size_of::<UblkIoCmd>());
+pub const UBLK_U_IO_COMMIT_AND_FETCH_REQ: u32 = _iowr(
+    UBLK_MAGIC,
+    UBLK_IO_COMMIT_AND_FETCH_REQ,
+    size_of::<UblkIoCmd>(),
+);
 
 // I/O operation types (match kernel ublk_cmd.h exactly)
 pub const UBLK_IO_OP_READ: u8 = 0;
@@ -248,7 +260,9 @@ pub struct UblkParams {
 pub const UBLK_CTRL_DEV: &str = "/dev/ublk-control";
 pub const UBLK_CHAR_DEV_FMT: &str = "/dev/ublkc";
 pub const UBLK_BLOCK_DEV_FMT: &str = "/dev/ublkb";
-pub const UBLK_DEF_QUEUE_DEPTH: u16 = 128;
+/// PERF-004: Increased default queue depth for higher IOPS
+/// Previous: 128, New: 256 (2x more in-flight I/Os per queue)
+pub const UBLK_DEF_QUEUE_DEPTH: u16 = 256;
 pub const UBLK_DEF_NR_HW_QUEUES: u16 = 1;
 pub const UBLK_MAX_IO_BUF_BYTES: u32 = 512 * 1024;
 pub const SECTOR_SIZE: u64 = 512;
@@ -408,7 +422,10 @@ mod tests {
         // UBLK_U_IO_FETCH_REQ = _IOWR('u', 0x20, struct ublksrv_io_cmd)
         let io_cmd_size = 16u32;
         let expected = (3u32 << 30) | (io_cmd_size << 16) | (0x75u32 << 8) | 0x20;
-        assert_eq!(UBLK_U_IO_FETCH_REQ, expected, "UBLK_U_IO_FETCH_REQ mismatch");
+        assert_eq!(
+            UBLK_U_IO_FETCH_REQ, expected,
+            "UBLK_U_IO_FETCH_REQ mismatch"
+        );
     }
 
     /// A.5: Verify UBLK_IO_COMMIT_AND_FETCH_REQ opcode matches kernel
@@ -529,11 +546,17 @@ mod tests {
 
         // Tag 1, queue 0, offset 0
         let offset = ublk_user_copy_offset(0, 1, 0);
-        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF));
+        assert_eq!(
+            offset as u64,
+            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF)
+        );
 
         // Tag 0, queue 1, offset 0
         let offset = ublk_user_copy_offset(1, 0, 0);
-        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF));
+        assert_eq!(
+            offset as u64,
+            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF)
+        );
 
         // With buffer offset
         let offset = ublk_user_copy_offset(0, 0, 512);
@@ -576,8 +599,8 @@ mod tests {
         let depth = 128u16;
         let io_size = 512 * 1024u32;
 
-        let expected = (depth as usize) * size_of::<UblkIoDesc>()
-            + (depth as usize) * (io_size as usize);
+        let expected =
+            (depth as usize) * size_of::<UblkIoDesc>() + (depth as usize) * (io_size as usize);
         assert_eq!(total_buf_size(depth, io_size), expected);
     }
 
@@ -596,9 +619,10 @@ mod tests {
     }
 
     /// Verify default queue parameters
+    /// PERF-004: Queue depth increased to 256 for higher IOPS
     #[test]
     fn test_default_queue_params() {
-        assert_eq!(UBLK_DEF_QUEUE_DEPTH, 128);
+        assert_eq!(UBLK_DEF_QUEUE_DEPTH, 256);
         assert_eq!(UBLK_DEF_NR_HW_QUEUES, 1);
         assert_eq!(UBLK_MAX_IO_BUF_BYTES, 512 * 1024);
     }

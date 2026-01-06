@@ -196,6 +196,7 @@ docker-component: docker-build
 	@echo "🔧 Running component tests in Docker..."
 	docker run --privileged \
 		-v /lib/modules:/lib/modules:ro \
+		-v /dev:/dev \
 		-v $(PWD):/workspace:ro \
 		$(DOCKER_IMAGE) component
 
@@ -204,6 +205,7 @@ docker-io: docker-build
 	@echo "💾 Running I/O verification in Docker..."
 	docker run --privileged \
 		-v /lib/modules:/lib/modules:ro \
+		-v /dev:/dev \
 		-v $(PWD):/workspace:ro \
 		$(DOCKER_IMAGE) io-verify
 
@@ -212,6 +214,7 @@ docker-fs: docker-build
 	@echo "📂 Running filesystem tests in Docker..."
 	docker run --privileged \
 		-v /lib/modules:/lib/modules:ro \
+		-v /dev:/dev \
 		-v $(PWD):/workspace:ro \
 		--tmpfs /mnt/test:size=4G \
 		$(DOCKER_IMAGE) filesystem
@@ -221,6 +224,7 @@ docker-stress: docker-build
 	@echo "🔥 Running stress tests in Docker..."
 	docker run --privileged \
 		-v /lib/modules:/lib/modules:ro \
+		-v /dev:/dev \
 		-v $(PWD):/workspace:ro \
 		--memory=8g \
 		$(DOCKER_IMAGE) stress
@@ -231,6 +235,7 @@ docker-falsify: docker-build
 	@mkdir -p test-results
 	docker run --privileged \
 		-v /lib/modules:/lib/modules:ro \
+		-v /dev:/dev \
 		-v $(PWD):/workspace:ro \
 		-v $(PWD)/test-results:/workspace/test-results \
 		$(DOCKER_IMAGE) falsification
@@ -241,6 +246,7 @@ docker-debug: docker-build
 	@echo "🔍 Starting interactive debug session..."
 	docker run -it --privileged \
 		-v /lib/modules:/lib/modules:ro \
+		-v /dev:/dev \
 		-v $(PWD):/workspace \
 		--tmpfs /mnt/test:size=4G \
 		$(DOCKER_IMAGE) debug

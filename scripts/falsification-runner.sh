@@ -11,7 +11,7 @@ set -euo pipefail
 
 RESULTS_DIR="${1:-/workspace/test-results}"
 RANGE="${2:-F001-F100}"
-TRUENO_UBLK="${TRUENO_UBLK:-/workspace/target/release/trueno-ublk}"
+TRUENO_UBLK="${TRUENO_UBLK:-./target/release/trueno-ublk}"
 
 mkdir -p "$RESULTS_DIR"
 
@@ -75,9 +75,9 @@ start_device() {
 # ============================================================================
 test_F001() {
     log "F001: Device creation with valid config"
-    if pid=$(start_device 1G 0); then
+    if pid=$(start_device 1G 33); then
         pass "F001"
-        cleanup_device 0
+        cleanup_device 33
     else
         fail "F001" "Device creation failed"
     fi
@@ -420,10 +420,10 @@ main() {
     modprobe ublk_drv 2>/dev/null || true
 
     # Build
-    cd /workspace
-    cargo build --release -p trueno-ublk 2>/dev/null || {
-        log "Build failed, using existing binary"
-    }
+    # cd /workspace
+    # cargo build --release -p trueno-ublk 2>/dev/null || {
+    #     log "Build failed, using existing binary"
+    # }
 
     # Run tests in range
     for i in $(seq $START_NUM $END_NUM); do

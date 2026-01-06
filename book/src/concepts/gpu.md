@@ -6,10 +6,10 @@ trueno-zram supports CUDA GPU acceleration for batch compression of memory pages
 
 **Important:** GPU compression is currently blocked by NVIDIA PTX bug F081 (Loaded Value Bug). The production architecture uses:
 
-- **Compression:** CPU SIMD (AVX-512) at 20-24 GB/s with 3.70x ratio
-- **Decompression:** GPU CUDA at 137 GB/s (22.8x speedup over kernel ZRAM)
+- **Compression:** CPU SIMD (AVX-512) at 20-30 GB/s with 3.87x ratio
+- **Decompression:** CPU parallel at 50+ GB/s (primary path)
 
-This hybrid architecture exceeds the 5X kernel ZRAM target using CPU compression alone.
+GPU decompression is available but CPU parallel path is faster due to PCIe transfer overhead (~6 GB/s end-to-end vs 50+ GB/s CPU).
 
 ### NVIDIA F081 Bug
 

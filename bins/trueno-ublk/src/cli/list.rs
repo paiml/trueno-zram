@@ -186,10 +186,7 @@ fn format_device(device: &UblkDevice, columns: &[OutputColumn], bytes: bool) -> 
 }
 
 fn column_widths(columns: &[OutputColumn]) -> Vec<usize> {
-    columns
-        .iter()
-        .map(|c| c.header().len().max(12))
-        .collect()
+    columns.iter().map(|c| c.header().len().max(12)).collect()
 }
 
 fn print_row(values: &[&str], widths: &[usize]) {

@@ -7,11 +7,12 @@ trueno-ublk is a GPU-accelerated ZRAM replacement that uses the Linux ublk inter
 **MILESTONE DT-005 ACHIEVED:** trueno-ublk is running as system swap!
 
 - 8GB device active as primary swap (priority 150)
-- CPU SIMD compression at 20-24 GB/s with 3.70x ratio
-- GPU decompression at 137 GB/s
+- CPU SIMD compression at 20-30 GB/s with 3.87x ratio
+- CPU parallel decompression at 50+ GB/s
+
+**DT-007 COMPLETED:** Swap deadlock issue FIXED via mlock() - daemon memory pinned.
 
 **Known Limitations:**
-- Swap deadlock under extreme memory pressure (fix via DT-007 mlock integration)
 - Docker cannot isolate ublk devices (host kernel resources)
 
 ## What is ublk?

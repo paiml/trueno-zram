@@ -2,7 +2,7 @@
 
 **Version**: 3.4
 **Date**: 2026-01-06
-**Status**: PRODUCTION DEPLOYED - trueno-zram running as system swap (DT-005). Hybrid architecture validated: CPU SIMD compress (20-24 GB/s) + GPU decompress (137 GB/s). GPU compression blocked by F081.
+**Status**: PRODUCTION DEPLOYED - trueno-zram running as system swap (DT-005). CPU SIMD compress (20-30 GB/s) + CPU parallel decompress (50+ GB/s). GPU decompression available but PCIe-limited (~6 GB/s end-to-end). GPU compression blocked by F081.
 **Priority**: P0 - Critical for 5X Speedup Target (ACHIEVED via hybrid architecture)
 **Crate**: `trueno-gpu` (external dependency / target for kernel), `trueno-zram-core` (integration)
 **Philosophy**: Pure Rust PTX - Full LZ4 Compression on GPU

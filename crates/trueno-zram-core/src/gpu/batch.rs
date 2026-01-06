@@ -54,6 +54,7 @@ pub struct GpuBatchCompressor {
     total_time_ns: u64,
 }
 
+#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for GpuBatchCompressor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GpuBatchCompressor")
@@ -92,12 +93,16 @@ struct GpuContext {
 }
 
 #[cfg(feature = "cuda")]
+#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for GpuContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GpuContext")
             .field("device_index", &self.device_index)
             .field("lz4_compress_loaded", &self.lz4_module.is_some())
-            .field("lz4_decompress_loaded", &self.lz4_decompress_module.is_some())
+            .field(
+                "lz4_decompress_loaded",
+                &self.lz4_decompress_module.is_some(),
+            )
             .finish()
     }
 }
@@ -200,7 +205,7 @@ impl GpuBatchCompressor {
         let simd_compressor = std::sync::Arc::new(
             crate::CompressorBuilder::new()
                 .algorithm(config.algorithm)
-                .build()?
+                .build()?,
         );
 
         #[cfg(feature = "cuda")]
@@ -234,7 +239,7 @@ impl GpuBatchCompressor {
     #[cfg(feature = "cuda")]
     fn init_cuda(device_index: u32, batch_size: usize) -> Result<GpuContext> {
         use trueno_gpu::driver::{CudaContext, CudaModule, CudaStream, GpuBuffer, PinnedBuffer};
-        use trueno_gpu::kernels::lz4::{Lz4WarpShuffleKernel, Lz4DecompressKernel};
+        use trueno_gpu::kernels::lz4::{Lz4DecompressKernel, Lz4WarpShuffleKernel};
         use trueno_gpu::kernels::Kernel;
 
         // Create CUDA context using trueno-gpu driver (properly initializes CUDA)
@@ -260,8 +265,10 @@ impl GpuBatchCompressor {
         let decompress_kernel = Lz4DecompressKernel::new(65536);
         let decompress_ptx = decompress_kernel.emit_ptx();
 
-        let lz4_decompress_module = CudaModule::from_ptx(&context, &decompress_ptx)
-            .map_err(|e| Error::GpuNotAvailable(format!("Failed to load LZ4 decompress PTX: {e}")))?;
+        let lz4_decompress_module =
+            CudaModule::from_ptx(&context, &decompress_ptx).map_err(|e| {
+                Error::GpuNotAvailable(format!("Failed to load LZ4 decompress PTX: {e}"))
+            })?;
 
         // ═══════════════════════════════════════════════════════════════════════
         // PRE-ALLOCATE PINNED BUFFERS FOR DMA (eliminates 350ms alloc overhead!)
@@ -353,16 +360,19 @@ impl GpuBatchCompressor {
             .par_chunks(chunk_size)
             .map(|chunk: &[[u8; PAGE_SIZE]]| {
                 // Process chunk sequentially within each thread
-                chunk.iter().map(|page| {
-                    let compressed = crate::lz4::compress(page)?;
-                    // Always use LZ4 data - GPU decompression needs valid LZ4 format
-                    // For incompressible data, LZ4 will be slightly larger but valid
-                    Ok(CompressedPage {
-                        data: compressed,
-                        original_size: PAGE_SIZE,
-                        algorithm,
+                chunk
+                    .iter()
+                    .map(|page| {
+                        let compressed = crate::lz4::compress(page)?;
+                        // Always use LZ4 data - GPU decompression needs valid LZ4 format
+                        // For incompressible data, LZ4 will be slightly larger but valid
+                        Ok(CompressedPage {
+                            data: compressed,
+                            original_size: PAGE_SIZE,
+                            algorithm,
+                        })
                     })
-                }).collect()
+                    .collect()
             })
             .collect();
 
@@ -377,14 +387,17 @@ impl GpuBatchCompressor {
         // Update statistics
         self.pages_compressed += pages.len() as u64;
         self.total_bytes_in += (pages.len() * PAGE_SIZE) as u64;
-        self.total_bytes_out += pages_result.iter().map(|p| p.data.len() as u64).sum::<u64>();
+        self.total_bytes_out += pages_result
+            .iter()
+            .map(|p| p.data.len() as u64)
+            .sum::<u64>();
         self.total_time_ns += total_time_ns;
 
         Ok(BatchResult {
             pages: pages_result,
-            h2d_time_ns: 0,        // No GPU transfer
+            h2d_time_ns: 0,                // No GPU transfer
             kernel_time_ns: total_time_ns, // All time is "kernel" (CPU)
-            d2h_time_ns: 0,        // No GPU transfer
+            d2h_time_ns: 0,                // No GPU transfer
             total_time_ns,
         })
     }
@@ -444,7 +457,10 @@ impl GpuBatchCompressor {
         // Update statistics
         self.pages_compressed += pages.len() as u64;
         self.total_bytes_in += (pages.len() * PAGE_SIZE) as u64;
-        self.total_bytes_out += pages_result.iter().map(|p| p.data.len() as u64).sum::<u64>();
+        self.total_bytes_out += pages_result
+            .iter()
+            .map(|p| p.data.len() as u64)
+            .sum::<u64>();
         self.total_time_ns += total_time_ns;
 
         Ok(BatchResult {
@@ -463,9 +479,10 @@ impl GpuBatchCompressor {
     ) -> Result<trueno_gpu::driver::GpuBuffer<u8>> {
         use trueno_gpu::driver::GpuBuffer;
 
-        let context = self.context.as_ref().ok_or_else(|| {
-            Error::GpuNotAvailable("CUDA context not initialized".to_string())
-        })?;
+        let context = self
+            .context
+            .as_ref()
+            .ok_or_else(|| Error::GpuNotAvailable("CUDA context not initialized".to_string()))?;
 
         // Flatten pages into contiguous buffer
         let total_bytes = pages.len() * PAGE_SIZE;
@@ -482,23 +499,20 @@ impl GpuBatchCompressor {
     }
 
     #[cfg(feature = "cuda")]
-    fn execute_compression_kernel(
-        &self,
-        pages: &[[u8; PAGE_SIZE]],
-    ) -> Result<Vec<Vec<u8>>> {
+    fn execute_compression_kernel(&self, pages: &[[u8; PAGE_SIZE]]) -> Result<Vec<Vec<u8>>> {
         use std::ffi::c_void;
         use std::time::Instant;
         use trueno_gpu::driver::{GpuBuffer, LaunchConfig};
         use trueno_gpu::kernels::lz4::lz4_compress_block;
 
-        let context = self.context.as_ref().ok_or_else(|| {
-            Error::GpuNotAvailable("CUDA context not initialized".to_string())
-        })?;
+        let context = self
+            .context
+            .as_ref()
+            .ok_or_else(|| Error::GpuNotAvailable("CUDA context not initialized".to_string()))?;
 
         // Check if GPU module is loaded, fall back to CPU if not
-        let module_cell = match context.lz4_module.as_ref() {
-            Some(m) => m,
-            None => return self.execute_compression_kernel_cpu(pages),
+        let Some(module_cell) = context.lz4_module.as_ref() else {
+            return self.execute_compression_kernel_cpu(pages);
         };
 
         let batch_size = pages.len();
@@ -522,7 +536,9 @@ impl GpuBatchCompressor {
         #[cfg(debug_assertions)]
         eprintln!(
             "[RENACER] S1-PREP: {} pages → {} bytes ({} µs)",
-            batch_size, input_flat.len(), stage1_us
+            batch_size,
+            input_flat.len(),
+            stage1_us
         );
 
         // [RENACER] Stage 2: H2D Transfer (Host → Device)
@@ -534,8 +550,7 @@ impl GpuBatchCompressor {
 
         #[cfg(debug_assertions)]
         eprintln!(
-            "[RENACER] S2-H2D:  {} bytes transferred ({} µs, {:.2} GB/s)",
-            total_input_bytes, stage2_us, h2d_bandwidth_gbps
+            "[RENACER] S2-H2D:  {total_input_bytes} bytes transferred ({stage2_us} µs, {h2d_bandwidth_gbps:.2} GB/s)"
         );
 
         // [RENACER] Stage 3: GPU Memory Allocation
@@ -544,17 +559,16 @@ impl GpuBatchCompressor {
         let total_output_bytes = batch_size * output_stride;
         let stage3_start = Instant::now();
         let output_dev: GpuBuffer<u8> = GpuBuffer::new(&context.context, total_output_bytes)
-            .map_err(|e| Error::GpuNotAvailable(format!("Failed to allocate output buffer: {e}")))?;
+            .map_err(|e| {
+                Error::GpuNotAvailable(format!("Failed to allocate output buffer: {e}"))
+            })?;
         let sizes_dev: GpuBuffer<u32> = GpuBuffer::new(&context.context, batch_size)
             .map_err(|e| Error::GpuNotAvailable(format!("Failed to allocate sizes buffer: {e}")))?;
         let stage3_us = stage3_start.elapsed().as_micros();
         let alloc_bytes = total_output_bytes + batch_size * 4;
 
         #[cfg(debug_assertions)]
-        eprintln!(
-            "[RENACER] S3-ALLOC: {} bytes GPU memory ({} µs)",
-            alloc_bytes, stage3_us
-        );
+        eprintln!("[RENACER] S3-ALLOC: {alloc_bytes} bytes GPU memory ({stage3_us} µs)");
 
         // [RENACER] Stage 4: Kernel Configuration
         // Lz4WarpShuffleKernel: 1 block per page, 32 threads (1 warp) per block
@@ -572,7 +586,10 @@ impl GpuBatchCompressor {
         #[cfg(debug_assertions)]
         eprintln!(
             "[RENACER] S4-CFG:  grid={} block={} threads={} warps={}",
-            grid_x, block_x, total_threads, total_threads / 32
+            grid_x,
+            block_x,
+            total_threads,
+            total_threads / 32
         );
 
         // [RENACER] Stage 5: Kernel Launch
@@ -581,46 +598,47 @@ impl GpuBatchCompressor {
             input_dev.as_kernel_arg(),
             output_dev.as_kernel_arg(),
             sizes_dev.as_kernel_arg(),
-            &batch_size_u32 as *const u32 as *mut c_void,
+            &raw const batch_size_u32 as *mut c_void,
         ];
 
         let mut module = module_cell.borrow_mut();
 
         // SAFETY: We're passing valid device pointers and batch_size
         unsafe {
-            context.stream
+            context
+                .stream
                 .launch_kernel(&mut module, "lz4_compress_warp_shuffle", &config, &mut args)
                 .map_err(|e| Error::GpuNotAvailable(format!("Kernel launch failed: {e}")))?;
         }
         let stage5_us = stage5_start.elapsed().as_micros();
 
         #[cfg(debug_assertions)]
-        eprintln!(
-            "[RENACER] S5-LAUNCH: kernel dispatched ({} µs)",
-            stage5_us
-        );
+        eprintln!("[RENACER] S5-LAUNCH: kernel dispatched ({stage5_us} µs)");
 
         // [RENACER] Stage 6: GPU Synchronization
         let stage6_start = Instant::now();
-        context.stream.synchronize()
+        context
+            .stream
+            .synchronize()
             .map_err(|e| Error::GpuNotAvailable(format!("Stream sync failed: {e}")))?;
         let stage6_us = stage6_start.elapsed().as_micros();
         let kernel_throughput_gbps = (total_input_bytes as f64) / (stage6_us as f64 / 1e6) / 1e9;
 
         #[cfg(debug_assertions)]
         eprintln!(
-            "[RENACER] S6-SYNC:  kernel complete ({} µs, {:.2} GB/s effective)",
-            stage6_us, kernel_throughput_gbps
+            "[RENACER] S6-SYNC:  kernel complete ({stage6_us} µs, {kernel_throughput_gbps:.2} GB/s effective)"
         );
 
         // [RENACER] Stage 7: D2H Transfer (Device → Host)
         let stage7_start = Instant::now();
         let mut output_flat = vec![0u8; total_output_bytes];
-        output_dev.copy_to_host(&mut output_flat)
+        output_dev
+            .copy_to_host(&mut output_flat)
             .map_err(|e| Error::GpuNotAvailable(format!("Failed to copy output from GPU: {e}")))?;
 
         let mut sizes = vec![0u32; batch_size];
-        sizes_dev.copy_to_host(&mut sizes)
+        sizes_dev
+            .copy_to_host(&mut sizes)
             .map_err(|e| Error::GpuNotAvailable(format!("Failed to copy sizes from GPU: {e}")))?;
         let stage7_us = stage7_start.elapsed().as_micros();
         let d2h_bytes = total_output_bytes + batch_size * 4;
@@ -628,23 +646,25 @@ impl GpuBatchCompressor {
 
         #[cfg(debug_assertions)]
         eprintln!(
-            "[RENACER] S7-D2H:  {} bytes retrieved ({} µs, {:.2} GB/s)",
-            d2h_bytes, stage7_us, d2h_bandwidth_gbps
+            "[RENACER] S7-D2H:  {d2h_bytes} bytes retrieved ({stage7_us} µs, {d2h_bandwidth_gbps:.2} GB/s)"
         );
 
         // [RENACER] Stage 8: Data Flow Analysis
         // GPU output can be up to output_stride bytes (4352), not just PAGE_SIZE
-        let gpu_count = sizes.iter().filter(|&&s| s > 0 && s <= output_stride as u32).count();
+        let gpu_count = sizes
+            .iter()
+            .filter(|&&s| s > 0 && s <= output_stride as u32)
+            .count();
         let cpu_fallback_count = batch_size - gpu_count;
-        let gpu_output_bytes: usize = sizes.iter()
+        let gpu_output_bytes: usize = sizes
+            .iter()
             .filter(|&&s| s > 0 && s <= output_stride as u32)
             .map(|&s| s as usize)
             .sum();
 
         #[cfg(debug_assertions)]
         eprintln!(
-            "[RENACER] S8-FLOW: {} GPU-compressed ({} bytes), {} CPU-fallback",
-            gpu_count, gpu_output_bytes, cpu_fallback_count
+            "[RENACER] S8-FLOW: {gpu_count} GPU-compressed ({gpu_output_bytes} bytes), {cpu_fallback_count} CPU-fallback"
         );
 
         // [RENACER] Stage 9: Extract GPU results (all pages compressed by GPU now)
@@ -673,13 +693,12 @@ impl GpuBatchCompressor {
             .collect();
 
         let stage9_us = stage9_start.elapsed().as_micros();
-        let actual_output_bytes: usize = results.iter().map(|r| r.len()).sum();
+        let actual_output_bytes: usize = results.iter().map(std::vec::Vec::len).sum();
         let compression_ratio = total_input_bytes as f64 / actual_output_bytes as f64;
 
         #[cfg(debug_assertions)]
         eprintln!(
-            "[RENACER] S9-GPU: {} → {} bytes ({:.2}x ratio, {} µs)",
-            total_input_bytes, actual_output_bytes, compression_ratio, stage9_us
+            "[RENACER] S9-GPU: {total_input_bytes} → {actual_output_bytes} bytes ({compression_ratio:.2}x ratio, {stage9_us} µs)"
         );
 
         // [RENACER] Pipeline Summary
@@ -689,7 +708,9 @@ impl GpuBatchCompressor {
         #[cfg(debug_assertions)]
         eprintln!(
             "[RENACER] SUMMARY: {} pages in {} µs ({:.2} GB/s, {:.1}% GPU-handled)",
-            batch_size, pipeline_us, overall_throughput_gbps,
+            batch_size,
+            pipeline_us,
+            overall_throughput_gbps,
             (gpu_count as f64 / batch_size as f64) * 100.0
         );
 
@@ -698,10 +719,7 @@ impl GpuBatchCompressor {
 
     /// CPU fallback for compression when GPU is not available
     #[cfg(feature = "cuda")]
-    fn execute_compression_kernel_cpu(
-        &self,
-        pages: &[[u8; PAGE_SIZE]],
-    ) -> Result<Vec<Vec<u8>>> {
+    fn execute_compression_kernel_cpu(&self, pages: &[[u8; PAGE_SIZE]]) -> Result<Vec<Vec<u8>>> {
         use rayon::prelude::*;
         use trueno_gpu::kernels::lz4::lz4_compress_block;
 
@@ -789,13 +807,15 @@ impl GpuBatchCompressor {
             });
         }
 
-        let context = self.context.as_mut().ok_or_else(|| {
-            Error::GpuNotAvailable("CUDA context not initialized".to_string())
-        })?;
+        let context = self
+            .context
+            .as_mut()
+            .ok_or_else(|| Error::GpuNotAvailable("CUDA context not initialized".to_string()))?;
 
-        let module_cell = match context.lz4_decompress_module.as_ref() {
-            Some(m) => m,
-            None => return Err(Error::GpuNotAvailable("LZ4 decompress module not loaded".to_string())),
+        let Some(module_cell) = context.lz4_decompress_module.as_ref() else {
+            return Err(Error::GpuNotAvailable(
+                "LZ4 decompress module not loaded".to_string(),
+            ));
         };
 
         let batch_size = compressed.len();
@@ -828,7 +848,7 @@ impl GpuBatchCompressor {
                 let start = i * output_stride;
                 let len = page.len().min(output_stride);
                 // SAFETY: Each thread writes to non-overlapping region
-                let dest = pinned_slice.as_ptr().add(start) as *mut u8;
+                let dest = pinned_slice.as_ptr().add(start).cast_mut();
                 std::ptr::copy_nonoverlapping(page.as_ptr(), dest, len);
             });
         }
@@ -836,20 +856,24 @@ impl GpuBatchCompressor {
 
         // Stage 2: Copy sizes to GPU buffer (partial copy for current batch)
         // Note: sizes are small (<400KB for 100K pages), so H2D is fast
-        context.sizes_dev.copy_from_host_at(sizes, 0)
+        context
+            .sizes_dev
+            .copy_from_host_at(sizes, 0)
             .map_err(|e| Error::GpuNotAvailable(format!("Sizes H2D failed: {e}")))?;
 
         // Stage 3: Async H2D transfer with pinned memory (~25 GB/s)
         let h2d_start = Instant::now();
         // SAFETY: Pinned buffer remains valid until sync
         unsafe {
-            context.input_dev.copy_from_pinned_async(&context.input_pinned, &context.stream)
+            context
+                .input_dev
+                .copy_from_pinned_async(&context.input_pinned, &context.stream)
                 .map_err(|e| Error::GpuNotAvailable(format!("Async H2D failed: {e}")))?;
         }
 
         // Stage 4: Launch decompression kernel (overlapped with H2D tail)
         let batch_size_u32 = batch_size as u32;
-        let num_blocks = (batch_size_u32 + 255) / 256;
+        let num_blocks = batch_size_u32.div_ceil(256);
         let config = LaunchConfig {
             grid: (num_blocks, 1, 1),
             block: (256, 1, 1),
@@ -861,26 +885,33 @@ impl GpuBatchCompressor {
             context.input_dev.as_kernel_arg(),
             context.sizes_dev.as_kernel_arg(),
             context.output_dev.as_kernel_arg(),
-            &batch_size_u32 as *const u32 as *mut c_void,
+            &raw const batch_size_u32 as *mut c_void,
         ];
 
         // SAFETY: Valid device pointers and batch_size
         unsafe {
             let mut module = module_cell.borrow_mut();
-            context.stream
+            context
+                .stream
                 .launch_kernel(&mut module, "lz4_decompress", &config, &mut args)
-                .map_err(|e| Error::GpuNotAvailable(format!("Decompress kernel launch failed: {e}")))?;
+                .map_err(|e| {
+                    Error::GpuNotAvailable(format!("Decompress kernel launch failed: {e}"))
+                })?;
         }
 
         // Stage 5: Async D2H transfer with pinned memory (overlapped with kernel tail)
         // SAFETY: Output pinned buffer remains valid until sync
         unsafe {
-            context.output_dev.copy_to_pinned_async(&mut context.output_pinned, &context.stream)
+            context
+                .output_dev
+                .copy_to_pinned_async(&mut context.output_pinned, &context.stream)
                 .map_err(|e| Error::GpuNotAvailable(format!("Async D2H failed: {e}")))?;
         }
 
         // Stage 6: Sync all operations
-        context.stream.synchronize()
+        context
+            .stream
+            .synchronize()
             .map_err(|e| Error::GpuNotAvailable(format!("Stream sync failed: {e}")))?;
 
         let h2d_us = h2d_start.elapsed().as_micros();
@@ -906,13 +937,15 @@ impl GpuBatchCompressor {
                 // Output is fully initialized by copy
                 std::ptr::copy_nonoverlapping(
                     output_slice.as_ptr().add(src_start),
-                    page.as_mut_ptr() as *mut u8,
-                    PAGE_SIZE
+                    page.as_mut_ptr().cast::<u8>(),
+                    PAGE_SIZE,
                 );
             });
 
             // SAFETY: All pages are now initialized via copy_nonoverlapping
-            std::mem::transmute::<Vec<std::mem::MaybeUninit<[u8; PAGE_SIZE]>>, Vec<[u8; PAGE_SIZE]>>(pages)
+            std::mem::transmute::<Vec<std::mem::MaybeUninit<[u8; PAGE_SIZE]>>, Vec<[u8; PAGE_SIZE]>>(
+                pages,
+            )
         };
         let extract_us = extract_start.elapsed().as_micros();
 
@@ -923,12 +956,12 @@ impl GpuBatchCompressor {
         if batch_size >= 10000 {
             let h2d_gbps = (batch_size * output_stride) as f64 / (h2d_us as f64 / 1e6) / 1e9;
             let kernel_gbps = (output_size as f64) / (kernel_us as f64 / 1e6) / 1e9;
-            eprintln!("  [GPU Decompress Profile] {} pages:", batch_size);
-            eprintln!("    cpu_prep:     {:>6} µs (parallel memcpy)", prep_us);
-            eprintln!("    h2d+kernel:   {:>6} µs ({:.1} GB/s combined)", h2d_us, h2d_gbps);
-            eprintln!("    kernel:       {:>6} µs ({:.1} GB/s)", kernel_us, kernel_gbps);
-            eprintln!("    extract:      {:>6} µs (parallel memcpy)", extract_us);
-            eprintln!("    TOTAL:        {:>6} µs ({:.2} GB/s)", total_us, total_gbps);
+            eprintln!("  [GPU Decompress Profile] {batch_size} pages:");
+            eprintln!("    cpu_prep:     {prep_us:>6} µs (parallel memcpy)");
+            eprintln!("    h2d+kernel:   {h2d_us:>6} µs ({h2d_gbps:.1} GB/s combined)");
+            eprintln!("    kernel:       {kernel_us:>6} µs ({kernel_gbps:.1} GB/s)");
+            eprintln!("    extract:      {extract_us:>6} µs (parallel memcpy)");
+            eprintln!("    TOTAL:        {total_us:>6} µs ({total_gbps:.2} GB/s)");
         }
 
         Ok(BatchDecompressResult {
@@ -941,10 +974,7 @@ impl GpuBatchCompressor {
     }
 
     /// Decompress using CPU (fallback when GPU is unavailable).
-    pub fn decompress_batch_cpu(
-        &self,
-        compressed: &[Vec<u8>],
-    ) -> Result<BatchDecompressResult> {
+    pub fn decompress_batch_cpu(&self, compressed: &[Vec<u8>]) -> Result<BatchDecompressResult> {
         use rayon::prelude::*;
         use std::time::Instant;
         use trueno_gpu::kernels::lz4::lz4_decompress_block;
@@ -1007,6 +1037,7 @@ impl GpuBatchCompressor {
 /// Zero pages are extremely common in memory (>30% typically) and compress
 /// to just a few bytes with LZ4's RLE-style encoding.
 #[cfg(feature = "cuda")]
+#[allow(dead_code)]
 fn encode_lz4_zero_page() -> Vec<u8> {
     use trueno_gpu::kernels::lz4::lz4_compress_block;
     let zero_page = [0u8; PAGE_SIZE];
@@ -1064,7 +1095,10 @@ mod tests {
         let result = GpuBatchCompressor::new(config);
         // Should succeed on systems with CUDA, fail gracefully otherwise
         if crate::gpu::gpu_available() {
-            assert!(result.is_ok(), "Should create compressor when GPU available");
+            assert!(
+                result.is_ok(),
+                "Should create compressor when GPU available"
+            );
         } else {
             assert!(result.is_err(), "Should fail when GPU not available");
         }
@@ -1130,7 +1164,10 @@ mod tests {
         let mut compressor = GpuBatchCompressor::new(config).unwrap();
 
         let result = compressor.compress_batch(&[]).unwrap();
-        assert!(result.pages.is_empty(), "Empty input should produce empty output");
+        assert!(
+            result.pages.is_empty(),
+            "Empty input should produce empty output"
+        );
         assert_eq!(result.total_time_ns, 0);
     }
 
@@ -1285,10 +1322,19 @@ mod tests {
         let config = GpuBatchConfig::default();
 
         assert_eq!(config.device_index, 0, "Default device should be 0");
-        assert!(config.batch_size >= 100, "Batch size should be >= 100 for PCIe efficiency");
-        assert!(config.batch_size <= 100_000, "Batch size should be reasonable");
+        assert!(
+            config.batch_size >= 100,
+            "Batch size should be >= 100 for PCIe efficiency"
+        );
+        assert!(
+            config.batch_size <= 100_000,
+            "Batch size should be reasonable"
+        );
         assert!(config.async_dma, "Async DMA should be enabled by default");
-        assert!(config.ring_buffer_slots >= 2, "Ring buffer needs >= 2 slots");
+        assert!(
+            config.ring_buffer_slots >= 2,
+            "Ring buffer needs >= 2 slots"
+        );
     }
 
     // ==========================================================================
@@ -1313,7 +1359,10 @@ mod tests {
             let result = compressor.compress_batch(&pages).unwrap();
 
             for page in &result.pages {
-                assert_eq!(page.algorithm, algo, "Output should use configured algorithm");
+                assert_eq!(
+                    page.algorithm, algo,
+                    "Output should use configured algorithm"
+                );
             }
         }
     }
@@ -1488,7 +1537,10 @@ mod tests {
         };
         // 2 pages * 4096 bytes = 8192 original / 3072 compressed = 2.67:1
         let ratio = result.compression_ratio();
-        assert!(ratio > 2.0 && ratio < 3.0, "Compression ratio should be ~2.67");
+        assert!(
+            ratio > 2.0 && ratio < 3.0,
+            "Compression ratio should be ~2.67"
+        );
     }
 
     #[test]
@@ -1772,12 +1824,17 @@ mod tests {
 
         // [PROBADOR] Stage 1: Compress batch using GPU path
         let result = compressor.compress_batch_gpu(&pages);
-        assert!(result.is_ok(), "[PROBADOR] Stage 1 FAIL: compress_batch_gpu failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "[PROBADOR] Stage 1 FAIL: compress_batch_gpu failed: {:?}",
+            result.err()
+        );
         let batch_result = result.unwrap();
 
         // [PROBADOR] Stage 2: Verify output count matches input
         assert_eq!(
-            batch_result.pages.len(), NUM_PAGES,
+            batch_result.pages.len(),
+            NUM_PAGES,
             "[PROBADOR] Stage 2 FAIL: Output page count mismatch"
         );
 
@@ -1791,10 +1848,12 @@ mod tests {
             assert!(
                 decomp_result.is_ok(),
                 "[PROBADOR] Stage 3 FAIL: Decompression failed for page {} (error: {:?})",
-                i, decomp_result.err()
+                i,
+                decomp_result.err()
             );
             assert_eq!(
-                &decompressed[..], &pages[i][..],
+                &decompressed[..],
+                &pages[i][..],
                 "[PROBADOR] Stage 3 FAIL: Data mismatch for page {}",
                 i
             );
@@ -1861,11 +1920,23 @@ mod tests {
             // Verify decompression roundtrip
             let mut decompressed = [0u8; PAGE_SIZE];
             let decomp_result = lz4_decompress_block(&compressed_page.data, &mut decompressed);
-            assert!(decomp_result.is_ok(), "[PROBADOR-ZERO] Decompress failed for page {}", i);
-            assert_eq!(&decompressed[..], &pages[i][..], "[PROBADOR-ZERO] Data mismatch page {}", i);
+            assert!(
+                decomp_result.is_ok(),
+                "[PROBADOR-ZERO] Decompress failed for page {}",
+                i
+            );
+            assert_eq!(
+                &decompressed[..],
+                &pages[i][..],
+                "[PROBADOR-ZERO] Data mismatch page {}",
+                i
+            );
         }
 
-        eprintln!("[PROBADOR-ZERO] 100% GPU path verified: {} zero pages", NUM_PAGES);
+        eprintln!(
+            "[PROBADOR-ZERO] 100% GPU path verified: {} zero pages",
+            NUM_PAGES
+        );
     }
 
     // ==========================================================================
@@ -1907,11 +1978,23 @@ mod tests {
         for (i, compressed_page) in batch_result.pages.iter().enumerate() {
             let mut decompressed = [0u8; PAGE_SIZE];
             let decomp_result = lz4_decompress_block(&compressed_page.data, &mut decompressed);
-            assert!(decomp_result.is_ok(), "[PROBADOR-RAND] Decompress failed for page {}", i);
-            assert_eq!(&decompressed[..], &pages[i][..], "[PROBADOR-RAND] Data mismatch page {}", i);
+            assert!(
+                decomp_result.is_ok(),
+                "[PROBADOR-RAND] Decompress failed for page {}",
+                i
+            );
+            assert_eq!(
+                &decompressed[..],
+                &pages[i][..],
+                "[PROBADOR-RAND] Data mismatch page {}",
+                i
+            );
         }
 
-        eprintln!("[PROBADOR-RAND] CPU fallback path verified: {} random pages", NUM_PAGES);
+        eprintln!(
+            "[PROBADOR-RAND] CPU fallback path verified: {} random pages",
+            NUM_PAGES
+        );
     }
 
     // ==========================================================================
@@ -1951,7 +2034,11 @@ mod tests {
         for (i, compressed_page) in batch_result.pages.iter().enumerate() {
             let mut decompressed = [0u8; PAGE_SIZE];
             let decomp_result = lz4_decompress_block(&compressed_page.data, &mut decompressed);
-            assert!(decomp_result.is_ok(), "[PROBADOR-INC] Decompress failed for page {}", i);
+            assert!(
+                decomp_result.is_ok(),
+                "[PROBADOR-INC] Decompress failed for page {}",
+                i
+            );
 
             // Byte-by-byte verification
             for (j, (&expected, &actual)) in pages[i].iter().zip(decompressed.iter()).enumerate() {
@@ -1963,7 +2050,10 @@ mod tests {
             }
         }
 
-        eprintln!("[PROBADOR-INC] Byte-level integrity verified: {} pages", NUM_PAGES);
+        eprintln!(
+            "[PROBADOR-INC] Byte-level integrity verified: {} pages",
+            NUM_PAGES
+        );
     }
 
     // ==========================================================================
@@ -2008,10 +2098,17 @@ mod tests {
 
         // [PROBADOR] Stress test: compress large batch
         let result = compressor.compress_batch_gpu(&pages);
-        assert!(result.is_ok(), "[PROBADOR-STRESS] Large batch compression failed");
+        assert!(
+            result.is_ok(),
+            "[PROBADOR-STRESS] Large batch compression failed"
+        );
         let batch_result = result.unwrap();
 
-        assert_eq!(batch_result.pages.len(), NUM_PAGES, "[PROBADOR-STRESS] Output count mismatch");
+        assert_eq!(
+            batch_result.pages.len(),
+            NUM_PAGES,
+            "[PROBADOR-STRESS] Output count mismatch"
+        );
 
         // [PROBADOR] Verify random sample of pages (full verification too slow)
         use trueno_gpu::kernels::lz4::lz4_decompress_block;
@@ -2019,9 +2116,19 @@ mod tests {
         let sample_indices = [0, 1, 100, 250, 500, 750, 999];
         for &i in &sample_indices {
             let mut decompressed = [0u8; PAGE_SIZE];
-            let decomp_result = lz4_decompress_block(&batch_result.pages[i].data, &mut decompressed);
-            assert!(decomp_result.is_ok(), "[PROBADOR-STRESS] Decompress failed for page {}", i);
-            assert_eq!(&decompressed[..], &pages[i][..], "[PROBADOR-STRESS] Data mismatch page {}", i);
+            let decomp_result =
+                lz4_decompress_block(&batch_result.pages[i].data, &mut decompressed);
+            assert!(
+                decomp_result.is_ok(),
+                "[PROBADOR-STRESS] Decompress failed for page {}",
+                i
+            );
+            assert_eq!(
+                &decompressed[..],
+                &pages[i][..],
+                "[PROBADOR-STRESS] Data mismatch page {}",
+                i
+            );
         }
 
         // [PROBADOR] Verify roundtrip correctness (no ratio check - literal-only kernel)
@@ -2054,16 +2161,27 @@ mod tests {
         // Test with single zero page
         let pages = vec![[0u8; PAGE_SIZE]];
         let result = compressor.compress_batch_gpu(&pages);
-        assert!(result.is_ok(), "[PROBADOR-SINGLE] Single page compression failed");
+        assert!(
+            result.is_ok(),
+            "[PROBADOR-SINGLE] Single page compression failed"
+        );
 
         let batch_result = result.unwrap();
-        assert_eq!(batch_result.pages.len(), 1, "[PROBADOR-SINGLE] Output count mismatch");
+        assert_eq!(
+            batch_result.pages.len(),
+            1,
+            "[PROBADOR-SINGLE] Output count mismatch"
+        );
 
         use trueno_gpu::kernels::lz4::lz4_decompress_block;
         let mut decompressed = [0u8; PAGE_SIZE];
         let decomp_result = lz4_decompress_block(&batch_result.pages[0].data, &mut decompressed);
         assert!(decomp_result.is_ok(), "[PROBADOR-SINGLE] Decompress failed");
-        assert_eq!(&decompressed[..], &pages[0][..], "[PROBADOR-SINGLE] Data mismatch");
+        assert_eq!(
+            &decompressed[..],
+            &pages[0][..],
+            "[PROBADOR-SINGLE] Data mismatch"
+        );
 
         eprintln!("[PROBADOR-SINGLE] Single page edge case verified");
     }

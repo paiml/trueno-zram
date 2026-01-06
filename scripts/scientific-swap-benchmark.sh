@@ -421,11 +421,18 @@ run_fio_benchmark() {
         MIXED)     rw=randrw;    bs=4k;  extra_opts="--iodepth=32 --numjobs=4 --rwmixread=70" ;;
     esac
 
+    # For block devices that may not report size correctly, specify explicitly
+    local size_opt=""
+    if [[ "$device" == /dev/ublk* ]]; then
+        size_opt="--size=${SWAP_SIZE_GB}G"
+    fi
+
     fio --name="$name" \
         --filename="$device" \
         --rw="$rw" \
         --bs="$bs" \
         --direct=1 \
+        $size_opt \
         $extra_opts \
         --runtime="$TEST_RUNTIME" \
         --time_based \

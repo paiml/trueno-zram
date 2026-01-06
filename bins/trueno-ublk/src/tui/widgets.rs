@@ -1,5 +1,7 @@
 //! Custom TUI widgets for trueno-ublk dashboard
 
+#![allow(dead_code)]
+
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -83,7 +85,10 @@ pub struct ThroughputSparkline<'a> {
 impl<'a> ThroughputSparkline<'a> {
     pub fn new(data: &'a [f64]) -> Self {
         let max = data.iter().cloned().fold(0.0f64, f64::max);
-        Self { data, max: max.max(1.0) }
+        Self {
+            data,
+            max: max.max(1.0),
+        }
     }
 }
 
@@ -173,8 +178,13 @@ mod tests {
         sparkline.render(area, &mut buf);
 
         // Verify that characters are rendered (sparkline bars)
-        let chars: String = (0..10).map(|x| buf[(x, 0)].symbol().chars().next().unwrap_or(' ')).collect();
-        assert!(!chars.trim().is_empty(), "Sparkline should render characters");
+        let chars: String = (0..10)
+            .map(|x| buf[(x, 0)].symbol().chars().next().unwrap_or(' '))
+            .collect();
+        assert!(
+            !chars.trim().is_empty(),
+            "Sparkline should render characters"
+        );
     }
 
     #[test]
@@ -238,7 +248,11 @@ mod tests {
 
         // Check color is yellow for ratio >= 2.0 and < 3.0
         let style = buf[(0, 0)].style();
-        assert_eq!(style.fg, Some(Color::Yellow), "Ratio 2.0-3.0 should be yellow");
+        assert_eq!(
+            style.fg,
+            Some(Color::Yellow),
+            "Ratio 2.0-3.0 should be yellow"
+        );
     }
 
     #[test]
@@ -249,7 +263,11 @@ mod tests {
 
         // Check color is light yellow for ratio >= 1.5 and < 2.0
         let style = buf[(0, 0)].style();
-        assert_eq!(style.fg, Some(Color::LightYellow), "Ratio 1.5-2.0 should be light yellow");
+        assert_eq!(
+            style.fg,
+            Some(Color::LightYellow),
+            "Ratio 1.5-2.0 should be light yellow"
+        );
     }
 
     #[test]
@@ -274,7 +292,11 @@ mod tests {
             .map(|x| buf[(x, 0)].symbol().chars().next().unwrap_or(' '))
             .collect();
 
-        assert!(text.starts_with("2.45:1"), "Should render as '2.45:1', got '{}'", text);
+        assert!(
+            text.starts_with("2.45:1"),
+            "Should render as '2.45:1', got '{}'",
+            text
+        );
     }
 
     // E.53: Entropy distribution bar chart matches data input
@@ -309,9 +331,21 @@ mod tests {
         }
 
         // Allow ±2 tolerance due to rounding
-        assert!((gpu_count as i32 - 50).abs() <= 2, "GPU should be ~50%, got {}", gpu_count);
-        assert!((simd_count as i32 - 30).abs() <= 2, "SIMD should be ~30%, got {}", simd_count);
-        assert!((scalar_count as i32 - 20).abs() <= 2, "Scalar should be ~20%, got {}", scalar_count);
+        assert!(
+            (gpu_count as i32 - 50).abs() <= 2,
+            "GPU should be ~50%, got {}",
+            gpu_count
+        );
+        assert!(
+            (simd_count as i32 - 30).abs() <= 2,
+            "SIMD should be ~30%, got {}",
+            simd_count
+        );
+        assert!(
+            (scalar_count as i32 - 20).abs() <= 2,
+            "Scalar should be ~20%, got {}",
+            scalar_count
+        );
     }
 
     #[test]

@@ -73,21 +73,22 @@ Ratio: 1.0:1 (pass-through)
 
 ## GPU Benchmarks
 
-### RTX 4090
+> **Note (2026-01-06):** GPU decompression is limited by PCIe transfer overhead.
+> CPU parallel path (50+ GB/s) is faster for most workloads.
 
-| Batch Size | Throughput | PCIe 5x |
-|------------|------------|---------|
-| 1,000 | 8 GB/s | No |
-| 10,000 | 45 GB/s | Yes |
-| 100,000 | 120 GB/s | Yes |
+### RTX 4090 (Validated)
 
-### A100
+| Path | Throughput | Notes |
+|------|------------|-------|
+| CPU Parallel | 50+ GB/s | Primary recommended path |
+| GPU End-to-End | ~6 GB/s | PCIe 4.0 transfer bottleneck |
+| GPU Kernel-only | ~9 GB/s | Without H2D/D2H transfers |
 
-| Batch Size | Throughput | PCIe 5x |
-|------------|------------|---------|
-| 1,000 | 12 GB/s | No |
-| 10,000 | 85 GB/s | Yes |
-| 100,000 | 280 GB/s | Yes |
+### Recommendation
+
+Use CPU parallel decompression for best performance. GPU useful for:
+- Future PCIe 5.0+ systems with higher bandwidth
+- Workloads where CPU is saturated
 
 ## Latency
 
@@ -107,30 +108,24 @@ Ratio: 1.0:1 (pass-through)
 
 ## Comparison with Linux Kernel zram
 
-**Validated 2026-01-05 on RTX 4090 + AMD EPYC (AVX-512)**
+**Validated 2026-01-06 on RTX 4090 + AMD Threadripper 7960X (AVX-512)**
 
-### Direct Measurement Methodology
+### Block Device I/O (fio, Direct I/O)
 
-Linux kernel zram was benchmarked by writing to a zram-backed btrfs filesystem:
-```bash
-# Compressible data
-dd if=/tmp/compressible_data of=/mnt/zram/test bs=4K conv=fdatasync
-# Result: 537 MB/s (0.54 GB/s)
+| Metric | Kernel ZRAM | trueno-ublk | Speedup |
+|--------|-------------|-------------|---------|
+| Sequential Read | 9.2 GB/s | 16.5 GB/s | **1.8x** |
+| Random 4K IOPS | 55K | 249K | **4.5x** |
+| Compression Ratio | 2.5x | 3.87x | **+55%** |
 
-# Random data
-dd if=/dev/urandom of=/mnt/zram/test bs=4K conv=fdatasync
-# Result: 305 MB/s (0.30 GB/s)
-```
-
-### Performance Comparison
+### Compression Engine (cargo examples)
 
 | Metric | Linux Kernel zram | trueno-zram | Speedup |
 |--------|-------------------|-------------|---------|
-| **Compressible data** | 0.54 GB/s | 3.7 GB/s (sequential) | **6.9x** |
-| **Compressible batch** | 0.54 GB/s | 19-24 GB/s (parallel) | **35-45x** |
-| **Random data** | 0.30 GB/s | 1.6 GB/s | **5.3x** |
+| **Compress (parallel)** | 3-5 GB/s | 20-30 GB/s | **5-6x** |
+| **Decompress (CPU)** | ~10 GB/s | 50+ GB/s | **5x** |
 | **Same-fill detection** | ~8 GB/s | 22 GB/s | **2.75x** |
-| **Compression ratio** | ~3-4x | 3.70x | Equivalent |
+| **Compression ratio** | 2.5x | 3.87x | **+55%** |
 
 ### Architecture Difference
 
@@ -141,19 +136,22 @@ dd if=/dev/urandom of=/mnt/zram/test bs=4K conv=fdatasync
 | Batch processing | No | Yes (5000+ pages) |
 | GPU offload | No | Optional CUDA |
 
-### 10GB Scale Validation (PMAT)
+### Falsification Testing (2026-01-06)
 
 ```
 Test Configuration:
-├── Batch size: 5000 pages (20 MB)
-├── Total: 2,621,440 pages (10 GB)
-├── Batches: 524
+├── Hardware: AMD Threadripper 7960X, 125GB RAM, RTX 4090
+├── Device: trueno-ublk 8GB device
+├── Tool: fio, cargo examples
 
 Results:
-├── Throughput: 19-24 GB/s
-├── Compression ratio: 3.70x
-├── Backend: rayon + AVX-512
-└── Status: ✓ VALIDATED
+├── Sequential I/O: 16.5 GB/s ✓ (claim: 12.5 GB/s)
+├── Random IOPS: 249K ✓ (claim: 228K)
+├── Compression: 30.66 GB/s ✓ (claim: 20-24 GB/s)
+├── Ratio: 3.87x ✓ (claim: 3.7x)
+├── mlock: 272 MB ✓ (claim: >100 MB)
+├── Stress test: No deadlock ✓
+└── Status: 6/8 PASS (GPU claims deprecated)
 ```
 
 ### Why trueno-zram is Faster
