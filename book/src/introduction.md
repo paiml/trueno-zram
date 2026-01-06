@@ -8,40 +8,47 @@
 
 - 8GB device active as primary swap (priority 150)
 - Validated under memory pressure with ~185MB swap utilization
-- Hybrid architecture: CPU SIMD compress (20-24 GB/s) + GPU decompress (137 GB/s)
+- CPU SIMD compress (20-30 GB/s) + CPU parallel decompress (48 GB/s)
+
+**DT-007 COMPLETED:** Swap deadlock issue FIXED via mlock() - 211 MB daemon memory pinned.
 
 **Known Limitations:**
-- Swap deadlock under extreme memory pressure (fix pending via DT-007 mlock integration)
 - GPU compression blocked by NVIDIA F081 bug (using CPU SIMD instead)
+- I/O throughput lower than kernel ZRAM (userspace overhead)
 
 ## Why trueno-zram?
 
-Linux's kernel zram module provides transparent memory compression, but it has limitations:
+trueno-zram provides **better compression efficiency** than kernel ZRAM:
 
-1. **Fixed algorithms**: Kernel zram supports limited compression algorithms
-2. **No SIMD optimization**: Kernel implementations don't fully utilize modern CPU features
-3. **No GPU offload**: Large batch compression can't leverage GPU acceleration
-4. **Limited tunability**: Hard to optimize for specific workloads
+| Advantage | trueno-zram | Kernel ZRAM |
+|-----------|-------------|-------------|
+| Compression Ratio | **3.87x** | 2.5x |
+| Space Efficiency | **55% better** | baseline |
+| P99 Latency | **16.5 µs** | varies |
 
-trueno-zram addresses these limitations by providing:
+**Trade-off:** Kernel ZRAM has higher raw I/O throughput (operates entirely in kernel space). trueno-zram uses ublk which adds userspace overhead but provides:
 
 - **Runtime SIMD dispatch**: Automatically selects AVX-512, AVX2, or NEON based on CPU
-- **GPU batch decompression**: Offloads large batches to CUDA GPUs (137 GB/s on RTX 4090)
+- **Userspace flexibility**: debugging, monitoring, custom algorithms
 - **Adaptive algorithm selection**: ML-driven selection based on page entropy
-- **Same-fill optimization**: 2048:1 compression for zero/repeated pages
-- **Kernel compatibility**: Drop-in replacement via sysfs interface
+- **Better compression**: 3.87x vs kernel's 2.5x
 
-## Performance Highlights
+## Validated Performance (QA-FALSIFY-001)
 
-| Metric | Achieved | vs Linux Kernel |
-|--------|----------|-----------------|
-| LZ4 Compression (sequential) | 3.7 GB/s | **6.9x faster** |
-| LZ4 Compression (parallel) | 19-24 GB/s | **35-45x faster** |
-| LZ4 Decompression | 5.4 GB/s | +54% |
-| GPU Decompression | 137 GB/s | **22.8x speedup** |
-| ZSTD Compression | 11.2 GB/s | N/A |
-| Same-fill detection | 22 GB/s | **2.75x faster** |
-| 10GB scale validated | 19-24 GB/s | **Production ready** |
+| Claim | Result | Status |
+|-------|--------|--------|
+| Compression ratio | **3.87x** | PASS |
+| SIMD compression | **20-30 GB/s** | PASS |
+| SIMD decompression | **48 GB/s** | PASS |
+| P99 latency | **16.5 µs** | PASS |
+| mlock (DT-007) | **211 MB** | PASS |
+
+| ~~Falsified Claim~~ | Actual |
+|---------------------|--------|
+| ~~1.8x vs kernel I/O~~ | Kernel 3-13x faster |
+| ~~228K IOPS~~ | 123K IOPS |
+
+> All metrics independently verified via falsification testing (2026-01-06)
 
 ## Part of the PAIML Ecosystem
 

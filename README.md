@@ -1,9 +1,22 @@
 # trueno-zram
 
+```
+  ████████╗██████╗ ██╗   ██╗███████╗███╗   ██╗ ██████╗       ███████╗██████╗  █████╗ ███╗   ███╗
+  ╚══██╔══╝██╔══██╗██║   ██║██╔════╝████╗  ██║██╔═══██╗      ╚══███╔╝██╔══██╗██╔══██╗████╗ ████║
+     ██║   ██████╔╝██║   ██║█████╗  ██╔██╗ ██║██║   ██║  █████╗ ███╔╝ ██████╔╝███████║██╔████╔██║
+     ██║   ██╔══██╗██║   ██║██╔══╝  ██║╚██╗██║██║   ██║  ╚════╝███╔╝  ██╔══██╗██╔══██║██║╚██╔╝██║
+     ██║   ██║  ██║╚██████╔╝███████╗██║ ╚████║╚██████╔╝       ███████╗██║  ██║██║  ██║██║ ╚═╝ ██║
+     ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝        ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝
+
+                    ⚡ SIMD-Accelerated Memory Compression ⚡
+                       3.87x Ratio | 20-30 GB/s Compress | P99 < 20µs
+```
+
 [![Crates.io](https://img.shields.io/crates/v/trueno-zram-core.svg)](https://crates.io/crates/trueno-zram-core)
 [![Tests](https://img.shields.io/badge/tests-461%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)]()
 [![MSRV](https://img.shields.io/badge/MSRV-1.82.0-blue)]()
+[![Status](https://img.shields.io/badge/status-PRODUCTION-success)]()
 
 SIMD and GPU-accelerated memory compression library for Linux systems. Part of the PAIML "Batuta Stack" (trueno + bashrs + aprender).
 
@@ -14,19 +27,20 @@ SIMD and GPU-accelerated memory compression library for Linux systems. Part of t
 | Status | Description |
 |--------|-------------|
 | **DT-005** | 8GB trueno-zram device active as primary swap (priority 150) |
-| **Performance** | CPU SIMD: 20-24 GB/s compress, GPU: 137 GB/s decompress |
-| **Compression** | 3.70x average ratio validated at 10GB scale |
-| **Known Issue** | Swap deadlock under extreme memory pressure (DT-007 fix pending) |
+| **DT-007** | Swap deadlock FIXED via mlock() - 211 MB daemon memory pinned |
+| **Compression** | 3.87x ratio (55% better than kernel ZRAM's 2.5x) |
+| **Latency** | P99 < 20µs |
 
-### Current Architecture: Hybrid CPU/GPU
+### Current Architecture: Userspace ublk
 
 ```
 Production Pipeline:
-  Compress: CPU SIMD (AVX-512) @ 20-24 GB/s, 3.70x ratio
-  Decompress: GPU CUDA @ 137 GB/s (when batch > 2000 pages)
+  Compress: CPU SIMD (AVX-512) @ 20-30 GB/s, 3.87x ratio
+  Decompress: CPU parallel @ 48 GB/s
+  I/O: ublk userspace block device
 ```
 
-**Note:** GPU compression is blocked by NVIDIA PTX bug F081 (Loaded Value Bug). The hybrid architecture uses CPU SIMD for compression and GPU for decompression, exceeding the 5X kernel ZRAM target.
+**Important:** Kernel ZRAM has higher raw I/O throughput (operates entirely in kernel space). trueno-zram's advantage is **compression efficiency** (3.87x vs 2.5x) and **userspace flexibility**.
 
 ## Overview
 
@@ -182,15 +196,36 @@ cargo llvm-cov --workspace --all-features
 
 ## Performance
 
-### vs Linux Kernel ZRAM (Validated 2026-01-06)
+### Validated Claims (QA-FALSIFY-001, 2026-01-06)
 
-| Data Type | Linux Kernel | trueno-zram | Speedup |
-|-----------|--------------|-------------|---------|
-| Compressible | 0.54 GB/s | 3.7 GB/s (seq) / 19-24 GB/s (parallel) | **6.9x / 35-45x** |
-| Random | 0.30 GB/s | 1.6 GB/s | **5.3x** |
-| Same-fill | ~8 GB/s | 22 GB/s | **2.75x** |
+| Claim | Result | Status |
+|-------|--------|--------|
+| Compression ratio | **3.87x** vs kernel's 2.5x | **PASS** |
+| SIMD compression | **20-30 GB/s** parallel | **PASS** |
+| SIMD decompression | **48 GB/s** | **PASS** |
+| P99 latency | **16.5 µs** (< 100µs threshold) | **PASS** |
+| mlock (DT-007) | **211 MB** locked | **PASS** |
 
-### Component Performance
+### Falsified Claims (Corrected)
+
+| Original Claim | Actual Result | Notes |
+|----------------|---------------|-------|
+| ~~1.8x vs kernel ZRAM I/O~~ | Kernel 3-13x faster | ublk userspace overhead |
+| ~~228K IOPS~~ | 123K IOPS | Still good, but overstated |
+| ~~2048:1 same-fill~~ | 157:1 zeros | Implementation difference |
+
+### Why Kernel ZRAM Has Higher I/O
+
+Kernel ZRAM operates entirely in kernel space with zero syscall overhead. trueno-zram uses ublk which requires a userspace hop. Even with io_uring shared memory, context switching adds latency.
+
+**The true value proposition of trueno-zram is NOT raw I/O speed, but:**
+
+1. **Better compression ratio:** 3.87x vs kernel's ~2.5x (**55% more space efficient**)
+2. **SIMD-accelerated compression:** 20-30 GB/s throughput
+3. **Low latency:** P99 < 20µs
+4. **Userspace flexibility:** debugging, monitoring, custom algorithms, GPU offload potential
+
+### Component Performance (Validated)
 
 | Metric | Target | Achieved |
 |--------|--------|----------|
@@ -198,10 +233,9 @@ cargo llvm-cov --workspace --all-features
 | LZ4 Decompression | >= 5 GB/s | 5.4 GB/s (AVX-512) |
 | ZSTD Compression | >= 8 GB/s | 11.2 GB/s (AVX-512) |
 | ZSTD Decompression | >= 20 GB/s | 46 GB/s (AVX-512) |
-| GPU Decompression | >= 30 GB/s | 137 GB/s (RTX 4090) |
-| SIMD vs Scalar | >= 40% improvement | 45% faster |
-| P99 Latency | < 100us | 85us |
-| Same-fill ratio | 2048:1 | 2048:1 |
+| CPU Parallel Decompress | >= 30 GB/s | 48 GB/s (Threadripper) |
+| P99 Latency | < 100µs | 16.5µs |
+| Compression Ratio | >= 3x | 3.87x |
 
 ### Lambda Lab Tiers
 
@@ -216,17 +250,15 @@ Automatic hardware detection for optimal configuration:
 
 ## GPU Support
 
-The 5x PCIe rule determines when GPU offload is beneficial:
+GPU decompression is available but CPU parallel path is faster for most workloads due to PCIe transfer overhead.
 
-```
-GPU beneficial when: T_compute > 5 × T_transfer
-```
+| Path | Throughput | Notes |
+|------|------------|-------|
+| CPU Parallel Decompress | 50+ GB/s | Primary path, pre-allocated buffers |
+| GPU End-to-End | ~6 GB/s | PCIe 4.0 transfer bottleneck |
+| GPU Kernel-only | ~9 GB/s | Without H2D/D2H transfers |
 
-| Batch Size | PCIe Gen | GPU Throughput | Recommendation |
-|------------|----------|----------------|----------------|
-| 1K pages | PCIe 4.0 | 100 GB/s | CPU preferred |
-| 10K pages | PCIe 4.0 | 100 GB/s | GPU beneficial |
-| 100K pages | PCIe 5.0 | 500 GB/s | GPU beneficial |
+> **Recommendation:** Use CPU parallel path for best performance. GPU useful for future PCIe 5.0+ systems.
 
 ## Requirements
 
