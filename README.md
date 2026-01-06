@@ -1,21 +1,9 @@
-# trueno-zram
-
 <div align="center">
 
-```
-  ████████╗██████╗ ██╗   ██╗███████╗███╗   ██╗ ██████╗       ███████╗██████╗  █████╗ ███╗   ███╗
-  ╚══██╔══╝██╔══██╗██║   ██║██╔════╝████╗  ██║██╔═══██╗      ╚══███╔╝██╔══██╗██╔══██╗████╗ ████║
-     ██║   ██████╔╝██║   ██║█████╗  ██╔██╗ ██║██║   ██║  █████╗ ███╔╝ ██████╔╝███████║██╔████╔██║
-     ██║   ██╔══██╗██║   ██║██╔══╝  ██║╚██╗██║██║   ██║  ╚════╝███╔╝  ██╔══██╗██╔══██║██║╚██╔╝██║
-     ██║   ██║  ██║╚██████╔╝███████╗██║ ╚████║╚██████╔╝       ███████╗██║  ██║██║  ██║██║ ╚═╝ ██║
-     ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝        ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝
-```
-
-**Pure Rust ublk Block Device & SIMD Compression Library**
-
-*Educational reference implementation - Use kernel zram for production*
+<img src="assets/hero-banner.svg" alt="trueno-zram" width="800"/>
 
 [![Crates.io](https://img.shields.io/crates/v/trueno-zram-core.svg)](https://crates.io/crates/trueno-zram-core)
+[![Crates.io](https://img.shields.io/crates/v/trueno-ublk.svg)](https://crates.io/crates/trueno-ublk)
 [![Documentation](https://docs.rs/trueno-zram-core/badge.svg)](https://docs.rs/trueno-zram-core)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)]()
 [![MSRV](https://img.shields.io/badge/MSRV-1.82.0-blue)]()
