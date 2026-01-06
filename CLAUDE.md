@@ -40,15 +40,58 @@ trueno-zram is a SIMD-accelerated memory compression library for Linux systems, 
 | CPU SIMD Compress | PRODUCTION | 20-24 GB/s at 10GB scale |
 | GPU Decompress | PRODUCTION | 137 GB/s on RTX 4090 |
 | GPU Compress | BLOCKED | NVIDIA F081 bug (Loaded Value Bug) |
-| mlock() Fix | PENDING | DT-007 delegated to duende project |
+| mlock() Fix | **COMPLETED** | DT-007 via duende-mlock v1.0.0 |
+
+### DT-007 Swap Deadlock Fix (COMPLETED 2026-01-06)
+
+The swap deadlock issue is **FIXED**. Daemon memory is now locked via `mlockall()`:
+
+```bash
+# Verify mlock is active
+grep VmLck /proc/$(pgrep trueno-ublk)/status
+# Expected: VmLck > 200000 kB (daemon memory locked)
+```
 
 ### Known Issues
 
-1. **Swap Deadlock (DT-006/DT-007):** Under extreme memory pressure, daemon can enter state:D in `__swap_writepage`. Fix requires mlock() to pin daemon memory, delegated to duende project.
+1. **Swap Deadlock (DT-007):** ✅ **FIXED** - Daemon memory is now pinned with mlock() via duende-mlock crate. Both foreground and background modes work correctly.
 
 2. **GPU Compression Blocked (KF-002):** NVIDIA PTX bug F081 prevents using loaded values from shared memory in stores. Workaround: hybrid architecture (CPU compress + GPU decompress).
 
 3. **Docker Isolation:** ublk devices are host kernel resources and cannot be isolated in Docker containers. Test on host with controlled swap fill.
+
+## ⚠️ Safe Performance Testing (MANDATORY)
+
+**A system crash occurred due to unsafe memory allocation testing.** Follow these rules:
+
+### NEVER DO:
+- Allocate more than 10% of available RAM in tests
+- Run memory pressure tests without `timeout` command
+- Skip health checks between test steps
+- Allocate >10GB without explicit user approval
+
+### ALWAYS DO:
+```bash
+# 1. Check available memory first
+free -g | grep Mem | awk '{print $7}'  # Available GB
+
+# 2. Use timeouts for all allocation tests
+timeout 10 python3 -c "import mmap; d=mmap.mmap(-1, 1024**3)"
+
+# 3. Prefer Direct I/O tests (SAFE - no memory pressure)
+sudo dd if=/dev/ublkb0 of=/dev/null bs=1M count=1024 iflag=direct
+
+# 4. Check daemon health after EVERY test
+grep -E "^(State|VmLck)" /proc/$(pgrep trueno-ublk)/status
+# Expected: State=S, VmLck > 200000 kB
+```
+
+### Performance Results (Safe Testing)
+| Test | Throughput | Notes |
+|------|------------|-------|
+| Sequential Read | **11.7-12.5 GB/s** | Direct I/O, daemon healthy |
+
+See: `docs/specifications/testing-debugging-troubleshooting.md` Section 10
 
 ## Build Commands
 

@@ -1043,4 +1043,90 @@ For swap-related testing, use controlled host tests:
 - Quick timeout detection for deadlock
 - Monitor daemon `state:D` via `/proc/[pid]/status`
 
+---
+
+## 10. Safe Performance Testing Protocol
+
+**Added:** 2026-01-06
+**Status:** MANDATORY - Prevents system crashes
+
+### 10.1 Root Cause: Unsafe Testing Crash
+
+A system crash occurred during performance testing due to unsafe memory allocation:
+
+| Why | Finding |
+|-----|---------|
+| 1. Why crash? | OOM killer couldn't recover |
+| 2. Why OOM? | 80GB allocation exhausted RAM + swap |
+| 3. Why 80GB? | Attempted to force swap usage |
+| 4. Why force swap? | Wanted throughput measurement |
+| 5. **ROOT CAUSE** | No allocation limits, no monitoring |
+
+### 10.2 Safe Testing Rules (MANDATORY)
+
+1. **10% Rule**: Never allocate more than 10% of available RAM in a single test
+2. **Timeout**: All tests MUST use `timeout` command (max 60s for allocation tests)
+3. **Health Check**: Monitor daemon state after EVERY test step
+4. **Incremental**: Start with 1GB, increase gradually
+5. **Direct I/O**: Prefer block device tests over memory pressure tests
+
+### 10.3 Safe Test Sequence
+
+```bash
+# 1. Baseline - Verify daemon health
+grep -E "^(State|VmLck)" /proc/$(pgrep trueno-ublk)/status
+
+# 2. Direct I/O test (SAFE - no memory pressure)
+sudo dd if=/dev/ublkb0 of=/dev/null bs=1M count=1024 iflag=direct
+
+# 3. Small allocation (1GB max)
+timeout 10 python3 -c "
+import mmap
+data = mmap.mmap(-1, 1024**3)  # 1GB only
+for i in range(0, 1024**3, 4096): data[i] = 65
+"
+
+# 4. Check health after each test
+grep -E "^(State|VmLck)" /proc/$(pgrep trueno-ublk)/status
+```
+
+### 10.4 Performance Results (Safe Testing)
+
+| Test | Throughput | Daemon State | Notes |
+|------|------------|--------------|-------|
+| Sequential Read 1GB | **11.7-12.5 GB/s** | S (healthy) | Direct I/O |
+| 1GB Allocation | N/A | S (healthy) | No swap triggered |
+| 5GB Allocation | N/A | S (healthy) | No swap triggered |
+
+### 10.5 Swap Throughput Testing
+
+To test actual swap throughput without risking OOM:
+
+```bash
+# Use fio with controlled limits
+sudo fio --name=swap-test \
+    --filename=/dev/ublkb0 \
+    --direct=1 \
+    --rw=randrw \
+    --bs=4k \
+    --size=1G \
+    --numjobs=4 \
+    --time_based \
+    --runtime=30s
+```
+
+### 10.6 DT-007 mlock Verification
+
+After DT-007 fix, daemon memory is locked to prevent swap deadlock:
+
+```bash
+# Verify mlock is active
+grep VmLck /proc/$(pgrep trueno-ublk)/status
+# Expected: VmLck > 200000 kB (200+ MB locked)
+
+# Verify daemon state
+grep State /proc/$(pgrep trueno-ublk)/status
+# Expected: State: S (sleeping), NOT D (disk sleep)
+```
+
 *Document generated following Toyota Way principles. Last updated: 2026-01-06.*
