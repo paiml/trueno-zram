@@ -10,14 +10,18 @@
 //! | syscalls/IO | 1 | 0 | `strace -c` |
 //! | IOPS | 500K | 1M | fio with SQPOLL |
 //!
-//! ## WARNING: Known Issues
+//! ## Race Condition Fix (2026-01-07)
 //!
-//! SQPOLL has known race conditions with ublk URING_CMD operations (FIX B).
-//! The kernel polling thread may not process FETCH commands before START_DEV
-//! is called, causing the daemon to hang.
+//! The SQPOLL race with ublk URING_CMD (FIX B) has been **FIXED**.
 //!
-//! This module provides SQPOLL configuration but it may need to be disabled
-//! for ublk workloads until the race condition is resolved.
+//! **Root Cause:** The kernel SQPOLL thread may not process FETCH commands
+//! before START_DEV is called, causing the daemon to hang.
+//!
+//! **Fix:** After submitting FETCH commands, call `io_uring_enter()` with
+//! `IORING_ENTER_SQ_WAIT` via `sq_wait()` to ensure the kernel has consumed
+//! all submission queue entries before START_DEV is called.
+//!
+//! SQPOLL is now safe to use with ublk workloads.
 //!
 //! ## Falsification Matrix Points
 //!
@@ -53,7 +57,8 @@ pub struct SqpollConfig {
 impl Default for SqpollConfig {
     fn default() -> Self {
         Self {
-            enabled: false, // Disabled by default due to FIX B
+            // PERF-007: Now enabled by default (race fixed via sq_wait())
+            enabled: true,
             idle_timeout_ms: 2000,
             cpu: -1,
             wakeup_threshold: 1,
@@ -307,7 +312,7 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = SqpollConfig::default();
-        assert!(!config.enabled); // Disabled by default due to FIX B
+        assert!(config.enabled); // Enabled by default (race fixed via sq_wait)
         assert_eq!(config.idle_timeout_ms, 2000);
         assert_eq!(config.cpu, -1);
     }

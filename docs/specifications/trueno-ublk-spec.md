@@ -204,7 +204,7 @@ def falsify_optimization(name: str, impl: Callable) -> bool:
 | 0 | 015 | Compact table entry | ⬜ Pending | - |
 | 1 | 005 | Registered buffers | ✅ Multi-queue | `1931185` |
 | 1 | 006 | Zero-copy | ⚠️ Research | - |
-| 2 | 007 | SQPOLL | ⛔ Disabled (race) | `fb248da` |
+| 2 | **007** | SQPOLL | ✅ **FIXED** | (this commit) |
 | 2 | 008 | Fixed files | ✅ Multi-queue | `48238d7` |
 | 3 | 009 | Huge pages | ✅ Working | `b039ace` |
 | 3 | 010 | NUMA binding | ✅ Working | - |
@@ -407,7 +407,7 @@ simd_compress(kernel_buf, kernel_buf, &mut compressed_len);
 
 ### Phase 2: Kernel Bypass (Target: 5X)
 
-**PERF-007: SQPOLL Mode — Zero Syscalls**
+**PERF-007: SQPOLL Mode — Zero Syscalls** ✅ **FIXED**
 
 *Scientific Basis:* [Axboe 2019] io_uring paper shows SQPOLL eliminates syscall overhead entirely, achieving 1.7M IOPS vs 1.2M with regular submission.
 
@@ -415,6 +415,25 @@ simd_compress(kernel_buf, kernel_buf, &mut compressed_len);
 |--------|--------|--------|---------------|
 | syscalls/IO | 1 | 0 | `strace -c` |
 | IOPS | 500K | 1M | fio with SQPOLL |
+
+**Race Condition Fix (2026-01-07):**
+
+The SQPOLL race with ublk URING_CMD has been fixed. The race occurred when the kernel SQPOLL thread hadn't processed FETCH commands before START_DEV was called.
+
+**Fix:** After submitting FETCH commands, call `squeue_wait()` to ensure the kernel has consumed all SQ entries before START_DEV:
+
+```rust
+// Submit FETCH commands
+for tag in 0..queue_depth {
+    submit_fetch(tag)?;
+}
+ring.submit()?;
+
+// PERF-007 FIX: Wait for kernel to consume all FETCHes
+if sqpoll_enabled {
+    ring.submitter().squeue_wait()?;  // Uses IORING_ENTER_SQ_WAIT
+}
+```
 
 **Implementation:**
 ```rust

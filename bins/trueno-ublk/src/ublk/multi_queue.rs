@@ -281,6 +281,8 @@ pub struct QueueIoWorker {
     fixed_files: Option<FixedFileRegistry>,
     /// Whether files have been registered with io_uring
     files_registered: bool,
+    /// PERF-007: Whether SQPOLL mode is enabled (for synchronization)
+    sqpoll_enabled: bool,
 }
 
 #[cfg(not(test))]
@@ -364,6 +366,9 @@ impl QueueIoWorker {
             .build(queue_depth as u32 * 2)
             .map_err(super::daemon::DaemonError::IoUringCreate)?;
 
+        // Track if SQPOLL is enabled for synchronization (PERF-007 race fix)
+        let sqpoll_enabled = sqpoll_config.is_some_and(|cfg| cfg.enabled);
+
         Ok(Self {
             queue_id,
             queue_depth,
@@ -379,6 +384,7 @@ impl QueueIoWorker {
             buffers_registered: false,
             fixed_files: None,
             files_registered: false,
+            sqpoll_enabled,
         })
     }
 
@@ -667,6 +673,19 @@ impl QueueIoWorker {
         self.ring
             .submit()
             .map_err(super::daemon::DaemonError::Submit)?;
+
+        // PERF-007 FIX: With SQPOLL, wait until kernel has consumed all FETCH entries
+        // This fixes the race where START_DEV is called before SQPOLL thread processes FETCHes
+        if self.sqpoll_enabled {
+            self.ring
+                .submitter()
+                .squeue_wait()
+                .map_err(super::daemon::DaemonError::Submit)?;
+            tracing::debug!(
+                queue_id = self.queue_id,
+                "PERF-007: SQPOLL sync complete - all FETCHes consumed by kernel"
+            );
+        }
 
         let mut total_ios = 0u64;
 

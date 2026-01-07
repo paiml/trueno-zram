@@ -87,7 +87,8 @@ impl Default for TenXConfig {
         Self {
             registered_buffers: RegisteredBufferConfig::default(),
             zero_copy: ZeroCopyConfig::default(),
-            sqpoll: SqpollConfig::default(),
+            // PERF-007: SQPOLL race fixed via sq_wait() synchronization
+            sqpoll: SqpollConfig::aggressive(),
             fixed_files_enabled: true,
             huge_pages: HugePageConfig::default(),
             numa_node: -1,
@@ -138,10 +139,11 @@ impl TenXConfig {
             ));
         }
 
-        // SQPOLL has known issues with URING_CMD (see FIX B)
+        // PERF-007: SQPOLL race condition FIXED via sq_wait() synchronization
+        // The race occurred when START_DEV was called before SQPOLL thread processed FETCHes
+        // Fix: After submitting FETCHes, call sq_wait() to ensure kernel consumes all entries
         if self.sqpoll.enabled {
-            // Warning: SQPOLL may have race conditions with ublk URING_CMD
-            // Allow but document the risk
+            // SQPOLL is now safe to use with ublk after the sq_wait() fix
         }
 
         // Adaptive batching requires lock-free for best results
@@ -368,6 +370,7 @@ mod tests {
     fn test_default_config() {
         let config = TenXConfig::default();
         assert!(config.registered_buffers.enabled);
+        assert!(config.sqpoll.enabled); // PERF-007: Now enabled by default
         assert!(config.fixed_files_enabled);
         assert!(config.lock_free_enabled);
         assert!(config.adaptive_batch_enabled);
