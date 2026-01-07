@@ -1,9 +1,10 @@
 # trueno-ublk Specification: The Path to 10X
 
-**Version:** 3.1.0
+**Version:** 3.2.0
 **Date:** 2026-01-07
 **Status:** ACTIVE DEVELOPMENT | **10X PERFORMANCE TARGET**
 **Baseline:** BENCH-001 v2.1.0 (2026-01-07)
+**Source Analysis:** Linux kernel `drivers/block/zram/zram_drv.c` (6.x)
 
 ---
 
@@ -193,6 +194,128 @@ def falsify_optimization(name: str, impl: Callable) -> bool:
 ---
 
 ## 5. The 10X Roadmap
+
+### Phase 0: Kernel ZRAM Parity (Target: Match 171 GB/s for zeros)
+
+> *Source: Linux kernel `drivers/block/zram/zram_drv.c` analysis (2026-01-07)*
+
+**PERF-013: Same-Fill Page Detection (P0 - CRITICAL)**
+
+*Scientific Basis:* Kernel ZRAM achieves 171 GB/s by detecting same-filled pages **BEFORE** compression and storing only the 8-byte fill value. This is why BENCH-001 shows ZRAM at 171 GB/s on zero workloads while trueno-ublk achieves only 4.67 GiB/s.
+
+| Metric | Before | Target | Falsification |
+|--------|--------|--------|---------------|
+| Zero-page write | Compress+Store | Metadata only | `perf record` shows no LZ4 calls |
+| Zero-page throughput | 4.67 GiB/s | 85+ GB/s | BENCH-001 W1-ZEROS |
+| Memory per zero-page | ~26 bytes | 0 bytes | `/proc/meminfo` delta |
+
+**Kernel Implementation (zram_drv.c:344-358, 2108-2122):**
+```c
+// 1. Detection: Check if ALL 64-bit words are identical
+static bool page_same_filled(void *ptr, unsigned long *element) {
+    unsigned long *page = (unsigned long *)ptr;
+    unsigned long val = page[0];
+
+    if (val != page[PAGE_SIZE/sizeof(*page) - 1])  // Quick: first vs last
+        return false;
+
+    for (int pos = 1; pos < PAGE_SIZE/sizeof(*page) - 1; pos++) {
+        if (val != page[pos])
+            return false;
+    }
+    *element = val;  // Store the fill value (not just "is zero")
+    return true;
+}
+
+// 2. Write path: Check BEFORE compression
+static int zram_write_page(...) {
+    same_filled = page_same_filled(mem, &element);
+    if (same_filled)
+        return write_same_filled_page(zram, element, index);  // NO COMPRESSION
+    // ... only compress if not same-filled ...
+}
+
+// 3. Storage: Handle field stores fill value directly (no allocation)
+zram_set_flag(zram, index, ZRAM_SAME);
+zram_set_handle(zram, index, fill_value);  // 8 bytes, no zsmalloc
+```
+
+**Rust Port (trueno-ublk):**
+```rust
+/// Detect if page contains identical 64-bit words (kernel zram parity)
+/// Returns Some(fill_value) if uniform, None otherwise
+#[inline]
+pub fn page_same_filled(page: &[u8; PAGE_SIZE]) -> Option<u64> {
+    // Safety: PAGE_SIZE is always divisible by 8
+    let words: &[u64; PAGE_SIZE / 8] = unsafe {
+        &*(page.as_ptr() as *const [u64; PAGE_SIZE / 8])
+    };
+
+    let val = words[0];
+
+    // Quick check: first vs last (kernel optimization)
+    if val != words[words.len() - 1] {
+        return None;
+    }
+
+    // Full scan only if first/last match
+    if words[1..words.len()-1].iter().all(|&w| w == val) {
+        Some(val)
+    } else {
+        None
+    }
+}
+
+/// Write path: same-fill check BEFORE compression
+pub fn write_page(&mut self, page: &[u8; PAGE_SIZE], index: u32) -> Result<()> {
+    // P0: Same-fill detection (kernel zram parity)
+    if let Some(fill_value) = page_same_filled(page) {
+        self.stats.same_pages.fetch_add(1, Ordering::Relaxed);
+        return self.store_same_filled(index, fill_value);  // No compression!
+    }
+
+    // Only compress non-uniform pages
+    self.compress_and_store(page, index)
+}
+```
+
+**PERF-014: Per-CPU Compression Contexts (P1)**
+
+*Scientific Basis:* Kernel ZRAM uses `alloc_percpu()` for compression streams, eliminating cross-CPU contention entirely. Each CPU has dedicated buffers.
+
+| Metric | Before | Target | Falsification |
+|--------|--------|--------|---------------|
+| Lock contention | Shared mutex | Zero | `perf lock` shows 0 contended |
+| Cross-CPU access | Possible | None | CPU affinity verified |
+
+**Kernel Implementation (zcomp.c:110-130):**
+```c
+struct zcomp_strm *zcomp_stream_get(struct zcomp *comp) {
+    struct zcomp_strm *zstrm = raw_cpu_ptr(comp->stream);  // Per-CPU!
+    mutex_lock(&zstrm->lock);  // Only protects against migration
+    return zstrm;
+}
+```
+
+**PERF-015: Compact Table Entry (P2)**
+
+*Scientific Basis:* Kernel ZRAM uses only 16 bytes per page entry with bit-packing. For 8GB device = 2M pages = 32MB metadata.
+
+| Metric | Before | Target | Falsification |
+|--------|--------|--------|---------------|
+| Bytes per entry | ? | 16 | `sizeof(TableEntry)` |
+| 8GB metadata | ? | 32MB | RSS measurement |
+
+**Kernel Structure (zram_drv.h:66-73):**
+```c
+struct zram_table_entry {
+    unsigned long handle;  // 8 bytes: zsmalloc handle OR fill value
+    unsigned long flags;   // 8 bytes: size (bits 0-12) + flags (bits 13+)
+};
+// Total: 16 bytes per page
+```
+
+---
 
 ### Phase 1: Zero-Copy Foundation (Target: 2X)
 
