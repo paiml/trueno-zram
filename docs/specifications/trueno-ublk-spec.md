@@ -202,9 +202,9 @@ def falsify_optimization(name: str, impl: Callable) -> bool:
 | 0 | **013** | Same-fill detection | ✅ **COMPLETE** | `5c36100` |
 | 0 | 014 | Per-CPU contexts | ⬜ Pending | - |
 | 0 | 015 | Compact table entry | ⬜ Pending | - |
-| 1 | 005 | Registered buffers | ✅ Multi-queue | `1931185` |
+| 1 | **005** | Registered buffers | ✅ **WIRED** | `5d45d0b` |
 | 1 | 006 | Zero-copy | ⚠️ Research | - |
-| 2 | **007** | SQPOLL | ✅ **FIXED** | (this commit) |
+| 2 | **007** | SQPOLL | ✅ **FIXED+WIRED** | `20c34ef` |
 | 2 | 008 | Fixed files | ✅ Multi-queue | `48238d7` |
 | 3 | 009 | Huge pages | ✅ Working | `b039ace` |
 | 3 | 010 | NUMA binding | ✅ Working | - |
