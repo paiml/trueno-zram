@@ -1,30 +1,33 @@
-# trueno-ublk Specification: The Path to 10X
+# trueno-ublk Specification
 
-**Version:** 3.4.0
+**Version:** 3.5.0
 **Date:** 2026-01-07
-**Status:** ACTIVE DEVELOPMENT | **10X PERFORMANCE TARGET**
+**Status:** PRODUCTION READY (USER_COPY) | ZERO_COPY RESEARCH
 **Baseline:** BENCH-001 v2.1.0 (2026-01-07)
 **Source Analysis:** Linux kernel `drivers/block/zram/zram_drv.c` (6.x)
 
 ---
 
-## 1. Vision: 10X or Bust
+## 1. Vision: Best Possible Userspace ublk Performance
 
-> *"The best way to predict the future is to invent it."* — Alan Kay
+> *"The first principle is that you must not fool yourself — and you are the easiest person to fool."* — Richard Feynman
 
-trueno-ublk will achieve **10X performance over kernel zram** for real-world swap workloads. Not through marketing claims, but through rigorous application of:
+trueno-ublk achieves **maximum possible performance** for a userspace ublk block device through:
 
-1. **Zero-copy I/O paths** [Axboe 2019]
-2. **Kernel bypass via io_uring** [Didona et al. 2022]
-3. **SIMD-parallel compression** [Collet 2011]
-4. **Cache-oblivious algorithms** [Frigo et al. 1999]
+1. **io_uring optimizations** - SQPOLL, registered buffers, fixed files
+2. **SIMD compression** - AVX-512 LZ4/ZSTD at 15+ GB/s
+3. **Same-fill detection** - Kernel ZRAM algorithm ported
+4. **Lock-free data structures** - Per-CPU contexts, atomic operations
 
-**Current State (v3.4.0, 2026-01-07):**
-- USER_COPY mode: **10.6 GB/s** sequential, **807K IOPS** random
-- ZERO_COPY mode: Kernel accepts flag, I/O path implementation pending
-- **Bottleneck identified:** pwrite syscall per I/O (~310ns/page vs kernel's ~25ns)
+**Current State (v3.5.0, 2026-01-07):**
+- USER_COPY mode: **10.6 GB/s** sequential, **807K IOPS** random ✅
+- ZERO_COPY mode: Research complete - provides ~2x, not 10x
+- **Architectural limit confirmed:** Userspace cannot directly access ublk request buffers
 
-**Target State (v4.0.0):** 85+ GB/s via ZERO_COPY mode (50% of kernel zram's 171 GB/s).
+**Reality (from kernel source `ublk_cmd.h`):**
+> *"ublk server can NEVER directly access the request data memory"*
+
+**10X over kernel ZRAM is impossible.** Kernel ZRAM operates at ~25ns/page with direct memory access. Userspace ublk requires io_uring round-trips at ~150-310ns/page.
 
 ---
 
@@ -50,17 +53,26 @@ trueno-ublk will achieve **10X performance over kernel zram** for real-world swa
 
 **USER_COPY ceiling: ~13 GB/s. We achieved 10.6 GB/s (81% of ceiling).**
 
-### Path to 10X: ZERO_COPY Required
+### Path Forward: ZERO_COPY Reality (Kernel Source Review 2026-01-07)
 
 ```
 USER_COPY:  Userspace ──pwrite()──▶ Kernel buffer
             ~310ns/page, max ~13 GB/s
 
-ZERO_COPY:  Userspace ──mmap──▶ Direct kernel buffer access
-            ~50ns/page, max ~80 GB/s (theoretical)
+ZERO_COPY:  Userspace ──io_uring FIXED──▶ Registered buffer
+            ~150ns/page, max ~25 GB/s (estimated)
+            ⚠️ "ublk server can NEVER directly access request data memory"
+
+Kernel ZRAM: Direct kernel memory access
+            ~25ns/page, 171 GB/s
 ```
 
-**PERF-006 (ZERO_COPY) is the ONLY path to 10X.** Phase 1 complete (kernel accepts flag). Phase 2 (I/O path rewrite) required.
+**10X over kernel ZRAM is ARCHITECTURALLY IMPOSSIBLE** with ublk userspace model.
+
+**Realistic targets:**
+- USER_COPY: 10.6 GB/s ✅ achieved (81% of ceiling)
+- ZERO_COPY: ~20-25 GB/s (2x improvement, not 10x)
+- Kernel ZRAM parity: ❌ impossible from userspace
 
 ---
 
@@ -494,94 +506,77 @@ sqe.flags |= IOSQE_BUFFER_SELECT;
 sqe.buf_index = buffer_id;
 ```
 
-**PERF-006: True Zero-Copy with UBLK_F_SUPPORT_ZERO_COPY** ⚠️ **REQUIRED FOR 10X**
+**PERF-006: UBLK_F_SUPPORT_ZERO_COPY** ⚠️ **KERNEL SOURCE REVIEW 2026-01-07**
 
-*Scientific Basis:* [Didona et al. 2022, USENIX ATC] showed that zero-copy paths achieve 3x throughput improvement by eliminating memcpy bottlenecks.
+> **CRITICAL CORRECTION:** ZERO_COPY does NOT mean direct mmap access!
 
-| Metric | Before (USER_COPY) | Target (ZERO_COPY) | Falsification |
-|--------|--------------------|--------------------|---------------|
-| syscalls/IO | 1 (pwrite) | 0 | `strace -c` |
-| Throughput | 10.6 GB/s | 40+ GB/s | dd bs=1M |
-| Latency | ~310ns/page | ~80ns/page | `perf record` |
-
-**Critical Note:** `UBLK_F_USER_COPY` and `UBLK_F_SUPPORT_ZERO_COPY` are **mutually exclusive**.
-
-**Data Flow Comparison:**
-```
-USER_COPY mode (current - 10.6 GB/s):
-  io_uring CQE → store.read() → pwrite(char_fd) → kernel copy → done
-                                 ^^^^^^^^^^^
-                                 SYSCALL (200ns)
-
-ZERO_COPY mode (target - 40+ GB/s):
-  io_uring CQE → mmap'd buffer → write directly → done
-                 ^^^^^^^^^^^^^
-                 NO SYSCALL
-```
-
-**Implementation Plan:**
-```rust
-// 1. Device creation with ZERO_COPY flag (NOT USER_COPY)
-let flags = UBLK_F_SUPPORT_ZERO_COPY
-          | UBLK_F_URING_CMD_COMP_IN_TASK
-          | UBLK_F_CMD_IOCTL_ENCODE;
-// NOTE: UBLK_F_USER_COPY must NOT be set!
-
-// 2. On FETCH CQE, io_desc.addr contains kernel buffer address
-// (In USER_COPY mode, addr=0 and we use pread/pwrite instead)
-
-// 3. mmap the kernel buffer region at startup
-let kernel_buf = unsafe {
-    mmap(
-        null_mut(),
-        io_desc.nr_sectors * 512,  // Size of this I/O
-        PROT_READ | PROT_WRITE,
-        MAP_SHARED | MAP_POPULATE,
-        char_fd,
-        UBLKSRV_IO_BUF_OFFSET + (queue_id * queue_buf_size) as i64,
-    )
-};
-
-// 4. Read path: decompress directly to kernel buffer
-let output_ptr = kernel_buf.add(io_desc.addr as usize);
-decompress_to(compressed_data, output_ptr);
-// No pwrite needed! Kernel sees data immediately.
-
-// 5. Write path: compress directly from kernel buffer
-let input_ptr = kernel_buf.add(io_desc.addr as usize);
-let compressed = compress(input_ptr, io_desc.nr_sectors * 512);
-store.write(sector, compressed);
-```
-
-**Kernel Requirements (Linux 6.8+):**
+**From kernel source `include/uapi/linux/ublk_cmd.h:137-161`:**
 ```c
-// From linux/ublk_cmd.h:
 /*
- * zero copy requires 4k block size, and can remap ublk driver's io
- * request into ublksrv's vm space
+ * ublk server can register data buffers for incoming I/O requests with a sparse
+ * io_uring buffer table. The request buffer can then be used as the data buffer
+ * for io_uring operations via the fixed buffer index.
+ * Note that the ublk server can never directly access the request data memory.
  */
 #define UBLK_F_SUPPORT_ZERO_COPY	(1ULL << 0)
 ```
 
-**Risks & Mitigations:**
-1. **Kernel compatibility:** Requires kernel 6.0+ with full ZERO_COPY support
-2. **Buffer management:** Per-queue mmap regions must be carefully coordinated
-3. **Race conditions:** Must ensure io_desc.addr is valid before access
+**What ZERO_COPY actually means:**
+1. Register sparse buffer table on io_uring instance
+2. On I/O request: `UBLK_U_IO_REGISTER_IO_BUF` to register buffer at index
+3. Use `IORING_OP_READ_FIXED` / `IORING_OP_WRITE_FIXED` with buffer index
+4. On completion: `UBLK_U_IO_UNREGISTER_IO_BUF`
 
-**Implementation Status:** ⚠️ PHASE 1 COMPLETE (2026-01-07)
+**"ublk server can NEVER directly access the request data memory"** - kernel enforces this.
 
-**Phase 1 Findings (Kernel Acceptance Test):**
-- ✅ Kernel 6.8 **accepts** UBLK_F_SUPPORT_ZERO_COPY flag
-- ✅ Device created successfully with `flags=0x43` (ZERO_COPY + URING_CMD_COMP_IN_TASK + CMD_IOCTL_ENCODE)
-- ✅ CLI flag `--zero-copy` added to trueno-ublk
-- ⚠️ Block device startup hangs - I/O path still uses USER_COPY logic
+**Better option - `UBLK_F_AUTO_BUF_REG` (bit 11):**
+```c
+#define UBLK_F_AUTO_BUF_REG 	(1ULL << 11)
+```
+Auto-registers buffer on FETCH, auto-unregisters on COMMIT. Simplifies flow.
 
-**Phase 2 Required (I/O Path Modification):**
-- [ ] Modify I/O path to skip pread/pwrite when in ZERO_COPY mode
-- [ ] io_desc.addr contains kernel buffer offset in ZERO_COPY mode
-- [ ] mmap IO buffer region at device startup
-- [ ] Write directly to mmap'd buffer instead of pwrite
-- [ ] Benchmark: target 40+ GB/s (current USER_COPY: 10.6 GB/s)
+| Mode | Data Access | Syscalls | Max Throughput |
+|------|-------------|----------|----------------|
+| USER_COPY | pread/pwrite | 1/IO | ~13 GB/s |
+| ZERO_COPY | io_uring FIXED ops | 0 (io_uring) | ~25 GB/s (est.) |
+| Kernel ZRAM | Direct memory | 0 | 171 GB/s |
+
+**Revised Assessment:**
+- ZERO_COPY eliminates pread/pwrite syscalls
+- Still requires io_uring submission for data transfer
+- **Cannot match kernel ZRAM** - userspace cannot directly access request buffers
+- Estimated 2-2.5x improvement over USER_COPY (not 4x as previously claimed)
+
+**Implementation (Corrected):**
+```rust
+// 1. Device with ZERO_COPY + AUTO_BUF_REG
+let flags = UBLK_F_SUPPORT_ZERO_COPY
+          | UBLK_F_AUTO_BUF_REG
+          | UBLK_F_URING_CMD_COMP_IN_TASK;
+
+// 2. Register sparse buffer table at startup
+ring.submitter().register_buffers_sparse(MAX_BUFFERS)?;
+
+// 3. On FETCH CQE with AUTO_BUF_REG, buffer auto-registered at sqe.addr index
+// 4. Use IORING_OP_READ_FIXED to read from request buffer
+let sqe = opcode::ReadFixed::new(
+    types::Fixed(char_fd_idx),
+    buf.as_mut_ptr(),
+    buf.len() as u32,
+    buffer_index,  // From auto-registration
+).build();
+
+// 5. On COMMIT, buffer auto-unregistered
+```
+
+**10X Target Reality Check:**
+| Target | Achievable? | Reason |
+|--------|-------------|--------|
+| 10X over kernel ZRAM | ❌ **No** | Can't directly access memory |
+| 2X over USER_COPY | ✅ **Maybe** | Eliminates pwrite syscall |
+| Parity with kernel ZRAM | ❌ **No** | Architectural gap is fundamental |
+
+**Status:** Research complete. ZERO_COPY provides incremental improvement, not 10X.
 
 ### Phase 2: Kernel Bypass (Target: 5X)
 
