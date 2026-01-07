@@ -1,8 +1,9 @@
 # trueno-ublk Specification: The Path to 10X
 
-**Version:** 3.0.0
-**Date:** 2026-01-06
+**Version:** 3.1.0
+**Date:** 2026-01-07
 **Status:** ACTIVE DEVELOPMENT | **10X PERFORMANCE TARGET**
+**Baseline:** BENCH-001 v2.1.0 (2026-01-07)
 
 ---
 
@@ -23,9 +24,63 @@ trueno-ublk will achieve **10X performance over kernel zram** for real-world swa
 
 ---
 
-## 2. The Science of Speed
+## 2. BENCH-001 Verified Baselines
 
-### 2.1 First Principles Analysis
+> *"In God we trust. All others must bring data."* — W. Edwards Deming
+
+### 2.1 Measured Performance (2026-01-07)
+
+**System:** 48 threads, AVX-512 enabled, Linux 6.x
+
+| Component | Measured | Unit | Notes |
+|-----------|----------|------|-------|
+| **ZSTD L1 Compression** | 15.36 | GiB/s | AVX-512 vectorized |
+| **LZ4 Compression** | 5.20 | GiB/s | W1-ZEROS workload |
+| **LZ4 Decompression** | 1.55 | GiB/s | W2-TEXT workload |
+| **Batch Throughput** | 4.67 | GiB/s | 64-page batches optimal |
+| **RAM Baseline** | 50.69 | GB/s | tmpfs sequential read |
+| **Kernel ZRAM** | 171.15 | GB/s | **TARGET TO BEAT** |
+
+### 2.2 Compression Ratios (LZ4)
+
+| Workload | Ratio | Compressed Size | Notes |
+|----------|-------|-----------------|-------|
+| Zeros | 157.5x | 26 bytes | Same-fill detection |
+| Text | 33.9x | 121 bytes | Highly compressible |
+| Mixed | 1.76x | 2,324 bytes | Typical swap pages |
+| Random | 1.0x | 4,096 bytes | Incompressible |
+
+### 2.3 Gap Analysis
+
+```
+Kernel ZRAM:     171.15 GB/s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Target (50%):     85.57 GB/s  ━━━━━━━━━━━━━━━━━━━━━━━━
+Current Batch:     4.67 GiB/s ━━
+Gap:                   18.3x   ← MUST CLOSE
+```
+
+**Critical Insight:** Compression throughput (15.36 GiB/s ZSTD) is NOT the bottleneck.
+The I/O path is the bottleneck. The 10X roadmap (PERF-005 → PERF-012) specifically targets this.
+
+### 2.4 Artifacts
+
+```
+benchmark-results/
+├── 20260107-014015/
+│   ├── environment.json          # System config (48 threads, AVX-512)
+│   ├── bench-trace.jsonl         # renacer-compatible traces
+│   ├── ram_baseline_*.json       # fio results
+│   └── kernel_zram_*.json        # fio results
+├── criterion-reports/            # HTML reports (5 benchmark groups)
+├── compression-flamegraph.svg    # Hot path visualization
+└── BENCHMARK-REPORT-20260107.md  # Full report
+```
+
+---
+
+## 3. The Science of Speed
+
+### 3.1 First Principles Analysis
 
 **Why is kernel zram fast?**
 
@@ -51,44 +106,44 @@ Current max speedup = 1 / (0.7 + 0.3/25) = 1.4x
 
 **The insight:** We must attack the serial I/O path, not just compression.
 
-### 2.2 The 10X Architecture
+### 3.2 The 10X Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    10X PERFORMANCE STACK                             │
-├─────────────────────────────────────────────────────────────────────┤
-│  Layer 5: Compression         SIMD Parallel (25x baseline)          │
-│           ────────────────────────────────────────────────────────  │
-│           AVX-512: 13.2 GB/s ZSTD | LZ4: 5.7 GB/s                  │
-│           [Collet 2011] [Alakuijala 2019]                          │
-├─────────────────────────────────────────────────────────────────────┤
-│  Layer 4: Memory              Huge Pages + NUMA Pinning             │
-│           ────────────────────────────────────────────────────────  │
-│           2MB pages: 512x fewer TLB misses                         │
-│           [Navarro 2002] [Gorman 2004]                             │
-├─────────────────────────────────────────────────────────────────────┤
-│  Layer 3: Batching            Coalesced I/O (64-256 pages)         │
-│           ────────────────────────────────────────────────────────  │
-│           Amortize per-I/O overhead across batch                   │
-│           [Dean & Barroso 2013]                                    │
-├─────────────────────────────────────────────────────────────────────┤
-│  Layer 2: Zero-Copy           io_uring Registered Buffers          │
-│           ────────────────────────────────────────────────────────  │
-│           UBLK_F_SUPPORT_ZERO_COPY + IORING_REGISTER_BUFFERS       │
-│           [Axboe 2019] [Didona 2022]                               │
-├─────────────────────────────────────────────────────────────────────┤
-│  Layer 1: Kernel Bypass       SQPOLL + Fixed Files                 │
-│           ────────────────────────────────────────────────────────  │
-│           Zero syscalls in hot path                                │
-│           [Axboe 2019]                                             │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    10X PERFORMANCE STACK (BENCH-001 Verified)            │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Layer 5: Compression         ✅ NOT BOTTLENECK                          │
+│           ─────────────────────────────────────────────────────────────  │
+│           ZSTD L1: 15.36 GiB/s | LZ4: 5.20 GiB/s (BENCH-001 verified)  │
+│           [Collet 2011] [Alakuijala 2019]                               │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Layer 4: Memory              Huge Pages + NUMA Pinning                  │
+│           ─────────────────────────────────────────────────────────────  │
+│           2MB pages: 512x fewer TLB misses | RAM: 50.69 GB/s baseline   │
+│           [Navarro 2002] [Gorman 2004]                                  │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Layer 3: Batching            Coalesced I/O (64 pages optimal)           │
+│           ─────────────────────────────────────────────────────────────  │
+│           Current: 4.67 GiB/s | Target: 85+ GB/s (50% kernel ZRAM)      │
+│           [Dean & Barroso 2013]                                         │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Layer 2: Zero-Copy           io_uring Registered Buffers                │
+│           ─────────────────────────────────────────────────────────────  │
+│           UBLK_F_SUPPORT_ZERO_COPY + IORING_REGISTER_BUFFERS            │
+│           [Axboe 2019] [Didona 2022]                                    │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Layer 1: Kernel Bypass       SQPOLL + Fixed Files                       │
+│           ─────────────────────────────────────────────────────────────  │
+│           Zero syscalls in hot path | Kernel ZRAM: 171.15 GB/s target   │
+│           [Axboe 2019]                                                  │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. The Toyota Way: Continuous Improvement (改善)
+## 4. The Toyota Way: Continuous Improvement (改善)
 
-### 3.1 Principle 2: Create Flow
+### 4.1 Principle 2: Create Flow
 
 > *"The right process will produce the right results."* — Liker 2004
 
@@ -107,7 +162,7 @@ App → Kernel → ublk_drv → Shared Ring Buffer → Compress In-Place → Com
                          ZERO copies, ZERO syscalls, ZERO context switches
 ```
 
-### 3.2 Principle 5: Build Quality In (自働化 - Jidoka)
+### 4.2 Principle 5: Build Quality In (自働化 - Jidoka)
 
 Every optimization must be **falsifiable**. No "it should be faster" — only measured, reproducible gains.
 
@@ -137,7 +192,7 @@ def falsify_optimization(name: str, impl: Callable) -> bool:
 
 ---
 
-## 4. The 10X Roadmap
+## 5. The 10X Roadmap
 
 ### Phase 1: Zero-Copy Foundation (Target: 2X)
 
@@ -368,32 +423,32 @@ impl AdaptiveBatcher {
 
 ---
 
-## 5. The 100-Point Falsification Matrix
+## 6. The 100-Point Falsification Matrix
 
-### Section A: Baseline Measurements (Points 1-20)
+### Section A: Baseline Measurements (Points 1-20) — BENCH-001 VERIFIED
 
-| # | Claim | Method | Pass Threshold | Current |
-|---|-------|--------|----------------|---------|
-| 1 | Baseline IOPS measured | fio randread 4K QD=32 | Documented | 286K |
-| 2 | Baseline throughput measured | fio seqread 1M | Documented | 2.1 GB/s |
-| 3 | Baseline latency p99 measured | fio latency | Documented | TBD |
-| 4 | Kernel zram IOPS measured | fio on /dev/zram0 | Documented | ~1.5M |
-| 5 | Context switches counted | `perf stat -e context-switches` | Documented | TBD |
-| 6 | Syscalls per I/O counted | `strace -c` | Documented | 1 |
-| 7 | Memory copies counted | `perf record memcpy` | Documented | 2-3 |
-| 8 | TLB misses measured | `perf stat -e dTLB-load-misses` | Documented | TBD |
-| 9 | Cache misses measured | `perf stat -e LLC-load-misses` | Documented | TBD |
-| 10 | NUMA locality verified | `numastat` | Documented | TBD |
-| 11 | CPU utilization profiled | `perf top` | Documented | TBD |
-| 12 | Lock contention profiled | `perf lock` | Documented | TBD |
-| 13 | io_uring submission rate | `bpftrace` | Documented | TBD |
-| 14 | io_uring completion rate | `bpftrace` | Documented | TBD |
-| 15 | Compression CPU cycles | `perf stat -e cycles` | Documented | TBD |
-| 16 | I/O path CPU cycles | `perf stat -e cycles` | Documented | TBD |
-| 17 | Memory bandwidth used | `pcm-memory` | Documented | TBD |
-| 18 | PCIe bandwidth (if GPU) | `nvidia-smi` | Documented | N/A |
-| 19 | Kernel CPU time | `/proc/stat` | Documented | TBD |
-| 20 | Userspace CPU time | `/proc/stat` | Documented | TBD |
+| # | Claim | Method | Pass Threshold | Current | Status |
+|---|-------|--------|----------------|---------|--------|
+| 1 | Baseline IOPS measured | fio randread 4K QD=32 | Documented | 286K | ✅ |
+| 2 | Baseline throughput (seq read) | fio seqread 1M | Documented | 2.1 GB/s | ✅ |
+| 3 | Baseline latency p99 measured | fio latency | Documented | TBD | ⬜ |
+| 4 | Kernel ZRAM throughput | fio on /dev/zram0 | Documented | **171.15 GB/s** | ✅ |
+| 5 | RAM baseline throughput | fio on tmpfs | Documented | **50.69 GB/s** | ✅ |
+| 6 | ZSTD L1 compression | criterion bench | Documented | **15.36 GiB/s** | ✅ |
+| 7 | LZ4 compression | criterion bench | Documented | **5.20 GiB/s** | ✅ |
+| 8 | LZ4 decompression | criterion bench | Documented | **1.55 GiB/s** | ✅ |
+| 9 | Batch throughput (64-page) | criterion bench | Documented | **4.67 GiB/s** | ✅ |
+| 10 | Compression ratio (zeros) | unit test | >100x | **157.5x** | ✅ |
+| 11 | Compression ratio (text) | unit test | >10x | **33.9x** | ✅ |
+| 12 | Compression ratio (mixed) | unit test | >1.5x | **1.76x** | ✅ |
+| 13 | Syscalls per I/O counted | `strace -c` | Documented | 1 | ✅ |
+| 14 | Memory copies counted | `perf record memcpy` | Documented | 2-3 | ✅ |
+| 15 | Context switches counted | `perf stat` | Documented | TBD | ⬜ |
+| 16 | TLB misses measured | `perf stat -e dTLB-load-misses` | Documented | TBD | ⬜ |
+| 17 | Cache misses measured | `perf stat -e LLC-load-misses` | Documented | TBD | ⬜ |
+| 18 | NUMA locality verified | `numastat` | Documented | TBD | ⬜ |
+| 19 | Flamegraph generated | `perf record + flamegraph` | Documented | ✅ | ✅ |
+| 20 | **Target defined** | 50% kernel ZRAM | **85+ GB/s** | 4.67 GiB/s | ⬜ |
 
 ### Section B: PERF-005 Registered Buffers (Points 21-30)
 
@@ -517,7 +572,7 @@ impl AdaptiveBatcher {
 
 ---
 
-## 6. Implementation Priority
+## 7. Implementation Priority
 
 ### Sprint 1: Foundation (2 weeks)
 - [ ] PERF-005: Registered Buffers — Expected: **1.75x**
@@ -537,7 +592,7 @@ impl AdaptiveBatcher {
 
 ---
 
-## 7. References (Peer-Reviewed)
+## 8. References (Peer-Reviewed)
 
 ### io_uring & Kernel Bypass
 1. **Axboe, J. (2019).** "Efficient IO with io_uring." Linux Plumbers Conference. [Link](https://kernel.dk/io_uring.pdf)
@@ -566,17 +621,53 @@ impl AdaptiveBatcher {
 
 ---
 
-## 8. Conclusion
+## 9. Conclusion
 
 > *"Whether you think you can, or you think you can't — you're right."* — Henry Ford
+
+### 9.1 BENCH-001 Key Insights
+
+1. **The Zero-Page Wall (171.15 GB/s):** Kernel ZRAM achieves this via zero_page fast-path. To match, trueno-ublk must implement metadata-only zero-handling to avoid io_uring round-trips for zero-filled blocks.
+
+2. **Compression is NOT the Bottleneck:** ZSTD L1 at 15.36 GiB/s can process ~3.8M pages/sec. The I/O path overhead dominates.
+
+3. **Decompression Critical Path:** At 1.55 GiB/s, decompression is ~55x below target. PERF-006 (Zero-Copy) and PERF-011 (Multi-Queue) are mandatory.
+
+4. **Batch Efficiency Confirmed:** 64-page batches achieve 4.67 GiB/s, validating the batching approach but confirming Amdahl's Law problem.
+
+### 9.2 The Path Forward
+
+```
+BENCH-001 Verified Gaps:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Kernel ZRAM:         171.15 GB/s  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Target (50%):         85.57 GB/s  ━━━━━━━━━━━━━━━━━━━━━
+Compression (ZSTD):   15.36 GiB/s ━━━━━
+Batch I/O:             4.67 GiB/s ━━
+Decompression:         1.55 GiB/s ━  ← CRITICAL PATH
+
+Gap to close:                55x (decompression) / 18x (batch I/O)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### 9.3 Strategic Priority
+
+| Priority | Optimization | Expected Impact |
+|----------|--------------|-----------------|
+| **P0** | Zero-page metadata handling | Parity with ZRAM zero-path |
+| **P1** | PERF-006 Zero-Copy | 3x decompression |
+| **P2** | PERF-011 Multi-Queue | 4x parallel scaling |
+| **P3** | PERF-007 SQPOLL | Eliminate syscall overhead |
 
 The path to 10X is clear. Each optimization is:
 - **Scientifically grounded** in peer-reviewed research
 - **Falsifiable** with specific, measurable criteria
 - **Incremental** — each builds on the previous
+- **Verified** — BENCH-001 baseline established
 
 We will not make excuses. We will make progress.
 
-**Current: 0.2x** → **Target: 10x** → **Delta: 50x improvement needed**
+**BENCH-001 Baseline: 4.67 GiB/s** → **Target: 85+ GB/s** → **Delta: 18x improvement needed**
 
 Let's build.
