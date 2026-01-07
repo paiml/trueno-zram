@@ -2870,7 +2870,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "trueno-zram-core 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "trueno-zram-core",
 ]
 
 [[package]]
@@ -2879,7 +2879,7 @@ version = "0.2.0"
 dependencies = [
  "proptest",
  "thiserror 2.0.17",
- "trueno-zram-core 0.2.0",
+ "trueno-zram-core",
 ]
 
 [[package]]
@@ -2893,7 +2893,7 @@ dependencies = [
  "tokio",
  "toml",
  "trueno-zram-adaptive",
- "trueno-zram-core 0.2.0",
+ "trueno-zram-core",
 ]
 
 [[package]]
@@ -2909,22 +2909,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "trueno-zram-core"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a910ae76a7f13dd9243657311bafac99164c0fa839840034e0955b7058699e13"
-dependencies = [
- "thiserror 2.0.17",
-]
-
-[[package]]
 name = "trueno-zram-generator"
 version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
  "toml",
- "trueno-zram-core 0.2.0",
+ "trueno-zram-core",
 ]
 
 [[package]]

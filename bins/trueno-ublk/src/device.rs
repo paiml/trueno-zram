@@ -943,9 +943,14 @@ mod tests {
     fn test_compression_ratio_tracking() {
         let mut device = BlockDevice::new(1 << 20, test_compressor());
 
-        // Write highly compressible data (all same value)
-        let repetitive = vec![0xAA; PAGE_SIZE];
-        device.write(0, &repetitive).unwrap();
+        // Write compressible but NON-uniform data (avoids same-fill optimization)
+        // PERF-013: Same-fill pages are stored without compression, so use varied data
+        let mut compressible = vec![0u8; PAGE_SIZE];
+        for i in 0..PAGE_SIZE {
+            // Repeating pattern but not uniform - still compresses well
+            compressible[i] = (i % 16) as u8;
+        }
+        device.write(0, &compressible).unwrap();
 
         let stats = device.stats();
         assert!(
@@ -1618,8 +1623,12 @@ mod tests {
     fn popperian_a20_discard_frees_memory() {
         let mut device = BlockDevice::new(1 << 20, test_compressor());
 
-        // Write data
-        let data = vec![0xAB; PAGE_SIZE];
+        // Write NON-uniform compressible data (avoids same-fill optimization)
+        // PERF-013: Same-fill pages are stored without compression
+        let mut data = vec![0u8; PAGE_SIZE];
+        for i in 0..PAGE_SIZE {
+            data[i] = (i % 32) as u8;
+        }
         device.write(0, &data).unwrap();
 
         let stats_before = device.stats();

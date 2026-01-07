@@ -22,6 +22,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use trueno_zram_core::{
     Algorithm, CompressedPage as CoreCompressedPage, CompressorBuilder, PageCompressor, PAGE_SIZE,
+    samefill::{page_same_filled, fill_page_word},
 };
 
 #[cfg(feature = "cuda")]
@@ -48,9 +49,19 @@ pub struct PageStore {
     scalar_pages: AtomicU64,
 }
 
-struct StoredPage {
-    compressed: CoreCompressedPage,
-    is_zero: bool,
+/// Stored page representation - kernel zram style.
+///
+/// Following the kernel zram approach, same-fill pages are stored as just
+/// the fill value (8 bytes) instead of compressed data. This eliminates
+/// compression overhead and memory allocation for ~30-40% of typical pages.
+///
+/// Reference: Linux kernel drivers/block/zram/zram_drv.c
+enum StoredPage {
+    /// Same-fill page: stores only the u64 fill value (no compression, no allocation).
+    /// This is the kernel's `ZRAM_SAME` optimization.
+    SameFill(u64),
+    /// Compressed page: actual compressed data for non-same-fill pages.
+    Compressed(CoreCompressedPage),
 }
 
 impl PageStore {
@@ -91,6 +102,16 @@ impl PageStore {
     }
 
     /// Store a page at the given sector offset
+    ///
+    /// # Kernel ZRAM Optimization (P0)
+    ///
+    /// Following the kernel zram write path, we check same-fill BEFORE compression:
+    /// 1. Check if page is same-fill (all words identical) - O(n) scan
+    /// 2. If same-fill: store only the fill value (8 bytes, no allocation)
+    /// 3. If not: compress and store normally
+    ///
+    /// This is critical for performance: ~30-40% of pages are same-fill (mostly zeros).
+    /// Kernel ZRAM achieves 171 GB/s on zeros because it skips compression entirely.
     pub fn store(&mut self, sector: u64, data: &[u8]) -> Result<()> {
         debug_assert_eq!(data.len(), PAGE_SIZE);
 
@@ -103,25 +124,17 @@ impl PageStore {
             )
         })?;
 
-        // Check for zero page
-        if is_zero_page(data) {
-            // Create a zero-page compressed representation
-            let compressed = self.compressor.compress(page)?;
-            self.pages.insert(
-                sector,
-                StoredPage {
-                    compressed,
-                    is_zero: true,
-                },
-            );
-            self.zero_pages.fetch_add(1, Ordering::Relaxed);
+        // P0 CRITICAL: Check same-fill BEFORE compression (kernel zram pattern)
+        // This is what allows kernel ZRAM to hit 171 GB/s on zero pages.
+        if let Some(fill_value) = page_same_filled(page) {
+            // Same-fill page: store only the fill value (no compression!)
+            self.pages.insert(sector, StoredPage::SameFill(fill_value));
+            self.zero_pages.fetch_add(1, Ordering::Relaxed); // Track as "same-fill" (includes zeros)
             return Ok(());
         }
 
-        // Calculate entropy
+        // Not same-fill: compress normally
         let entropy = calculate_entropy(data);
-
-        // Compress using trueno-zram-core
         let compressed = self.compressor.compress(page)?;
 
         // Track which backend was used based on entropy
@@ -138,29 +151,32 @@ impl PageStore {
         self.bytes_compressed
             .fetch_add(compressed.data.len() as u64, Ordering::Relaxed);
 
-        self.pages.insert(
-            sector,
-            StoredPage {
-                compressed,
-                is_zero: false,
-            },
-        );
-
+        self.pages.insert(sector, StoredPage::Compressed(compressed));
         Ok(())
     }
 
     /// Load a page from the given sector offset
+    ///
+    /// # Kernel ZRAM Three-Branch Read Path
+    ///
+    /// Following kernel zram read_from_zspool():
+    /// 1. Same-fill: just fill with the stored value (fastest - memset_l)
+    /// 2. Compressed: decompress normally
+    /// 3. Not found: return zeros
     pub fn load(&self, sector: u64, buffer: &mut [u8]) -> Result<bool> {
         debug_assert_eq!(buffer.len(), PAGE_SIZE);
 
         match self.pages.get(&sector) {
-            Some(page) if page.is_zero => {
-                buffer.fill(0);
+            Some(StoredPage::SameFill(fill_value)) => {
+                // Same-fill path: use word-fill (kernel memset_l equivalent)
+                let buf_array: &mut [u8; PAGE_SIZE] = buffer.try_into()
+                    .map_err(|_| anyhow::anyhow!("Buffer size mismatch"))?;
+                fill_page_word(buf_array, *fill_value);
                 Ok(true)
             }
-            Some(page) => {
-                // Decompress using trueno-zram-core
-                let decompressed = self.compressor.decompress(&page.compressed)?;
+            Some(StoredPage::Compressed(compressed)) => {
+                // Compressed path: decompress normally
+                let decompressed = self.compressor.decompress(compressed)?;
                 buffer.copy_from_slice(&decompressed);
                 Ok(true)
             }
@@ -193,13 +209,18 @@ impl PageStore {
             let to_read = (buffer.len() - offset).min(remaining_in_page);
 
             match self.pages.get(&page_sector) {
-                Some(page) if page.is_zero => {
-                    buffer[offset..offset + to_read].fill(0);
+                Some(StoredPage::SameFill(fill_value)) => {
+                    // Same-fill: reconstruct page from fill value, extract slice
+                    let mut page_buf = [0u8; PAGE_SIZE];
+                    fill_page_word(&mut page_buf, *fill_value);
+                    buffer[offset..offset + to_read].copy_from_slice(
+                        &page_buf[sector_offset_in_page..sector_offset_in_page + to_read],
+                    );
                 }
-                Some(page) => {
+                Some(StoredPage::Compressed(compressed)) => {
                     let decompressed = self
                         .compressor
-                        .decompress(&page.compressed)
+                        .decompress(compressed)
                         .map_err(|e| IoError::new(ErrorKind::InvalidData, e.to_string()))?;
                     buffer[offset..offset + to_read].copy_from_slice(
                         &decompressed[sector_offset_in_page..sector_offset_in_page + to_read],
@@ -228,14 +249,21 @@ impl PageStore {
             let to_write = (data.len() - offset).min(remaining_in_page);
 
             if to_write < PAGE_SIZE {
+                // Partial page write: read-modify-write
                 let mut page_buf = [0u8; PAGE_SIZE];
-                if let Some(page) = self.pages.get(&page_sector) {
-                    if !page.is_zero {
-                        let decompressed = self
-                            .compressor
-                            .decompress(&page.compressed)
-                            .map_err(|e| IoError::new(ErrorKind::InvalidData, e.to_string()))?;
-                        page_buf.copy_from_slice(&decompressed);
+                if let Some(stored_page) = self.pages.get(&page_sector) {
+                    match stored_page {
+                        StoredPage::SameFill(fill_value) => {
+                            // Reconstruct same-fill page
+                            fill_page_word(&mut page_buf, *fill_value);
+                        }
+                        StoredPage::Compressed(compressed) => {
+                            let decompressed = self
+                                .compressor
+                                .decompress(compressed)
+                                .map_err(|e| IoError::new(ErrorKind::InvalidData, e.to_string()))?;
+                            page_buf.copy_from_slice(&decompressed);
+                        }
                     }
                 }
                 page_buf[sector_offset_in_page..sector_offset_in_page + to_write]
@@ -267,45 +295,35 @@ impl PageStore {
     }
 
     /// Write zeros to sectors (ublk daemon interface)
+    ///
+    /// Optimized: stores zero fill value directly, NO compression.
     pub fn write_zeroes(&mut self, start_sector: u64, nr_sectors: u32) -> IoResult<usize> {
         let end_sector = start_sector + nr_sectors as u64;
         let mut sector = start_sector;
         while sector < end_sector {
             let page_sector = (sector / SECTORS_PER_PAGE) * SECTORS_PER_PAGE;
-            let compressed = self
-                .compressor
-                .compress(&[0u8; PAGE_SIZE])
-                .map_err(|e| IoError::new(ErrorKind::InvalidData, e.to_string()))?;
-            self.pages.insert(
-                page_sector,
-                StoredPage {
-                    compressed,
-                    is_zero: true,
-                },
-            );
+            // P0 CRITICAL: Store zero fill value directly - NO COMPRESSION!
+            self.pages.insert(page_sector, StoredPage::SameFill(0));
             self.zero_pages.fetch_add(1, Ordering::Relaxed);
             sector = page_sector + SECTORS_PER_PAGE;
         }
         Ok(0)
     }
 
+    /// Store a page (internal method for ublk write path)
+    ///
+    /// # Kernel ZRAM Optimization (P0)
+    ///
+    /// Same-fill check runs BEFORE compression - this is critical for performance.
     fn store_page(&mut self, sector: u64, data: &[u8; PAGE_SIZE]) -> IoResult<()> {
-        if is_zero_page(data) {
-            let compressed = self
-                .compressor
-                .compress(data)
-                .map_err(|e| IoError::new(ErrorKind::InvalidData, e.to_string()))?;
-            self.pages.insert(
-                sector,
-                StoredPage {
-                    compressed,
-                    is_zero: true,
-                },
-            );
+        // P0 CRITICAL: Check same-fill BEFORE compression (kernel zram pattern)
+        if let Some(fill_value) = page_same_filled(data) {
+            self.pages.insert(sector, StoredPage::SameFill(fill_value));
             self.zero_pages.fetch_add(1, Ordering::Relaxed);
             return Ok(());
         }
 
+        // Not same-fill: compress normally
         let entropy = calculate_entropy(data);
         let compressed = self
             .compressor
@@ -324,13 +342,7 @@ impl PageStore {
             .fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
         self.bytes_compressed
             .fetch_add(compressed.data.len() as u64, Ordering::Relaxed);
-        self.pages.insert(
-            sector,
-            StoredPage {
-                compressed,
-                is_zero: false,
-            },
-        );
+        self.pages.insert(sector, StoredPage::Compressed(compressed));
         Ok(())
     }
 
@@ -528,10 +540,12 @@ impl BatchedPageStore {
     ///
     /// PERF-002: Non-blocking - never calls flush_batch() synchronously.
     /// Background flush thread handles all flushing via should_flush().
+    ///
+    /// PERF-013 (P0): Same-fill pages stored immediately without compression.
     pub fn store(&self, sector: u64, data: &[u8; PAGE_SIZE]) -> Result<()> {
-        // Zero page fast path - store immediately without batching
-        if is_zero_page(data) {
-            self.store_zero_page(sector);
+        // P0 CRITICAL: Same-fill fast path - store immediately without batching or compression
+        if let Some(fill_value) = page_same_filled(data) {
+            self.store_same_fill_page(sector, fill_value);
             return Ok(());
         }
 
@@ -550,21 +564,11 @@ impl BatchedPageStore {
         Ok(())
     }
 
-    /// Store a zero page (no compression needed)
-    fn store_zero_page(&self, sector: u64) {
-        let zero_compressed = self
-            .simd_compressor
-            .compress(&[0u8; PAGE_SIZE])
-            .expect("Zero page compression should never fail");
-
+    /// Store a same-fill page (no compression needed - kernel ZRAM optimization)
+    fn store_same_fill_page(&self, sector: u64, fill_value: u64) {
         let mut store = self.compressed.write().expect("rwlock poisoned");
-        store.insert(
-            sector,
-            StoredPage {
-                compressed: zero_compressed,
-                is_zero: true,
-            },
-        );
+        // P0 CRITICAL: Store fill value directly - NO COMPRESSION!
+        store.insert(sector, StoredPage::SameFill(fill_value));
         self.zero_pages.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -617,13 +621,7 @@ impl BatchedPageStore {
 
         for (sector, compressed) in compressed_results {
             total_compressed_bytes += compressed.data.len();
-            store.insert(
-                sector,
-                StoredPage {
-                    compressed,
-                    is_zero: false,
-                },
-            );
+            store.insert(sector, StoredPage::Compressed(compressed));
         }
         drop(store); // Release lock early
 
@@ -839,6 +837,8 @@ impl BatchedPageStore {
     }
 
     /// Load a page from the store
+    ///
+    /// PERF-013 (P0): Same-fill pages reconstructed with word-fill (no decompression)
     pub fn load(&self, sector: u64, buffer: &mut [u8; PAGE_SIZE]) -> Result<bool> {
         // Check pending batch first (uncommitted writes)
         {
@@ -852,15 +852,16 @@ impl BatchedPageStore {
         // Check compressed store
         let store = self.compressed.read().expect("rwlock poisoned");
         match store.get(&sector) {
-            Some(page) if page.is_zero => {
-                buffer.fill(0);
+            Some(StoredPage::SameFill(fill_value)) => {
+                // P0: Same-fill fast path - word-fill (kernel memset_l equivalent)
+                fill_page_word(buffer, *fill_value);
                 Ok(true)
             }
-            Some(page) => {
+            Some(StoredPage::Compressed(compressed)) => {
                 // Decompress using SIMD (single page, latency-sensitive)
                 let decompressed = self
                     .simd_compressor
-                    .decompress(&page.compressed)
+                    .decompress(compressed)
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
                 buffer.copy_from_slice(&decompressed);
                 Ok(true)
@@ -905,7 +906,7 @@ impl BatchedPageStore {
         // Using indices to work around borrow checker
         #[derive(Clone)]
         enum PageRef {
-            Zero,
+            SameFill(u64),       // Same-fill value (PERF-013)
             Pending(usize),      // Index into pending.pages
             Compressed(Vec<u8>), // Must clone for thread safety
             NotFound,
@@ -921,8 +922,10 @@ impl BatchedPageStore {
 
                 // Check compressed store
                 match store.get(&sector) {
-                    Some(page) if page.is_zero => PageRef::Zero,
-                    Some(page) => PageRef::Compressed(page.compressed.data.clone()),
+                    Some(StoredPage::SameFill(fill_value)) => PageRef::SameFill(*fill_value),
+                    Some(StoredPage::Compressed(compressed)) => {
+                        PageRef::Compressed(compressed.data.clone())
+                    }
                     None => PageRef::NotFound,
                 }
             })
@@ -949,8 +952,9 @@ impl BatchedPageStore {
             .zip(pending_copies.par_iter())
             .map(|((buf, page_ref), pending_data)| {
                 match page_ref {
-                    PageRef::Zero => {
-                        buf.fill(0);
+                    PageRef::SameFill(fill_value) => {
+                        // P0: Same-fill fast path - word-fill (kernel memset_l equivalent)
+                        fill_page_word(buf, *fill_value);
                         true
                     }
                     PageRef::Pending(_) => {
@@ -1065,13 +1069,18 @@ impl BatchedPageStore {
             if !found_pending {
                 let store = self.compressed.read().expect("rwlock poisoned");
                 match store.get(&page_sector) {
-                    Some(page) if page.is_zero => {
-                        buffer[offset..offset + to_read].fill(0);
+                    Some(StoredPage::SameFill(fill_value)) => {
+                        // P0: Same-fill fast path
+                        let mut page_buf = [0u8; PAGE_SIZE];
+                        fill_page_word(&mut page_buf, *fill_value);
+                        buffer[offset..offset + to_read].copy_from_slice(
+                            &page_buf[sector_offset_in_page..sector_offset_in_page + to_read],
+                        );
                     }
-                    Some(page) => {
+                    Some(StoredPage::Compressed(compressed)) => {
                         let decompressed = self
                             .simd_compressor
-                            .decompress(&page.compressed)
+                            .decompress(compressed)
                             .map_err(|e| IoError::new(ErrorKind::InvalidData, e.to_string()))?;
                         buffer[offset..offset + to_read].copy_from_slice(
                             &decompressed[sector_offset_in_page..sector_offset_in_page + to_read],
@@ -1119,13 +1128,18 @@ impl BatchedPageStore {
 
                 if !found_pending {
                     let store = self.compressed.read().expect("rwlock poisoned");
-                    if let Some(page) = store.get(&page_sector) {
-                        if !page.is_zero {
-                            let decompressed = self
-                                .simd_compressor
-                                .decompress(&page.compressed)
-                                .map_err(|e| IoError::new(ErrorKind::InvalidData, e.to_string()))?;
-                            page_buf.copy_from_slice(&decompressed);
+                    if let Some(stored_page) = store.get(&page_sector) {
+                        match stored_page {
+                            StoredPage::SameFill(fill_value) => {
+                                fill_page_word(&mut page_buf, *fill_value);
+                            }
+                            StoredPage::Compressed(compressed) => {
+                                let decompressed = self
+                                    .simd_compressor
+                                    .decompress(compressed)
+                                    .map_err(|e| IoError::new(ErrorKind::InvalidData, e.to_string()))?;
+                                page_buf.copy_from_slice(&decompressed);
+                            }
                         }
                     }
                 }
@@ -1165,12 +1179,14 @@ impl BatchedPageStore {
     }
 
     /// Write zeros to sectors (ublk daemon interface)
+    ///
+    /// PERF-013 (P0): Uses same-fill optimization - zero stored as fill value, no compression.
     pub fn write_zeroes(&self, start_sector: u64, nr_sectors: u32) -> IoResult<usize> {
         let end_sector = start_sector + nr_sectors as u64;
         let mut sector = start_sector;
         while sector < end_sector {
             let page_sector = (sector / SECTORS_PER_PAGE) * SECTORS_PER_PAGE;
-            self.store_zero_page(page_sector);
+            self.store_same_fill_page(page_sector, 0); // Zero fill value
             sector = page_sector + SECTORS_PER_PAGE;
         }
         Ok(0)

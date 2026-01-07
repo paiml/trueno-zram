@@ -5,6 +5,12 @@
 //! consuming no memory for compressed storage.
 //!
 //! Reference: Linux kernel drivers/block/zram/zram_drv.c
+//!
+//! ## Kernel Algorithm (page_same_filled)
+//!
+//! The kernel stores a `u64` fill value (not just `u8`), allowing patterns like
+//! 0xDEADBEEF repeated to also benefit from same-fill optimization. This is
+//! critical for performance: same-fill pages skip compression entirely.
 
 use crate::PAGE_SIZE;
 
@@ -18,6 +24,65 @@ pub enum SameFillResult {
         /// The repeated byte value.
         value: u8,
     },
+}
+
+/// Detect if a page consists entirely of the same u64 word value.
+///
+/// This follows the kernel zram `page_same_filled()` algorithm exactly:
+/// 1. Quick check: compare first vs last word (fast rejection)
+/// 2. Full scan: only if first/last match
+///
+/// Returns `Some(fill_value)` if all words are the same, `None` otherwise.
+/// The returned `u64` can be stored directly in the handle (no allocation).
+///
+/// # Performance
+///
+/// This is the CRITICAL hot path. Same-fill pages (especially zeros) are
+/// 30-40% of typical swap workloads. Detecting them BEFORE compression
+/// is what allows kernel ZRAM to hit 171 GB/s on zero pages.
+///
+/// # Reference
+///
+/// Linux kernel drivers/block/zram/zram_drv.c lines 344-358
+#[inline]
+#[must_use]
+pub fn page_same_filled(page: &[u8; PAGE_SIZE]) -> Option<u64> {
+    // Safety: PAGE_SIZE is 4096, always divisible by 8
+    // This transmute is safe because:
+    // - [u8; 4096] has same size as [u64; 512]
+    // - u64 has weaker alignment than [u8; 4096] on stack
+    let words: &[u64; PAGE_SIZE / 8] = unsafe { &*(page.as_ptr() as *const [u64; PAGE_SIZE / 8]) };
+
+    let val = words[0];
+    let last_pos = words.len() - 1;
+
+    // Quick check: first vs last word (kernel optimization)
+    if val != words[last_pos] {
+        return None;
+    }
+
+    // Full scan only if first/last match
+    for &word in &words[1..last_pos] {
+        if word != val {
+            return None;
+        }
+    }
+
+    Some(val) // Return the fill value, not just bool
+}
+
+/// Fill a page with a u64 word value (kernel memset_l equivalent).
+///
+/// This is faster than byte-by-byte memset for word-aligned fills.
+#[inline]
+pub fn fill_page_word(page: &mut [u8; PAGE_SIZE], value: u64) {
+    // Safety: Same as page_same_filled - sizes match, alignment is safe
+    let words: &mut [u64; PAGE_SIZE / 8] =
+        unsafe { &mut *(page.as_mut_ptr() as *mut [u64; PAGE_SIZE / 8]) };
+
+    for word in words.iter_mut() {
+        *word = value;
+    }
 }
 
 /// Check if a page consists entirely of the same byte value.

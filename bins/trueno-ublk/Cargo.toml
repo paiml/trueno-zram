@@ -36,7 +36,7 @@ path = "examples/batched_benchmark.rs"
 
 [dependencies]
 # Internal crates (cuda disabled - API mismatch with trueno-gpu)
-trueno-zram-core = { version = "0.2" }
+trueno-zram-core = { path = "../../crates/trueno-zram-core" }
 
 # CLI
 clap = { workspace = true }
@@ -86,6 +86,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
 name = "iops"
+harness = false
+
+[[bench]]
+name = "swap_comparison"
 harness = false
 
 [features]
