@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.82"
 license = "MIT OR Apache-2.0"
@@ -20,8 +20,8 @@ categories = ["compression", "memory-management"]
 
 [workspace.dependencies]
 # Internal crates
-trueno-zram-core = { version = "0.2.0", path = "crates/trueno-zram-core" }
-trueno-zram-adaptive = { version = "0.2.0", path = "crates/trueno-zram-adaptive" }
+trueno-zram-core = { version = "0.3.0", path = "crates/trueno-zram-core" }
+trueno-zram-adaptive = { version = "0.3.0", path = "crates/trueno-zram-adaptive" }
 
 # Error handling
 thiserror = "2.0"
