@@ -1,6 +1,6 @@
 # trueno-ublk Specification: The Path to 10X
 
-**Version:** 3.2.0
+**Version:** 3.3.0
 **Date:** 2026-01-07
 **Status:** ACTIVE DEVELOPMENT | **10X PERFORMANCE TARGET**
 **Baseline:** BENCH-001 v2.1.0 (2026-01-07)
@@ -195,13 +195,42 @@ def falsify_optimization(name: str, impl: Callable) -> bool:
 
 ## 5. The 10X Roadmap
 
+### Implementation Status (Updated 2026-01-07)
+
+| Phase | PERF | Optimization | Status | Commit |
+|-------|------|--------------|--------|--------|
+| 0 | **013** | Same-fill detection | ✅ **COMPLETE** | `5c36100` |
+| 0 | 014 | Per-CPU contexts | ⬜ Pending | - |
+| 0 | 015 | Compact table entry | ⬜ Pending | - |
+| 1 | 005 | Registered buffers | ✅ Multi-queue | `1931185` |
+| 1 | 006 | Zero-copy | ⚠️ Research | - |
+| 2 | 007 | SQPOLL | ⛔ Disabled (race) | `fb248da` |
+| 2 | 008 | Fixed files | ✅ Multi-queue | `48238d7` |
+| 3 | 009 | Huge pages | ✅ Working | `b039ace` |
+| 3 | 010 | NUMA binding | ✅ Working | - |
+| 4 | 011 | Lock-free queues | ✅ Infrastructure | - |
+| 4 | 012 | Adaptive batching | ✅ Infrastructure | - |
+
+**To Enable All Optimizations:**
+```bash
+sudo trueno-ublk create --size 8G --queues 4 --high-perf --foreground
+```
+
+---
+
 ### Phase 0: Kernel ZRAM Parity (Target: Match 171 GB/s for zeros)
 
 > *Source: Linux kernel `drivers/block/zram/zram_drv.c` analysis (2026-01-07)*
 
-**PERF-013: Same-Fill Page Detection (P0 - CRITICAL)**
+**PERF-013: Same-Fill Page Detection (P0 - CRITICAL)** ✅ **COMPLETE**
 
 *Scientific Basis:* Kernel ZRAM achieves 171 GB/s by detecting same-filled pages **BEFORE** compression and storing only the 8-byte fill value. This is why BENCH-001 shows ZRAM at 171 GB/s on zero workloads while trueno-ublk achieves only 4.67 GiB/s.
+
+**Implementation (Commit `5c36100`):**
+- `page_same_filled()` in `crates/trueno-zram-core/src/samefill.rs`
+- `fill_page_word()` for fast reconstruction
+- `StoredPage` enum: `SameFill(u64)` | `Compressed(data)`
+- All store/load paths updated to check same-fill BEFORE compression
 
 | Metric | Before | Target | Falsification |
 |--------|--------|--------|---------------|
