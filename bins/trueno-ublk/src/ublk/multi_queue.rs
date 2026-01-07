@@ -851,6 +851,41 @@ pub unsafe fn spawn_queue_workers(
     use_ioctl_encode: bool,
     cpu_cores: &[usize],
 ) -> Vec<QueueWorkerHandle> {
+    // Wire to new function with 10X optimizations enabled by default
+    spawn_queue_workers_with_tenx(
+        nr_hw_queues,
+        queue_depth,
+        max_io_size,
+        char_fd,
+        base_iod_buf,
+        base_data_buf,
+        stop,
+        store,
+        use_ioctl_encode,
+        cpu_cores,
+        Some(&crate::perf::TenXConfig::default()),
+    )
+}
+
+/// Spawn queue workers with full 10X optimization stack (PERF-005 through PERF-012)
+///
+/// # Safety
+/// The base_iod_buf and base_data_buf pointers must be valid for all queues
+#[cfg(not(test))]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn spawn_queue_workers_with_tenx(
+    nr_hw_queues: u16,
+    queue_depth: u16,
+    max_io_size: u32,
+    char_fd: i32,
+    base_iod_buf: *mut u8,
+    base_data_buf: *mut u8,
+    stop: Arc<AtomicBool>,
+    store: Arc<crate::daemon::BatchedPageStore>,
+    use_ioctl_encode: bool,
+    cpu_cores: &[usize],
+    tenx_config: Option<&crate::perf::TenXConfig>,
+) -> Vec<QueueWorkerHandle> {
     use tracing::info;
 
     let iod_entry_size = std::mem::size_of::<crate::ublk::sys::UblkIoDesc>();
@@ -877,6 +912,10 @@ pub unsafe fn spawn_queue_workers(
         let stats = Arc::new(QueueStats::new());
         let stats_clone = Arc::clone(&stats);
 
+        // Clone TenXConfig for this thread (PERF-007)
+        let sqpoll_config = tenx_config.map(|c| c.sqpoll.clone());
+        let reg_buf_config = tenx_config.map(|c| c.registered_buffers.clone());
+
         let thread = std::thread::spawn(move || {
             // Pin to CPU if specified
             if let Some(core) = cpu_core {
@@ -887,9 +926,9 @@ pub unsafe fn spawn_queue_workers(
                 }
             }
 
-            // Create and run worker
+            // Create worker with SQPOLL config (PERF-007 race fixed via squeue_wait)
             let worker_result = unsafe {
-                QueueIoWorker::new(
+                QueueIoWorker::new_with_sqpoll(
                     q,
                     queue_depth,
                     max_io_size,
@@ -898,6 +937,7 @@ pub unsafe fn spawn_queue_workers(
                     data_buf.as_ptr(),
                     stop_clone,
                     use_ioctl_encode,
+                    sqpoll_config.as_ref(),
                 )
             };
 
@@ -905,6 +945,18 @@ pub unsafe fn spawn_queue_workers(
                 Ok(mut worker) => {
                     // Replace stats with our shared instance
                     worker.stats = stats_clone;
+
+                    // PERF-005: Register buffers if enabled
+                    if let Some(ref config) = reg_buf_config {
+                        if config.enabled {
+                            match worker.register_buffers(config) {
+                                Ok(true) => info!(queue_id = q, "PERF-005: Registered buffers"),
+                                Ok(false) => {} // Skipped
+                                Err(e) => tracing::warn!(queue_id = q, "PERF-005: Buffer registration failed: {}", e),
+                            }
+                        }
+                    }
+
                     match worker.run_io_loop(&store_clone) {
                         Ok(ios) => info!(queue_id = q, ios, "Queue worker completed"),
                         Err(e) => tracing::error!(queue_id = q, "Queue worker error: {}", e),
