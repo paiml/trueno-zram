@@ -1,6 +1,6 @@
 # trueno-ublk Specification: The Path to 10X
 
-**Version:** 3.3.0
+**Version:** 3.4.0
 **Date:** 2026-01-07
 **Status:** ACTIVE DEVELOPMENT | **10X PERFORMANCE TARGET**
 **Baseline:** BENCH-001 v2.1.0 (2026-01-07)
@@ -19,9 +19,48 @@ trueno-ublk will achieve **10X performance over kernel zram** for real-world swa
 3. **SIMD-parallel compression** [Collet 2011]
 4. **Cache-oblivious algorithms** [Frigo et al. 1999]
 
-**Current State (v2.9.0):** 0.2x kernel zram IOPS — *the starting line, not the finish.*
+**Current State (v3.4.0, 2026-01-07):**
+- USER_COPY mode: **10.6 GB/s** sequential, **807K IOPS** random
+- ZERO_COPY mode: Kernel accepts flag, I/O path implementation pending
+- **Bottleneck identified:** pwrite syscall per I/O (~310ns/page vs kernel's ~25ns)
 
-**Target State (v4.0.0):** 10X kernel zram for batched workloads, 2X for random IOPS.
+**Target State (v4.0.0):** 85+ GB/s via ZERO_COPY mode (50% of kernel zram's 171 GB/s).
+
+---
+
+## 1.1 Honest Assessment (2026-01-07)
+
+### What We Achieved
+
+| Metric | BENCH-001 Start | Current | Improvement |
+|--------|-----------------|---------|-------------|
+| Sequential Read | 4.67 GiB/s | **10.6 GB/s** | **2.3x** |
+| Random 4K IOPS | 286K | **807K** | **2.8x** |
+| Random 4K Write | - | **264K** | Baseline |
+
+**Optimizations delivered:** PERF-005/007/008/009/010/011/012/013 (8 of 9)
+
+### What We Cannot Achieve (USER_COPY Mode)
+
+| Claim | Verdict | Reason |
+|-------|---------|--------|
+| 10X over kernel ZRAM | ❌ **Impossible** | pwrite syscall ceiling ~13 GB/s |
+| Parity with kernel ZRAM | ❌ **Impossible** | 12.5x architectural gap |
+| 50% of kernel ZRAM | ❌ **Impossible** | Would need 85 GB/s, ceiling is 13 GB/s |
+
+**USER_COPY ceiling: ~13 GB/s. We achieved 10.6 GB/s (81% of ceiling).**
+
+### Path to 10X: ZERO_COPY Required
+
+```
+USER_COPY:  Userspace ──pwrite()──▶ Kernel buffer
+            ~310ns/page, max ~13 GB/s
+
+ZERO_COPY:  Userspace ──mmap──▶ Direct kernel buffer access
+            ~50ns/page, max ~80 GB/s (theoretical)
+```
+
+**PERF-006 (ZERO_COPY) is the ONLY path to 10X.** Phase 1 complete (kernel accepts flag). Phase 2 (I/O path rewrite) required.
 
 ---
 
@@ -200,20 +239,87 @@ def falsify_optimization(name: str, impl: Callable) -> bool:
 | Phase | PERF | Optimization | Status | Commit |
 |-------|------|--------------|--------|--------|
 | 0 | **013** | Same-fill detection | ✅ **COMPLETE** | `5c36100` |
-| 0 | 014 | Per-CPU contexts | ⬜ Pending | - |
-| 0 | 015 | Compact table entry | ⬜ Pending | - |
+| 0 | **014** | Per-CPU contexts | ✅ **COMPLETE** | via `compress_tls` |
+| 0 | 015 | Compact table entry | ⚠️ Future | needs slab allocator |
 | 1 | **005** | Registered buffers | ✅ **WIRED** | `5d45d0b` |
 | 1 | 006 | Zero-copy | ⚠️ Research | - |
 | 2 | **007** | SQPOLL | ✅ **FIXED+WIRED** | `20c34ef` |
 | 2 | 008 | Fixed files | ✅ Multi-queue | `48238d7` |
+| 3 | **003** | Multi-queue IOD mmap | ✅ **FIXED** | per-queue offset |
 | 3 | 009 | Huge pages | ✅ Working | `b039ace` |
 | 3 | 010 | NUMA binding | ✅ Working | - |
 | 4 | 011 | Lock-free queues | ✅ Infrastructure | - |
 | 4 | 012 | Adaptive batching | ✅ Infrastructure | - |
 
+**Multi-Queue Fix (2026-01-07):**
+- Fixed per-queue IOD buffer mmap offset calculation
+- Fixed SINGLE_ISSUER/COOP_TASKRUN incompatibility with SQPOLL mode
+- Multi-queue now creates devices successfully
+
+**SQPOLL Finding (2026-01-07):**
+- **SQPOLL adds 18% overhead** for ublk workloads (8.9 → 10.6 GB/s)
+- Root cause: Context switches between SQPOLL kernel thread and daemon threads
+- Solution: Disabled SQPOLL by default (use conservative TenXConfig)
+
+**Benchmark Results (2026-01-07):**
+| Test | Configuration | Result | Notes |
+|------|--------------|--------|-------|
+| Sequential Read | dd bs=1M | **10.6 GB/s** | Uninitialized pages |
+| Sequential Read | fio bs=512k QD=32 | 8.5 GB/s | Steady state |
+| Sequential Write | dd bs=1M (zeros) | **4.1 GB/s** | Same-fill optimized |
+| Random 4K Read | fio 4 jobs QD=64 | **807K IOPS** | 3.15 GB/s bandwidth |
+| Random 4K Write | fio 4 jobs QD=32 | **264K IOPS** | 1.0 GB/s bandwidth |
+| Random 4K Read | fio 1 job QD=32 | 112K IOPS | psync ioengine |
+
+**SQPOLL Overhead:**
+| Configuration | Throughput | Impact |
+|--------------|------------|--------|
+| Multi-queue NO SQPOLL | 10.6 GB/s | Baseline |
+| Multi-queue WITH SQPOLL | 8.9 GB/s | **-18% overhead** |
+
+**Bottleneck Analysis:**
+- At 807K IOPS with 4K pages = **3.15 GB/s**
+- Each page requires: io_uring FETCH → store lookup → pwrite → COMMIT_AND_FETCH
+- The `pwrite` syscall is the primary bottleneck (~100ns per I/O)
+- Multi-queue scales well for random I/O (4x jobs = 7x IOPS improvement)
+
+### USER_COPY Mode Performance Limits (CRITICAL)
+
+> *Fundamental architectural constraint identified 2026-01-07*
+
+**UBLK_F_USER_COPY mode requires one pwrite syscall per I/O.** This is an inherent limitation of the USER_COPY data path design.
+
+**Per-Page Latency Breakdown:**
+```
+Kernel ZRAM (direct kernel path):
+  - Page lookup:          ~5ns
+  - Decompress/copy:      ~20ns
+  - Total:                ~25ns per page
+  - Theoretical max:      40M pages/sec = 163 GB/s
+
+trueno-ublk USER_COPY path:
+  - io_uring CQE poll:    ~50ns
+  - Store lookup:         ~10ns
+  - Buffer memcpy:        ~30ns
+  - pwrite() syscall:     ~200ns (kernel entry + copy + exit)
+  - io_uring SQE submit:  ~20ns (amortized)
+  - Total:                ~310ns per page
+  - Theoretical max:      3.2M pages/sec = 13.1 GB/s
+```
+
+**The 12.5x gap is ARCHITECTURAL, not optimizable within USER_COPY mode.**
+
+| Mode | Syscalls/IO | Data Path | Max Throughput |
+|------|-------------|-----------|----------------|
+| Kernel ZRAM | 0 | Direct kernel memory | 171 GB/s |
+| USER_COPY | 1 (pwrite) | Userspace → pwrite → kernel | ~13 GB/s |
+| ZERO_COPY | 0 | mmap'd kernel buffer | ~85 GB/s (theoretical) |
+
+**Path to 10X requires UBLK_F_SUPPORT_ZERO_COPY mode** (PERF-006).
+
 **To Enable All Optimizations:**
 ```bash
-sudo trueno-ublk create --size 8G --queues 4 --high-perf --foreground
+sudo trueno-ublk create --size 8G --queues 2 --foreground
 ```
 
 ---
@@ -308,7 +414,7 @@ pub fn write_page(&mut self, page: &[u8; PAGE_SIZE], index: u32) -> Result<()> {
 }
 ```
 
-**PERF-014: Per-CPU Compression Contexts (P1)**
+**PERF-014: Per-CPU Compression Contexts (P1)** ✅ **COMPLETE**
 
 *Scientific Basis:* Kernel ZRAM uses `alloc_percpu()` for compression streams, eliminating cross-CPU contention entirely. Each CPU has dedicated buffers.
 
@@ -316,6 +422,21 @@ pub fn write_page(&mut self, page: &[u8; PAGE_SIZE], index: u32) -> Result<()> {
 |--------|--------|--------|---------------|
 | Lock contention | Shared mutex | Zero | `perf lock` shows 0 contended |
 | Cross-CPU access | Possible | None | CPU affinity verified |
+
+**Implementation (trueno-ublk):**
+
+The `compress_batch_direct()` function uses `lz4::compress_tls()` which provides:
+- **Thread-local hash tables** (64KB per thread, allocated once)
+- **Zero cross-thread contention** (each rayon worker has its own buffers)
+- **No mutex in hot path** (only atomic stats, which are relaxed ordering)
+
+```rust
+// daemon.rs: compress_batch_direct()
+// Uses compress_tls for thread-local hash tables (5-10x faster than compress)
+let compressed = lz4::compress_tls(page)?;  // Per-CPU context!
+```
+
+This achieves the same effect as kernel's `raw_cpu_ptr(comp->stream)` pattern.
 
 **Kernel Implementation (zcomp.c:110-130):**
 ```c
@@ -373,37 +494,94 @@ sqe.flags |= IOSQE_BUFFER_SELECT;
 sqe.buf_index = buffer_id;
 ```
 
-**PERF-006: True Zero-Copy with UBLK_F_SUPPORT_ZERO_COPY**
+**PERF-006: True Zero-Copy with UBLK_F_SUPPORT_ZERO_COPY** ⚠️ **REQUIRED FOR 10X**
 
 *Scientific Basis:* [Didona et al. 2022, USENIX ATC] showed that zero-copy paths achieve 3x throughput improvement by eliminating memcpy bottlenecks.
 
-| Metric | Before | Target | Falsification |
-|--------|--------|--------|---------------|
-| memcpy/IO | 2 | 0 | `perf record -e cycles:u` |
-| Throughput | 651 MB/s | 2 GB/s | dd bs=1M count=1000 |
+| Metric | Before (USER_COPY) | Target (ZERO_COPY) | Falsification |
+|--------|--------------------|--------------------|---------------|
+| syscalls/IO | 1 (pwrite) | 0 | `strace -c` |
+| Throughput | 10.6 GB/s | 40+ GB/s | dd bs=1M |
+| Latency | ~310ns/page | ~80ns/page | `perf record` |
 
-**Implementation:**
+**Critical Note:** `UBLK_F_USER_COPY` and `UBLK_F_SUPPORT_ZERO_COPY` are **mutually exclusive**.
+
+**Data Flow Comparison:**
+```
+USER_COPY mode (current - 10.6 GB/s):
+  io_uring CQE → store.read() → pwrite(char_fd) → kernel copy → done
+                                 ^^^^^^^^^^^
+                                 SYSCALL (200ns)
+
+ZERO_COPY mode (target - 40+ GB/s):
+  io_uring CQE → mmap'd buffer → write directly → done
+                 ^^^^^^^^^^^^^
+                 NO SYSCALL
+```
+
+**Implementation Plan:**
 ```rust
-// Enable zero-copy in device creation
+// 1. Device creation with ZERO_COPY flag (NOT USER_COPY)
 let flags = UBLK_F_SUPPORT_ZERO_COPY
           | UBLK_F_URING_CMD_COMP_IN_TASK
-          | UBLK_F_USER_COPY;
+          | UBLK_F_CMD_IOCTL_ENCODE;
+// NOTE: UBLK_F_USER_COPY must NOT be set!
 
-// Map kernel buffer directly
+// 2. On FETCH CQE, io_desc.addr contains kernel buffer address
+// (In USER_COPY mode, addr=0 and we use pread/pwrite instead)
+
+// 3. mmap the kernel buffer region at startup
 let kernel_buf = unsafe {
     mmap(
         null_mut(),
-        io_desc.addr as usize,
+        io_desc.nr_sectors * 512,  // Size of this I/O
         PROT_READ | PROT_WRITE,
         MAP_SHARED | MAP_POPULATE,
         char_fd,
-        io_desc.addr as i64,
+        UBLKSRV_IO_BUF_OFFSET + (queue_id * queue_buf_size) as i64,
     )
 };
 
-// Compress in-place
-simd_compress(kernel_buf, kernel_buf, &mut compressed_len);
+// 4. Read path: decompress directly to kernel buffer
+let output_ptr = kernel_buf.add(io_desc.addr as usize);
+decompress_to(compressed_data, output_ptr);
+// No pwrite needed! Kernel sees data immediately.
+
+// 5. Write path: compress directly from kernel buffer
+let input_ptr = kernel_buf.add(io_desc.addr as usize);
+let compressed = compress(input_ptr, io_desc.nr_sectors * 512);
+store.write(sector, compressed);
 ```
+
+**Kernel Requirements (Linux 6.8+):**
+```c
+// From linux/ublk_cmd.h:
+/*
+ * zero copy requires 4k block size, and can remap ublk driver's io
+ * request into ublksrv's vm space
+ */
+#define UBLK_F_SUPPORT_ZERO_COPY	(1ULL << 0)
+```
+
+**Risks & Mitigations:**
+1. **Kernel compatibility:** Requires kernel 6.0+ with full ZERO_COPY support
+2. **Buffer management:** Per-queue mmap regions must be carefully coordinated
+3. **Race conditions:** Must ensure io_desc.addr is valid before access
+
+**Implementation Status:** ⚠️ PHASE 1 COMPLETE (2026-01-07)
+
+**Phase 1 Findings (Kernel Acceptance Test):**
+- ✅ Kernel 6.8 **accepts** UBLK_F_SUPPORT_ZERO_COPY flag
+- ✅ Device created successfully with `flags=0x43` (ZERO_COPY + URING_CMD_COMP_IN_TASK + CMD_IOCTL_ENCODE)
+- ✅ CLI flag `--zero-copy` added to trueno-ublk
+- ⚠️ Block device startup hangs - I/O path still uses USER_COPY logic
+
+**Phase 2 Required (I/O Path Modification):**
+- [ ] Modify I/O path to skip pread/pwrite when in ZERO_COPY mode
+- [ ] io_desc.addr contains kernel buffer offset in ZERO_COPY mode
+- [ ] mmap IO buffer region at device startup
+- [ ] Write directly to mmap'd buffer instead of pwrite
+- [ ] Benchmark: target 40+ GB/s (current USER_COPY: 10.6 GB/s)
 
 ### Phase 2: Kernel Bypass (Target: 5X)
 
