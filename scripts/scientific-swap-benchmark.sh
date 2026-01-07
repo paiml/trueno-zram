@@ -8,8 +8,15 @@
 # SC2002: cat with head (style preference)
 # scientific-swap-benchmark.sh - Reproducible swap technology comparison
 #
-# BENCH-001: Scientific falsification benchmark for swap technologies
-# Compares: Regular Swap vs Kernel ZRAM vs trueno-zram
+# BENCH-001 v2.1.0: Scientific falsification benchmark for swap technologies
+# Compares: RAM Baseline vs NVMe Swap vs Kernel ZRAM vs trueno-ublk
+#
+# v2.1.0 Features:
+# - RAM baseline (tmpfs) for theoretical maximum
+# - P6-BATCH pattern for high-depth batched I/O
+# - Context switch monitoring (kernel bypass verification)
+# - Efficiency metrics (IOPS/CPU-cycle)
+# - SIMD capability verification (AVX-512 vs AVX2)
 #
 # CROSS-PLATFORM: Supports Linux (full swap tests) and macOS (compression only)
 # GPU BACKENDS: CUDA (Linux NVIDIA) and WGPU (macOS Metal)
@@ -109,6 +116,13 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 log_pass() { echo -e "${GREEN}[PASS]${NC} $*"; }
 log_fail() { echo -e "${RED}[FAIL]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+
+# renacer-compatible JSON logging (v2.1.0)
+log_json() {
+    local level="$1" msg="$2"
+    printf '{"timestamp":"%s","level":"%s","target":"bench","message":"%s"}\n' \
+        "$(date -Iseconds)" "$level" "$msg" >> "${RESULTS_DIR:-/tmp}/bench-trace.jsonl" 2>/dev/null || true
+}
 
 # If remote host specified, execute there
 if [[ -n "$REMOTE_HOST" ]]; then
@@ -291,6 +305,132 @@ if [[ "${TEST_MODE:-false}" != "true" ]]; then
 fi
 
 #═══════════════════════════════════════════════════════════════════════════════
+# SIMD Verification (v2.1.0 - MANDATORY)
+#═══════════════════════════════════════════════════════════════════════════════
+
+verify_simd_capabilities() {
+    log_info "Verifying SIMD capabilities (performance-critical)..."
+
+    local avx2=false avx512f=false avx512bw=false
+
+    if $IS_LINUX; then
+        local flags
+        flags=$(grep -m1 "^flags" /proc/cpuinfo | cut -d: -f2)
+
+        [[ "$flags" == *"avx2"* ]] && avx2=true
+        [[ "$flags" == *"avx512f"* ]] && avx512f=true
+        [[ "$flags" == *"avx512bw"* ]] && avx512bw=true
+    elif $IS_MACOS; then
+        avx512f=$(sysctl -n hw.optional.avx512f 2>/dev/null | grep -q 1 && echo true || echo false)
+        avx2=$(sysctl -n hw.optional.avx2_0 2>/dev/null | grep -q 1 && echo true || echo false)
+    fi
+
+    # Log to renacer trace
+    log_json "INFO" "SIMD: avx2=$avx2, avx512f=$avx512f, avx512bw=$avx512bw"
+
+    # Record in environment
+    cat >> "${RESULTS_DIR}/environment.json.tmp" << EOF
+{
+    "simd": {
+        "avx2": $avx2,
+        "avx512f": $avx512f,
+        "avx512bw": $avx512bw
+    }
+}
+EOF
+
+    if [[ "$avx512f" == "false" ]]; then
+        log_warn "AVX-512 not available; expect ~2x lower SIMD compression throughput"
+        log_warn "10X performance targets require AVX-512 for optimal results"
+    else
+        log_pass "AVX-512 available: optimal SIMD path enabled"
+    fi
+}
+
+#═══════════════════════════════════════════════════════════════════════════════
+# Context Switch Monitoring (v2.1.0 - Kernel Bypass Verification)
+#═══════════════════════════════════════════════════════════════════════════════
+
+start_context_switch_monitoring() {
+    local name="$1"
+    local duration="${2:-$TEST_RUNTIME}"
+
+    if ! command -v perf &>/dev/null; then
+        log_warn "perf not available, skipping context switch monitoring"
+        return 0
+    fi
+
+    log_info "Starting context switch monitoring for: $name"
+    log_json "INFO" "Starting perf monitoring: $name"
+
+    # Start perf in background
+    perf stat -e context-switches,cpu-migrations,page-faults \
+        -a -o "${RESULTS_DIR}/${name}-perf-stat.txt" \
+        -- sleep "$duration" &
+    echo $! > "${RESULTS_DIR}/${name}-perf.pid"
+}
+
+stop_context_switch_monitoring() {
+    local name="$1"
+    local pid_file="${RESULTS_DIR}/${name}-perf.pid"
+
+    if [[ -f "$pid_file" ]]; then
+        wait "$(cat "$pid_file")" 2>/dev/null || true
+        rm -f "$pid_file"
+
+        # Parse results
+        if [[ -f "${RESULTS_DIR}/${name}-perf-stat.txt" ]]; then
+            local ctx_switches
+            ctx_switches=$(grep context-switches "${RESULTS_DIR}/${name}-perf-stat.txt" | awk '{print $1}' | tr -d ',')
+            log_info "Context switches for $name: ${ctx_switches:-unknown}"
+            log_json "INFO" "Context switches: $name = ${ctx_switches:-unknown}"
+        fi
+    fi
+}
+
+#═══════════════════════════════════════════════════════════════════════════════
+# RAM Baseline Setup (v2.1.0 - Theoretical Maximum)
+#═══════════════════════════════════════════════════════════════════════════════
+
+BENCH_TMPFS_DIR=""
+
+setup_ram_baseline() {
+    log_info "Setting up RAM baseline (tmpfs ${SWAP_SIZE_GB}GB)..." >&2
+    log_json "INFO" "Creating tmpfs RAM baseline: ${SWAP_SIZE_GB}G"
+
+    BENCH_TMPFS_DIR="/tmp/bench-tmpfs-$$"
+    mkdir -p "$BENCH_TMPFS_DIR"
+
+    if $IS_LINUX; then
+        mount -t tmpfs -o size="${SWAP_SIZE_GB}G" tmpfs "$BENCH_TMPFS_DIR"
+    elif $IS_MACOS; then
+        # macOS: create RAM disk
+        local sectors=$((SWAP_SIZE_GB * 1024 * 1024 * 2))
+        local disk
+        disk=$(hdiutil attach -nomount "ram://$sectors")
+        diskutil erasevolume HFS+ "RAMDisk" "$disk" >/dev/null
+        BENCH_TMPFS_DIR="/Volumes/RAMDisk"
+    fi
+
+    echo "$BENCH_TMPFS_DIR"
+}
+
+teardown_ram_baseline() {
+    log_info "Tearing down RAM baseline..." >&2
+    log_json "INFO" "Tearing down tmpfs RAM baseline"
+
+    if [[ -n "$BENCH_TMPFS_DIR" ]] && [[ -d "$BENCH_TMPFS_DIR" ]]; then
+        if $IS_LINUX; then
+            umount "$BENCH_TMPFS_DIR" 2>/dev/null || true
+            rmdir "$BENCH_TMPFS_DIR" 2>/dev/null || true
+        elif $IS_MACOS; then
+            diskutil eject "$BENCH_TMPFS_DIR" 2>/dev/null || true
+        fi
+    fi
+    BENCH_TMPFS_DIR=""
+}
+
+#═══════════════════════════════════════════════════════════════════════════════
 # Swap Setup Functions
 #═══════════════════════════════════════════════════════════════════════════════
 
@@ -419,6 +559,8 @@ run_fio_benchmark() {
         RAND_READ) rw=randread;  bs=4k;  extra_opts="--iodepth=32 --numjobs=4" ;;
         RAND_WRITE) rw=randwrite; bs=4k; extra_opts="--iodepth=32 --numjobs=4" ;;
         MIXED)     rw=randrw;    bs=4k;  extra_opts="--iodepth=32 --numjobs=4 --rwmixread=70" ;;
+        # v2.1.0: P6-BATCH for PERF-011/PERF-012 verification
+        BATCH)     rw=randrw;    bs=4k;  extra_opts="--iodepth=128 --iodepth_batch_submit=64 --numjobs=4 --rwmixread=70" ;;
     esac
 
     # For block devices that may not report size correctly, specify explicitly
@@ -433,6 +575,38 @@ run_fio_benchmark() {
         --bs="$bs" \
         --direct=1 \
         $size_opt \
+        $extra_opts \
+        --runtime="$TEST_RUNTIME" \
+        --time_based \
+        --group_reporting \
+        --output-format=json \
+        --output="$output_file" \
+        2>/dev/null
+}
+
+# v2.1.0: File-based benchmark for RAM baseline (tmpfs directory)
+run_fio_file_benchmark() {
+    local name=$1
+    local directory=$2
+    local pattern=$3
+    local output_file=$4
+
+    local rw bs extra_opts
+    case $pattern in
+        SEQ_READ)  rw=read;      bs=1M;  extra_opts="--numjobs=8" ;;
+        SEQ_WRITE) rw=write;     bs=1M;  extra_opts="--numjobs=8" ;;
+        RAND_READ) rw=randread;  bs=4k;  extra_opts="--iodepth=32 --numjobs=4" ;;
+        RAND_WRITE) rw=randwrite; bs=4k; extra_opts="--iodepth=32 --numjobs=4" ;;
+        MIXED)     rw=randrw;    bs=4k;  extra_opts="--iodepth=32 --numjobs=4 --rwmixread=70" ;;
+        BATCH)     rw=randrw;    bs=4k;  extra_opts="--iodepth=128 --iodepth_batch_submit=64 --numjobs=4 --rwmixread=70" ;;
+    esac
+
+    fio --name="$name" \
+        --directory="$directory" \
+        --filename=test.dat \
+        --size=1G \
+        --rw="$rw" \
+        --bs="$bs" \
         $extra_opts \
         --runtime="$TEST_RUNTIME" \
         --time_based \
@@ -465,24 +639,35 @@ extract_metrics() {
 #═══════════════════════════════════════════════════════════════════════════════
 
 run_full_benchmark() {
-    log_info "Starting scientific swap benchmark (${RUNS_PER_TEST} runs × ${TEST_RUNTIME}s each)"
+    log_info "Starting scientific swap benchmark v2.1.0 (${RUNS_PER_TEST} runs × ${TEST_RUNTIME}s each)"
 
-    local technologies=("regular_swap" "kernel_zram" "trueno_zram")
-    local patterns=("SEQ_READ" "SEQ_WRITE" "RAND_READ" "RAND_WRITE" "MIXED")
+    # v2.1.0: Added ram_baseline for theoretical maximum
+    local technologies=("ram_baseline" "regular_swap" "kernel_zram" "trueno_zram")
+    # v2.1.0: Added BATCH pattern for PERF-011/PERF-012 verification
+    local patterns=("SEQ_READ" "SEQ_WRITE" "RAND_READ" "RAND_WRITE" "MIXED" "BATCH")
 
     if $QUICK_MODE; then
-        patterns=("SEQ_READ" "RAND_READ")
+        technologies=("ram_baseline" "kernel_zram" "trueno_zram")  # Skip regular_swap in quick mode
+        patterns=("SEQ_READ" "RAND_READ" "BATCH")  # Include BATCH for 10X verification
     fi
+
+    # v2.1.0: Verify SIMD capabilities before benchmarking
+    verify_simd_capabilities
 
     # Results array
     declare -A results
 
     for tech in "${technologies[@]}"; do
         log_info "=== Testing: $tech ==="
+        log_json "INFO" "Starting benchmark for: $tech"
 
         # Setup
-        local device
+        local device is_file_based=false
         case $tech in
+            ram_baseline)
+                device=$(setup_ram_baseline)
+                is_file_based=true
+                ;;
             regular_swap) device=$(setup_regular_swap) ;;
             kernel_zram)  device=$(setup_kernel_zram) ;;
             trueno_zram)  device=$(setup_trueno_zram) ;;
@@ -491,6 +676,11 @@ run_full_benchmark() {
         if [[ -z "$device" ]]; then
             log_fail "Failed to setup $tech"
             continue
+        fi
+
+        # v2.1.0: Start context switch monitoring for this technology
+        if [[ "$tech" == "trueno_zram" ]]; then
+            start_context_switch_monitoring "$tech"
         fi
 
         for pattern in "${patterns[@]}"; do
@@ -510,7 +700,12 @@ run_full_benchmark() {
                 fi
                 sleep 1
 
-                run_fio_benchmark "${tech}_${pattern}" "$device" "$pattern" "$output_file"
+                # For file-based targets (ram_baseline), use directory mode
+                if $is_file_based; then
+                    run_fio_file_benchmark "${tech}_${pattern}" "$device" "$pattern" "$output_file"
+                else
+                    run_fio_benchmark "${tech}_${pattern}" "$device" "$pattern" "$output_file"
+                fi
 
                 read bw iops lat50 lat99 <<< $(extract_metrics "$output_file")
 
@@ -534,9 +729,20 @@ run_full_benchmark() {
             results["${tech}_${pattern}_lat99"]=$avg_lat99
 
             log_pass "  Average: ${avg_bw} GB/s, ${avg_iops}K IOPS"
+            log_json "INFO" "${tech}_${pattern}: bw=${avg_bw}, iops=${avg_iops}"
         done
 
-        teardown_swap "$device"
+        # v2.1.0: Stop context switch monitoring
+        if [[ "$tech" == "trueno_zram" ]]; then
+            stop_context_switch_monitoring "$tech"
+        fi
+
+        # Teardown
+        if $is_file_based; then
+            teardown_ram_baseline
+        else
+            teardown_swap "$device"
+        fi
         sleep 2
     done
 
