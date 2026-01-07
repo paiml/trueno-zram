@@ -458,6 +458,199 @@ impl StorageBackend for MemoryBackend {
 }
 
 // =============================================================================
+// KERN-003: NVMe Cold Tier Backend
+// =============================================================================
+
+/// NVMe cold tier backend - stores high-entropy pages without compression.
+///
+/// Used for cold tier (H(X) > 7.5) where compression is ineffective.
+/// Pages are stored as raw 4KB blocks in a sparse file with O_DIRECT.
+///
+/// ## Why NVMe for High Entropy
+///
+/// - Incompressible data wastes CPU cycles on compression
+/// - NVMe RAID0 provides 9.2 GB/s read, 6.8 GB/s write
+/// - Direct I/O bypasses page cache (data already in our cache)
+/// - Sparse file means we only use disk for actual data
+pub struct NvmeColdBackend {
+    /// File handle to cold tier storage file
+    file: RwLock<File>,
+    /// Base directory for cold tier
+    base_path: PathBuf,
+    /// Page index tracking (which pages are stored)
+    stored_pages: RwLock<FxHashMap<u64, ()>>,
+    /// Statistics
+    pages_stored: AtomicU64,
+    pages_loaded: AtomicU64,
+    bytes_written: AtomicU64,
+    bytes_read: AtomicU64,
+    errors: AtomicU64,
+}
+
+impl NvmeColdBackend {
+    /// Create a new NVMe cold tier backend.
+    ///
+    /// # Arguments
+    /// * `base_path` - Directory for cold tier storage (e.g., `/mnt/nvme-raid0/trueno-cold`)
+    ///
+    /// Creates a sparse file `pages.dat` for storing uncompressed pages.
+    pub fn new<P: AsRef<Path>>(base_path: P) -> Result<Self> {
+        let base_path = base_path.as_ref().to_path_buf();
+
+        // Ensure directory exists
+        std::fs::create_dir_all(&base_path)
+            .with_context(|| format!("Failed to create cold tier directory: {}", base_path.display()))?;
+
+        let file_path = base_path.join("pages.dat");
+
+        // Open with O_DIRECT for zero-copy I/O, create if not exists
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .custom_flags(libc::O_DIRECT)
+            .open(&file_path)
+            .with_context(|| format!("Failed to open cold tier file: {}", file_path.display()))?;
+
+        tracing::info!(
+            "KERN-003: NVMe cold tier initialized at {}",
+            file_path.display()
+        );
+
+        Ok(Self {
+            file: RwLock::new(file),
+            base_path,
+            stored_pages: RwLock::new(FxHashMap::default()),
+            pages_stored: AtomicU64::new(0),
+            pages_loaded: AtomicU64::new(0),
+            bytes_written: AtomicU64::new(0),
+            bytes_read: AtomicU64::new(0),
+            errors: AtomicU64::new(0),
+        })
+    }
+
+    /// Get the storage file path
+    pub fn file_path(&self) -> PathBuf {
+        self.base_path.join("pages.dat")
+    }
+}
+
+impl StorageBackend for NvmeColdBackend {
+    fn store(&self, page_idx: u64, data: &[u8; PAGE_SIZE]) -> Result<()> {
+        use std::os::unix::io::AsRawFd;
+
+        let offset = page_idx * PAGE_SIZE as u64;
+        let file = self.file.read().expect("lock poisoned");
+        let fd = file.as_raw_fd();
+
+        // Use pwrite for concurrent writes (sparse file grows automatically)
+        let result = unsafe {
+            libc::pwrite(
+                fd,
+                data.as_ptr() as *const libc::c_void,
+                PAGE_SIZE,
+                offset as libc::off_t,
+            )
+        };
+
+        if result < 0 {
+            self.errors.fetch_add(1, Ordering::Relaxed);
+            return Err(std::io::Error::last_os_error())
+                .with_context(|| format!("NVMe cold tier pwrite failed for page {}", page_idx));
+        }
+
+        if result as usize != PAGE_SIZE {
+            self.errors.fetch_add(1, Ordering::Relaxed);
+            anyhow::bail!(
+                "NVMe cold tier short write for page {}: wrote {} of {} bytes",
+                page_idx,
+                result,
+                PAGE_SIZE
+            );
+        }
+
+        // Track stored page
+        {
+            let mut stored = self.stored_pages.write().expect("lock poisoned");
+            stored.insert(page_idx, ());
+        }
+
+        self.pages_stored.fetch_add(1, Ordering::Relaxed);
+        self.bytes_written.fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    fn load(&self, page_idx: u64, buffer: &mut [u8; PAGE_SIZE]) -> Result<bool> {
+        use std::os::unix::io::AsRawFd;
+
+        // Check if page exists
+        {
+            let stored = self.stored_pages.read().expect("lock poisoned");
+            if !stored.contains_key(&page_idx) {
+                buffer.fill(0);
+                return Ok(false);
+            }
+        }
+
+        let offset = page_idx * PAGE_SIZE as u64;
+        let file = self.file.read().expect("lock poisoned");
+        let fd = file.as_raw_fd();
+
+        let result = unsafe {
+            libc::pread(
+                fd,
+                buffer.as_mut_ptr() as *mut libc::c_void,
+                PAGE_SIZE,
+                offset as libc::off_t,
+            )
+        };
+
+        if result < 0 {
+            self.errors.fetch_add(1, Ordering::Relaxed);
+            return Err(std::io::Error::last_os_error())
+                .with_context(|| format!("NVMe cold tier pread failed for page {}", page_idx));
+        }
+
+        if result as usize != PAGE_SIZE {
+            self.errors.fetch_add(1, Ordering::Relaxed);
+            anyhow::bail!(
+                "NVMe cold tier short read for page {}: read {} of {} bytes",
+                page_idx,
+                result,
+                PAGE_SIZE
+            );
+        }
+
+        self.pages_loaded.fetch_add(1, Ordering::Relaxed);
+        self.bytes_read.fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
+
+        Ok(true)
+    }
+
+    fn remove(&self, page_idx: u64) -> Result<bool> {
+        let mut stored = self.stored_pages.write().expect("lock poisoned");
+        Ok(stored.remove(&page_idx).is_some())
+        // Note: We don't punch holes in the sparse file for simplicity
+        // Could use fallocate(FALLOC_FL_PUNCH_HOLE) for space reclamation
+    }
+
+    fn name(&self) -> &'static str {
+        "nvme-cold"
+    }
+
+    fn stats(&self) -> BackendStats {
+        BackendStats {
+            pages_stored: self.pages_stored.load(Ordering::Relaxed),
+            pages_loaded: self.pages_loaded.load(Ordering::Relaxed),
+            bytes_written: self.bytes_written.load(Ordering::Relaxed),
+            bytes_read: self.bytes_read.load(Ordering::Relaxed),
+            errors: self.errors.load(Ordering::Relaxed),
+        }
+    }
+}
+
+// =============================================================================
 // KERN-002: Tiered Storage Manager
 // =============================================================================
 
@@ -501,8 +694,8 @@ pub enum RoutingDecision {
 ///
 /// Implements the kernel-cooperative philosophy:
 /// - Hot path (171 GB/s): Kernel does I/O
-/// - Cold path (15 GiB/s): We do compression
-/// - Skip path: Incompressible data goes direct
+/// - Warm path (15 GiB/s): We do SIMD compression
+/// - Cold path (9.2 GB/s): NVMe direct, skip compression
 ///
 /// ## Entropy Routing
 ///
@@ -510,9 +703,9 @@ pub enum RoutingDecision {
 /// ┌─────────────────────────────────────────────────────────────────┐
 /// │   125GB physical  →  ~300GB effective                           │
 /// │                                                                 │
-/// │   Hot data:   171 GB/s  (kernel does I/O)                      │
-/// │   Cold data:  15 GiB/s  (we do compression)                    │
-/// │   Junk data:  Skip      (entropy routing)                      │
+/// │   Hot data:   H(X) < 6.0  → Kernel ZRAM (171 GB/s)             │
+/// │   Warm data:  6.0-7.5     → trueno SIMD (15 GiB/s)             │
+/// │   Cold data:  H(X) > 7.5  → NVMe RAID0 (9.2 GB/s, no compress) │
 /// └─────────────────────────────────────────────────────────────────┘
 /// ```
 pub struct TieredStorageManager {
@@ -520,6 +713,8 @@ pub struct TieredStorageManager {
     kernel_backend: Option<Arc<dyn StorageBackend>>,
     /// trueno SIMD backend (warm tier)
     trueno_backend: Arc<dyn StorageBackend>,
+    /// NVMe cold tier backend (cold tier) - KERN-003
+    nvme_backend: Option<Arc<NvmeColdBackend>>,
     /// Entropy routing thresholds
     thresholds: EntropyThresholds,
     /// Enable entropy routing (if false, always use trueno)
@@ -536,10 +731,20 @@ impl TieredStorageManager {
     ///
     /// # Arguments
     /// * `kernel_device` - Optional path to kernel zram device (e.g., `/dev/zram0`)
+    /// * `nvme_cold_path` - Optional path to NVMe cold tier directory (e.g., `/mnt/nvme-raid0/trueno-cold`)
     /// * `routing_enabled` - Enable entropy-based routing
-    pub fn new(kernel_device: Option<&Path>, routing_enabled: bool) -> Result<Self> {
+    pub fn new(
+        kernel_device: Option<&Path>,
+        nvme_cold_path: Option<&Path>,
+        routing_enabled: bool,
+    ) -> Result<Self> {
         let kernel_backend: Option<Arc<dyn StorageBackend>> = match kernel_device {
             Some(path) => Some(Arc::new(KernelZramBackend::new(path)?)),
+            None => None,
+        };
+
+        let nvme_backend: Option<Arc<NvmeColdBackend>> = match nvme_cold_path {
+            Some(path) => Some(Arc::new(NvmeColdBackend::new(path)?)),
             None => None,
         };
 
@@ -548,6 +753,7 @@ impl TieredStorageManager {
         Ok(Self {
             kernel_backend,
             trueno_backend,
+            nvme_backend,
             thresholds: EntropyThresholds::default(),
             routing_enabled,
             kernel_pages: AtomicU64::new(0),
@@ -560,9 +766,10 @@ impl TieredStorageManager {
     /// Create with custom thresholds
     pub fn with_thresholds(
         kernel_device: Option<&Path>,
+        nvme_cold_path: Option<&Path>,
         thresholds: EntropyThresholds,
     ) -> Result<Self> {
-        let mut manager = Self::new(kernel_device, true)?;
+        let mut manager = Self::new(kernel_device, nvme_cold_path, true)?;
         manager.thresholds = thresholds;
         Ok(manager)
     }
@@ -614,6 +821,11 @@ impl TieredStorageManager {
     }
 
     /// Store a page with entropy-based routing.
+    ///
+    /// Routes pages based on Shannon entropy H(X):
+    /// - H(X) < 6.0: Kernel ZRAM (hot tier)
+    /// - 6.0 ≤ H(X) ≤ 7.5: trueno SIMD (warm tier)
+    /// - H(X) > 7.5: NVMe cold tier (no compression)
     pub fn store(&self, page_idx: u64, data: &[u8; PAGE_SIZE]) -> Result<RoutingDecision> {
         let decision = self.route(data);
 
@@ -624,12 +836,19 @@ impl TieredStorageManager {
                     self.kernel_pages.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            RoutingDecision::TruenoSimd | RoutingDecision::SkipCompression => {
+            RoutingDecision::TruenoSimd => {
                 self.trueno_backend.store(page_idx, data)?;
-                if matches!(decision, RoutingDecision::SkipCompression) {
+                self.trueno_pages.fetch_add(1, Ordering::Relaxed);
+            }
+            RoutingDecision::SkipCompression => {
+                // KERN-003: Route high-entropy pages to NVMe cold tier
+                if let Some(ref nvme) = self.nvme_backend {
+                    nvme.store(page_idx, data)?;
                     self.skipped_pages.fetch_add(1, Ordering::Relaxed);
                 } else {
-                    self.trueno_pages.fetch_add(1, Ordering::Relaxed);
+                    // Fallback to trueno if no NVMe configured
+                    self.trueno_backend.store(page_idx, data)?;
+                    self.skipped_pages.fetch_add(1, Ordering::Relaxed);
                 }
             }
             RoutingDecision::SameFill(_) => {
@@ -655,6 +874,13 @@ impl TieredStorageManager {
             }
         }
 
+        // KERN-003: Try NVMe cold tier
+        if let Some(ref nvme) = self.nvme_backend {
+            if nvme.load(page_idx, buffer)? {
+                return Ok(true);
+            }
+        }
+
         // Page not found - return zeros
         buffer.fill(0);
         Ok(false)
@@ -669,6 +895,7 @@ impl TieredStorageManager {
             samefill_pages: self.samefill_pages.load(Ordering::Relaxed),
             kernel_stats: self.kernel_backend.as_ref().map(|b| b.stats()),
             trueno_stats: self.trueno_backend.stats(),
+            nvme_stats: self.nvme_backend.as_ref().map(|b| b.stats()),
         }
     }
 }
@@ -680,7 +907,7 @@ pub struct TieredStats {
     pub kernel_pages: u64,
     /// Pages routed to trueno SIMD
     pub trueno_pages: u64,
-    /// Pages skipped (high entropy)
+    /// Pages skipped (high entropy) - routed to NVMe cold tier
     pub skipped_pages: u64,
     /// Same-fill pages (metadata only)
     pub samefill_pages: u64,
@@ -688,6 +915,8 @@ pub struct TieredStats {
     pub kernel_stats: Option<BackendStats>,
     /// trueno backend stats
     pub trueno_stats: BackendStats,
+    /// NVMe cold tier stats (KERN-003)
+    pub nvme_stats: Option<BackendStats>,
 }
 
 impl TieredStats {
@@ -779,8 +1008,8 @@ mod tests {
 
     #[test]
     fn test_routing_decision() {
-        // Create manager without kernel backend
-        let manager = TieredStorageManager::new(None, true).unwrap();
+        // Create manager without kernel backend or NVMe
+        let manager = TieredStorageManager::new(None, None, true).unwrap();
 
         // Zero page should be same-fill
         let zeros = [0u8; PAGE_SIZE];
@@ -835,10 +1064,129 @@ mod tests {
             samefill_pages: 150,
             kernel_stats: None,
             trueno_stats: BackendStats::default(),
+            nvme_stats: None,
         };
 
         assert_eq!(stats.total_pages(), 500);
         assert!((stats.kernel_percentage() - 20.0).abs() < 0.01);
         assert!((stats.samefill_percentage() - 30.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_nvme_cold_backend() {
+        // Create temp directory for test
+        let temp_dir = std::env::temp_dir().join("trueno-nvme-test");
+        let _ = std::fs::remove_dir_all(&temp_dir); // Clean up from previous test
+
+        let backend = NvmeColdBackend::new(&temp_dir).unwrap();
+
+        // Store a page
+        let mut data = [0u8; PAGE_SIZE];
+        data[0..4].copy_from_slice(b"test");
+        data[4..8].copy_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+
+        backend.store(42, &data).unwrap();
+
+        // Load it back
+        let mut buffer = [0u8; PAGE_SIZE];
+        let found = backend.load(42, &mut buffer).unwrap();
+        assert!(found);
+        assert_eq!(&buffer[0..4], b"test");
+        assert_eq!(&buffer[4..8], &[0xDE, 0xAD, 0xBE, 0xEF]);
+
+        // Check stats
+        let stats = backend.stats();
+        assert_eq!(stats.pages_stored, 1);
+        assert_eq!(stats.pages_loaded, 1);
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_nvme_cold_backend_nonexistent_page() {
+        let temp_dir = std::env::temp_dir().join("trueno-nvme-test-nonexist");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let backend = NvmeColdBackend::new(&temp_dir).unwrap();
+
+        // Load non-existent page should return false and zero buffer
+        let mut buffer = [0xFFu8; PAGE_SIZE];
+        let found = backend.load(999, &mut buffer).unwrap();
+        assert!(!found);
+        assert!(buffer.iter().all(|&b| b == 0)); // Buffer zeroed
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_nvme_cold_backend_multiple_pages() {
+        let temp_dir = std::env::temp_dir().join("trueno-nvme-test-multi");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let backend = NvmeColdBackend::new(&temp_dir).unwrap();
+
+        // Store multiple pages with different content
+        for i in 0..10u64 {
+            let mut data = [0u8; PAGE_SIZE];
+            data[0..8].copy_from_slice(&i.to_le_bytes());
+            backend.store(i * 100, &data).unwrap();
+        }
+
+        // Verify all pages
+        for i in 0..10u64 {
+            let mut buffer = [0u8; PAGE_SIZE];
+            let found = backend.load(i * 100, &mut buffer).unwrap();
+            assert!(found, "Page {} not found", i * 100);
+            let stored_val = u64::from_le_bytes(buffer[0..8].try_into().unwrap());
+            assert_eq!(stored_val, i, "Page {} has wrong content", i * 100);
+        }
+
+        // Check stats
+        let stats = backend.stats();
+        assert_eq!(stats.pages_stored, 10);
+        assert_eq!(stats.pages_loaded, 10);
+        assert_eq!(stats.bytes_written, 10 * PAGE_SIZE as u64);
+        assert_eq!(stats.bytes_read, 10 * PAGE_SIZE as u64);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_nvme_cold_backend_overwrite() {
+        let temp_dir = std::env::temp_dir().join("trueno-nvme-test-overwrite");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let backend = NvmeColdBackend::new(&temp_dir).unwrap();
+
+        // Store initial data
+        let mut data1 = [0u8; PAGE_SIZE];
+        data1[0..4].copy_from_slice(b"old!");
+        backend.store(50, &data1).unwrap();
+
+        // Overwrite with new data
+        let mut data2 = [0u8; PAGE_SIZE];
+        data2[0..4].copy_from_slice(b"new!");
+        backend.store(50, &data2).unwrap();
+
+        // Should get new data
+        let mut buffer = [0u8; PAGE_SIZE];
+        let found = backend.load(50, &mut buffer).unwrap();
+        assert!(found);
+        assert_eq!(&buffer[0..4], b"new!");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_nvme_cold_backend_file_path() {
+        let temp_dir = std::env::temp_dir().join("trueno-nvme-test-path");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let backend = NvmeColdBackend::new(&temp_dir).unwrap();
+        let expected = temp_dir.join("pages.dat");
+        assert_eq!(backend.file_path(), expected);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

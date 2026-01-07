@@ -52,6 +52,8 @@ pub struct DeviceConfig {
     pub entropy_routing: bool,
     /// Kernel ZRAM device path (e.g., /dev/zram0)
     pub zram_device: Option<PathBuf>,
+    /// NVMe cold tier directory path (KERN-003)
+    pub cold_tier: Option<PathBuf>,
     /// Entropy threshold for kernel ZRAM routing (pages below this go to kernel)
     pub entropy_kernel_threshold: f64,
     // =========================================================================
@@ -526,6 +528,7 @@ impl UblkDevice {
                         backend: config.backend,
                         entropy_routing: config.entropy_routing,
                         zram_device: config.zram_device.clone(),
+                        cold_tier: config.cold_tier.clone(), // KERN-003: NVMe cold tier
                         entropy_kernel_threshold: config.entropy_kernel_threshold,
                         entropy_skip_threshold: config.entropy_skip_threshold,
                     };

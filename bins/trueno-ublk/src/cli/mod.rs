@@ -277,6 +277,15 @@ pub struct CreateArgs {
     #[arg(long, default_value = "/dev/zram0")]
     pub zram_device: String,
 
+    /// NVMe cold tier directory path (KERN-003)
+    ///
+    /// Used when --backend=tiered for high-entropy pages (H(X) > 7.5).
+    /// High-entropy data skips compression and goes directly to NVMe.
+    /// Directory will be created if it doesn't exist.
+    /// Example: /mnt/nvme-raid0/trueno-cold
+    #[arg(long)]
+    pub cold_tier: Option<String>,
+
     /// Entropy threshold for kernel ZRAM routing (default: 6.0)
     ///
     /// Pages with H(X) below this threshold are routed to kernel ZRAM.

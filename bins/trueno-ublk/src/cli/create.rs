@@ -42,6 +42,9 @@ pub fn run(args: CreateArgs) -> Result<()> {
         None
     };
 
+    // KERN-003: Parse cold tier path for high-entropy pages
+    let cold_tier = args.cold_tier.as_ref().map(PathBuf::from);
+
     let config = crate::device::DeviceConfig {
         dev_id: args.dev_id,
         size,
@@ -67,6 +70,7 @@ pub fn run(args: CreateArgs) -> Result<()> {
         backend,
         entropy_routing: args.entropy_routing,
         zram_device,
+        cold_tier,
         entropy_kernel_threshold: args.entropy_kernel_threshold,
         // VIZ-002: Renacer Visualization Integration
         visualize: args.visualize,
@@ -106,10 +110,17 @@ pub fn run(args: CreateArgs) -> Result<()> {
             backend = %config.backend,
             entropy_routing = config.entropy_routing,
             zram_device = ?config.zram_device,
+            cold_tier = ?config.cold_tier,
             kernel_threshold = config.entropy_kernel_threshold,
             skip_threshold = config.entropy_skip_threshold,
             "KERN-001: Kernel-cooperative tiered storage enabled"
         );
+        if config.cold_tier.is_some() {
+            tracing::info!(
+                "KERN-003: NVMe cold tier enabled for high-entropy pages (H(X) > {})",
+                config.entropy_skip_threshold
+            );
+        }
     }
 
     // VIZ-002: Log visualization configuration

@@ -1281,7 +1281,8 @@ fn is_zero_page(data: &[u8]) -> bool {
 // =============================================================================
 
 use crate::backend::{
-    BackendType, EntropyThresholds, KernelZramBackend, StorageBackend, TieredStorageManager,
+    BackendType, EntropyThresholds, KernelZramBackend, NvmeColdBackend, StorageBackend,
+    TieredStorageManager,
 };
 use std::io::Result as IoResult2;
 use std::sync::atomic::AtomicBool;
@@ -1295,6 +1296,8 @@ pub struct TieredConfig {
     pub entropy_routing: bool,
     /// Kernel ZRAM device path
     pub zram_device: Option<std::path::PathBuf>,
+    /// NVMe cold tier directory path (KERN-003)
+    pub cold_tier: Option<std::path::PathBuf>,
     /// Entropy threshold for kernel routing (H(X) < this goes to kernel)
     pub kernel_threshold: f64,
     /// Entropy threshold for skipping compression (H(X) > this skips)
@@ -1307,6 +1310,7 @@ impl Default for TieredConfig {
             backend: BackendType::Memory,
             entropy_routing: false,
             zram_device: None,
+            cold_tier: None,
             kernel_threshold: 6.0,
             skip_threshold: 7.5,
         }
@@ -1333,12 +1337,14 @@ pub struct TieredPageStoreStats {
 /// Implements the kernel-cooperative philosophy:
 /// - H(X) < 6.0: Route to kernel ZRAM (171 GB/s, fast LZ4)
 /// - 6.0 ≤ H(X) ≤ 7.5: Route to trueno SIMD (15 GiB/s, better ratio)
-/// - H(X) > 7.5: Skip compression (incompressible data)
+/// - H(X) > 7.5: NVMe cold tier / skip compression (KERN-003)
 pub struct TieredPageStore {
     /// Inner BatchedPageStore for trueno SIMD tier
     inner: Arc<BatchedPageStore>,
     /// Kernel ZRAM backend (optional, for tiered mode)
     kernel_backend: Option<Arc<KernelZramBackend>>,
+    /// NVMe cold tier backend (optional, for high-entropy pages - KERN-003)
+    nvme_backend: Option<Arc<NvmeColdBackend>>,
     /// Tiered storage manager for entropy routing
     tiered_manager: Option<TieredStorageManager>,
     /// Configuration
@@ -1346,6 +1352,8 @@ pub struct TieredPageStore {
     /// Track which pages are in kernel ZRAM tier (sector -> true if in kernel)
     /// This allows fast tier lookups without probing inner store
     kernel_tier_pages: RwLock<FxHashSet<u64>>,
+    /// Track which pages are in NVMe cold tier (KERN-003)
+    nvme_tier_pages: RwLock<FxHashSet<u64>>,
     /// Statistics
     kernel_pages: AtomicU64,
     trueno_pages: AtomicU64,
@@ -1373,6 +1381,18 @@ impl TieredPageStore {
             _ => None,
         };
 
+        // KERN-003: NVMe cold tier backend
+        let nvme_backend = match &config.cold_tier {
+            Some(path) => {
+                tracing::info!(
+                    "KERN-003: Opening NVMe cold tier backend: {}",
+                    path.display()
+                );
+                Some(Arc::new(NvmeColdBackend::new(path)?))
+            }
+            _ => None,
+        };
+
         let tiered_manager = if config.entropy_routing && kernel_backend.is_some() {
             tracing::info!(
                 "KERN-002: Tiered storage enabled (kernel_threshold={}, skip_threshold={})",
@@ -1381,6 +1401,7 @@ impl TieredPageStore {
             );
             Some(TieredStorageManager::with_thresholds(
                 config.zram_device.as_deref(),
+                config.cold_tier.as_deref(),
                 EntropyThresholds {
                     kernel_threshold: config.kernel_threshold,
                     skip_threshold: config.skip_threshold,
@@ -1393,9 +1414,11 @@ impl TieredPageStore {
         Ok(Self {
             inner,
             kernel_backend,
+            nvme_backend,
             tiered_manager,
             config,
             kernel_tier_pages: RwLock::new(FxHashSet::default()),
+            nvme_tier_pages: RwLock::new(FxHashSet::default()),
             kernel_pages: AtomicU64::new(0),
             trueno_pages: AtomicU64::new(0),
             skipped_pages: AtomicU64::new(0),
@@ -1439,10 +1462,18 @@ impl TieredPageStore {
                 self.trueno_pages.fetch_add(1, Ordering::Relaxed);
             }
         } else if entropy > self.config.skip_threshold {
-            // High entropy - skip compression, store raw
-            // We still use inner store but mark it as skipped
-            self.inner.store(sector, data)?;
-            self.skipped_pages.fetch_add(1, Ordering::Relaxed);
+            // KERN-003: High entropy - route to NVMe cold tier
+            if let Some(ref nvme) = self.nvme_backend {
+                let page_idx = sector / SECTORS_PER_PAGE;
+                nvme.store(page_idx, data)?;
+                // Track this page as being in NVMe tier for fast lookups
+                self.nvme_tier_pages.write().insert(sector);
+                self.skipped_pages.fetch_add(1, Ordering::Relaxed);
+            } else {
+                // Fallback to inner store if no NVMe configured
+                self.inner.store(sector, data)?;
+                self.skipped_pages.fetch_add(1, Ordering::Relaxed);
+            }
         } else {
             // Medium entropy - route to trueno SIMD
             self.inner.store(sector, data)?;
@@ -1463,6 +1494,14 @@ impl TieredPageStore {
         if let Some(ref backend) = self.kernel_backend {
             let page_idx = sector / SECTORS_PER_PAGE;
             if backend.load(page_idx, buffer)? {
+                return Ok(true);
+            }
+        }
+
+        // KERN-003: Try NVMe cold tier
+        if let Some(ref nvme) = self.nvme_backend {
+            let page_idx = sector / SECTORS_PER_PAGE;
+            if nvme.load(page_idx, buffer)? {
                 return Ok(true);
             }
         }

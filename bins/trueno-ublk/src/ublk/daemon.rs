@@ -966,6 +966,8 @@ pub struct BatchedDaemonConfig {
     pub entropy_routing: bool,
     /// Kernel ZRAM device path (e.g., /dev/zram0)
     pub zram_device: Option<std::path::PathBuf>,
+    /// NVMe cold tier directory path (KERN-003)
+    pub cold_tier: Option<std::path::PathBuf>,
     /// Entropy threshold for kernel ZRAM routing (pages below this go to kernel)
     pub entropy_kernel_threshold: f64,
     /// Entropy threshold for skipping compression
@@ -988,6 +990,7 @@ impl Default for BatchedDaemonConfig {
             backend: crate::backend::BackendType::Memory,
             entropy_routing: false,
             zram_device: None,
+            cold_tier: None, // KERN-003: NVMe cold tier disabled by default
             entropy_kernel_threshold: 6.0,
             entropy_skip_threshold: 7.5,
         }
@@ -1348,11 +1351,12 @@ pub fn run_daemon_batched(
         && batch_config.zram_device.is_some();
 
     if use_tiered {
-        // KERN-001/002: Create tiered page store wrapping batched store
+        // KERN-001/002/003: Create tiered page store wrapping batched store
         let tiered_config = TieredConfig {
             backend: batch_config.backend,
             entropy_routing: batch_config.entropy_routing,
             zram_device: batch_config.zram_device.clone(),
+            cold_tier: batch_config.cold_tier.clone(),
             kernel_threshold: batch_config.entropy_kernel_threshold,
             skip_threshold: batch_config.entropy_skip_threshold,
         };

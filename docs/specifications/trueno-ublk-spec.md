@@ -178,20 +178,21 @@ Route pages by Shannon entropy H(X):
 |----|------|--------|---------|
 | **KERN-001** | Kernel ZRAM backend | ✅ COMPLETE | `KernelZramBackend` with O_DIRECT I/O |
 | **KERN-002** | Tiered storage manager | ✅ COMPLETE | `TieredStorageManager` with entropy routing |
-| **KERN-003** | CLI integration | ✅ COMPLETE | `--backend zram --entropy-routing` |
+| **KERN-003** | NVMe cold tier + CLI | ✅ COMPLETE | `--cold-tier /path` for H(X) > 7.5 pages |
 | **KERN-004** | Telemetry layer | → VIZ-* | Replaced by renacer integration (Section 6) |
 
 ### 5.1 Implemented CLI Flags
 
 ```bash
-# Available NOW (v3.8.0)
+# Full tiered storage with NVMe cold tier (v3.18.0)
 sudo trueno-ublk create \
     --size 8G \
     --backend tiered \              # memory | zram | tiered
     --entropy-routing \             # Enable entropy-based routing
     --zram-device /dev/zram0 \      # Kernel zram device path
     --entropy-kernel-threshold 6.0 \ # H(X) < 6.0 → kernel ZRAM
-    --entropy-skip-threshold 7.5    # H(X) > 7.5 → skip compression
+    --entropy-skip-threshold 7.5 \  # H(X) > 7.5 → NVMe cold tier
+    --cold-tier /mnt/nvme-raid0/trueno-cold  # NVMe cold tier path
 ```
 
 ### 5.2 Backend Module (`src/backend.rs`)
@@ -199,11 +200,33 @@ sudo trueno-ublk create \
 - `StorageBackend` trait: Abstraction for storage tiers
 - `KernelZramBackend`: O_DIRECT writes to `/dev/zram0`
 - `MemoryBackend`: In-memory HashMap storage
+- `NvmeColdBackend`: O_DIRECT sparse file for high-entropy pages (KERN-003)
 - `TieredStorageManager`: Entropy-based routing to optimal tier
 - `EntropyThresholds`: Configurable routing thresholds
 - `RoutingDecision`: KernelZram | TruenoSimd | SkipCompression | SameFill
 
-### 5.3 Benchmark Results (v3.12.0)
+### 5.3 NVMe Cold Tier Architecture (KERN-003)
+
+High-entropy pages (H(X) > 7.5) are incompressible. Instead of wasting CPU cycles:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Entropy Routing Decision                     │
+├─────────────────┬─────────────────────┬─────────────────────────┤
+│   H(X) < 6.0    │   6.0 ≤ H(X) ≤ 7.5  │      H(X) > 7.5         │
+│  Kernel ZRAM    │   trueno AVX-512    │   NVMe Cold Tier        │
+│   171 GB/s      │      35 GB/s        │      6.9 GB/s           │
+│  (compressible) │  (mixed entropy)    │  (incompressible)       │
+└─────────────────┴─────────────────────┴─────────────────────────┘
+```
+
+**NvmeColdBackend features:**
+- O_DIRECT sparse file (no page cache overhead)
+- pread/pwrite for zero-copy I/O
+- FxHashMap page index tracking
+- Statistics: pages stored/loaded, bytes written/read
+
+### 5.4 Benchmark Results (v3.12.0)
 
 | Test | Memory Mode | Tiered Mode | Multi-Queue | Notes |
 |------|-------------|-------------|-------------|-------|

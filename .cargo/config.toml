@@ -1,0 +1,3 @@
+# Use fast RAID0 for coverage builds
+[build]
+target-dir = "/mnt/nvme-raid0/zram/coverage/trueno-zram"
