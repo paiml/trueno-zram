@@ -19,6 +19,10 @@
 //! trueno-ublk top
 //! ```
 
+// Allow dead code in modules prepared for future integration
+#![allow(dead_code)]
+
+mod backend; // KERN-001: Kernel-cooperative tiered storage
 mod cleanup;
 mod cli;
 mod daemon;
@@ -27,6 +31,7 @@ mod perf; // PERF-001: Performance optimization module
 mod stats;
 mod tui;
 mod ublk;
+mod visualize; // VIZ-001: Renacer visualization integration
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -56,5 +61,6 @@ fn main() -> anyhow::Result<()> {
         Commands::Set(args) => cli::set::run(args),
         Commands::Top(args) => cli::top::run(args),
         Commands::Entropy(args) => cli::entropy::run(args),
+        Commands::Benchmark(args) => cli::benchmark::run(args),
     }
 }

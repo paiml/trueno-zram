@@ -3,6 +3,7 @@
 //! Provides zramctl-compatible command-line interface with extensions
 //! for GPU acceleration and entropy analysis.
 
+pub mod benchmark; // VIZ-003: JSON/HTML export
 pub mod compact;
 pub mod create;
 pub mod entropy;
@@ -28,6 +29,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand, Debug)]
+#[allow(clippy::large_enum_variant)] // CLI args are constructed once at startup
 pub enum Commands {
     /// Create a new ublk device
     Create(CreateArgs),
@@ -61,6 +63,9 @@ pub enum Commands {
 
     /// Analyze file/directory entropy
     Entropy(EntropyArgs),
+
+    /// Run benchmarks and generate reports (VIZ-003)
+    Benchmark(BenchmarkArgs),
 }
 
 /// Compression algorithm selection
@@ -228,6 +233,89 @@ pub struct CreateArgs {
     /// Scaling: 1q=162K, 2q=~300K, 4q=~500K, 8q=~800K IOPS
     #[arg(long, default_value = "1", value_parser = clap::value_parser!(u16).range(1..=8))]
     pub queues: u16,
+
+    // =========================================================================
+    // PERF-006: Zero-Copy Mode (EXPERIMENTAL)
+    // =========================================================================
+    /// Enable UBLK_F_SUPPORT_ZERO_COPY mode (EXPERIMENTAL)
+    ///
+    /// Eliminates pwrite syscall per I/O by using mmap'd kernel buffers.
+    /// Requires kernel 6.0+ with full ZERO_COPY support.
+    /// WARNING: This is experimental and may not work on all kernels.
+    #[arg(long)]
+    pub zero_copy: bool,
+
+    // =========================================================================
+    // KERN-001/002/003: Kernel-Cooperative Tiered Storage
+    // =========================================================================
+    /// Storage backend type: memory, zram, tiered (default: memory)
+    ///
+    /// - memory: In-memory trueno SIMD compression (default, 10.6 GB/s)
+    /// - zram: Route all pages to kernel ZRAM device (171 GB/s for low-entropy)
+    /// - tiered: Entropy-based routing (kernel zram + trueno SIMD)
+    ///
+    /// Tiered mode routes pages by Shannon entropy H(X):
+    /// - H(X) < 6.0: Kernel ZRAM (171 GB/s, fast LZ4)
+    /// - 6.0 ≤ H(X) ≤ 7.5: trueno SIMD ZSTD (15 GiB/s, 6x better ratio)
+    /// - H(X) > 7.5: Skip compression (3.4 GB/s direct)
+    #[arg(long, default_value = "memory")]
+    pub backend: String,
+
+    /// Enable entropy-based routing for tiered storage
+    ///
+    /// Routes pages to optimal backend based on Shannon entropy.
+    /// Requires --backend=tiered or --backend=zram.
+    /// Without this flag, all pages use the same backend.
+    #[arg(long)]
+    pub entropy_routing: bool,
+
+    /// Kernel ZRAM device path (default: /dev/zram0)
+    ///
+    /// Used when --backend=zram or --backend=tiered.
+    /// The kernel ZRAM device must already exist and be configured.
+    /// Use `zramctl` to create and size the device first.
+    #[arg(long, default_value = "/dev/zram0")]
+    pub zram_device: String,
+
+    /// Entropy threshold for kernel ZRAM routing (default: 6.0)
+    ///
+    /// Pages with H(X) below this threshold are routed to kernel ZRAM.
+    /// Higher values = more pages to kernel ZRAM (faster, less compression).
+    /// Lower values = more pages to trueno SIMD (slower, better compression).
+    #[arg(long, default_value = "6.0")]
+    pub entropy_kernel_threshold: f64,
+
+    /// Entropy threshold for skipping compression (default: 7.5)
+    ///
+    /// Pages with H(X) above this threshold skip compression entirely.
+    /// Encrypted/random data is incompressible; save CPU cycles.
+    #[arg(long, default_value = "7.5")]
+    pub entropy_skip_threshold: f64,
+
+    // =========================================================================
+    // VIZ-002: Renacer Visualization Integration
+    // =========================================================================
+    /// Launch real-time TUI visualization (renacer dashboard)
+    ///
+    /// Displays live metrics: throughput, IOPS, compression ratio, tier distribution.
+    /// Uses renacer visualization framework with ratatui-based panels.
+    /// Press 'q' to quit the dashboard.
+    #[arg(long)]
+    pub visualize: bool,
+
+    // =========================================================================
+    // VIZ-004: OTLP Integration (OpenTelemetry)
+    // =========================================================================
+    /// OTLP endpoint for trace/metric export (e.g., http://localhost:4317)
+    ///
+    /// When set, exports OpenTelemetry spans and metrics to the specified
+    /// OTLP-compatible collector (Jaeger, Tempo, etc.).
+    #[arg(long)]
+    pub otlp_endpoint: Option<String>,
+
+    /// Service name for OTLP traces (default: trueno-ublk)
+    #[arg(long, default_value = "trueno-ublk")]
+    pub otlp_service_name: String,
 }
 
 /// List command arguments
@@ -385,6 +473,68 @@ pub struct EntropyArgs {
     /// Recursive directory scan
     #[arg(short, long)]
     pub recursive: bool,
+}
+
+// =============================================================================
+// VIZ-003: Benchmark Report Arguments
+// =============================================================================
+
+/// Benchmark output format
+#[derive(Clone, Copy, Debug, ValueEnum, Default)]
+pub enum BenchmarkFormat {
+    /// Plain text summary (default)
+    #[default]
+    Text,
+    /// JSON format for analysis tools
+    Json,
+    /// HTML report with visualizations
+    Html,
+}
+
+/// Benchmark workload type
+#[derive(Clone, Copy, Debug, ValueEnum, Default)]
+pub enum BenchmarkWorkload {
+    /// Sequential write + read test
+    #[default]
+    Sequential,
+    /// Random 4K IOPS test
+    Random,
+    /// Mixed workload (70% read, 30% write)
+    Mixed,
+    /// All workloads
+    All,
+}
+
+/// Benchmark command arguments (VIZ-003)
+#[derive(Parser, Debug)]
+pub struct BenchmarkArgs {
+    /// Device size for benchmark (e.g., 1G, 256M)
+    #[arg(short, long, default_value = "1G")]
+    pub size: String,
+
+    /// Workload type to benchmark
+    #[arg(short, long, value_enum, default_value = "sequential")]
+    pub workload: BenchmarkWorkload,
+
+    /// Output format
+    #[arg(short, long, value_enum, default_value = "text")]
+    pub format: BenchmarkFormat,
+
+    /// Output file (stdout if not specified)
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
+
+    /// Number of iterations for averaging
+    #[arg(long, default_value = "3")]
+    pub iterations: u32,
+
+    /// Enable ML anomaly detection in JSON output
+    #[arg(long)]
+    pub ml_anomaly: bool,
+
+    /// Backend to benchmark (memory, zram, tiered)
+    #[arg(long, default_value = "memory")]
+    pub backend: String,
 }
 
 /// Output columns available for list command

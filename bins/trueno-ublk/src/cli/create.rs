@@ -1,9 +1,11 @@
 //! Create command - creates a new trueno-ublk device
 
 use super::{parse_size, CreateArgs};
+use crate::backend::BackendType;
 use crate::device::UblkDevice;
 use crate::perf::{PerfConfig, PollingConfig};
 use anyhow::Result;
+use std::path::PathBuf;
 
 pub fn run(args: CreateArgs) -> Result<()> {
     let size = parse_size(&args.size)?;
@@ -32,6 +34,14 @@ pub fn run(args: CreateArgs) -> Result<()> {
         "Creating trueno-ublk device"
     );
 
+    // KERN-001/002/003: Parse backend type
+    let backend: BackendType = args.backend.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+    let zram_device = if matches!(backend, BackendType::KernelZram | BackendType::Tiered) {
+        Some(PathBuf::from(&args.zram_device))
+    } else {
+        None
+    };
+
     let config = crate::device::DeviceConfig {
         dev_id: args.dev_id,
         size,
@@ -51,6 +61,18 @@ pub fn run(args: CreateArgs) -> Result<()> {
         perf,
         // PERF-003: Multi-queue parallelism
         nr_hw_queues: args.queues,
+        // PERF-006: Zero-copy mode (EXPERIMENTAL)
+        zero_copy: args.zero_copy,
+        // KERN-001/002/003: Kernel-Cooperative Tiered Storage
+        backend,
+        entropy_routing: args.entropy_routing,
+        zram_device,
+        entropy_kernel_threshold: args.entropy_kernel_threshold,
+        // VIZ-002: Renacer Visualization Integration
+        visualize: args.visualize,
+        // VIZ-004: OTLP Integration
+        otlp_endpoint: args.otlp_endpoint.clone(),
+        otlp_service_name: args.otlp_service_name.clone(),
     };
 
     if config.batched {
@@ -75,6 +97,39 @@ pub fn run(args: CreateArgs) -> Result<()> {
         tracing::info!(
             queues = config.nr_hw_queues,
             "PERF-003: Multi-queue mode enabled"
+        );
+    }
+
+    // KERN-001/002/003: Log tiered storage configuration
+    if !matches!(config.backend, BackendType::Memory) {
+        tracing::info!(
+            backend = %config.backend,
+            entropy_routing = config.entropy_routing,
+            zram_device = ?config.zram_device,
+            kernel_threshold = config.entropy_kernel_threshold,
+            skip_threshold = config.entropy_skip_threshold,
+            "KERN-001: Kernel-cooperative tiered storage enabled"
+        );
+    }
+
+    // VIZ-002: Log visualization configuration
+    if config.visualize {
+        tracing::info!(
+            "VIZ-002: Renacer TUI visualization enabled (requires foreground mode)"
+        );
+        if !config.foreground {
+            tracing::warn!(
+                "Visualization requires foreground mode. Add -f/--foreground flag."
+            );
+        }
+    }
+
+    // VIZ-004: Log OTLP configuration
+    if let Some(ref endpoint) = config.otlp_endpoint {
+        tracing::info!(
+            endpoint = %endpoint,
+            service_name = %config.otlp_service_name,
+            "VIZ-004: OTLP tracing enabled"
         );
     }
 

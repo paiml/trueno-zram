@@ -13,12 +13,13 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
-use std::collections::HashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::io::{Error as IoError, ErrorKind, Result as IoResult};
+use parking_lot::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(feature = "cuda")]
 use std::sync::Mutex;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use trueno_zram_core::{
     Algorithm, CompressedPage as CoreCompressedPage, CompressorBuilder, PageCompressor, PAGE_SIZE,
@@ -34,9 +35,34 @@ const SECTOR_SIZE: u64 = 512;
 /// Pages per sector (4096 / 512 = 8)
 const SECTORS_PER_PAGE: u64 = PAGE_SIZE as u64 / SECTOR_SIZE;
 
+// =============================================================================
+// KERN-001/002: PageStoreTrait - Common interface for storage backends
+// =============================================================================
+
+/// Trait for page storage backends (BatchedPageStore, TieredPageStore).
+///
+/// This trait allows the ublk daemon to work with different storage backends
+/// transparently, enabling kernel-cooperative tiered storage.
+pub trait PageStoreTrait: Send + Sync {
+    /// Read data from store at sector offset
+    fn read(&self, start_sector: u64, buffer: &mut [u8]) -> IoResult<usize>;
+
+    /// Write data to store at sector offset
+    fn write(&self, start_sector: u64, data: &[u8]) -> IoResult<usize>;
+
+    /// Discard sectors (trim)
+    fn discard(&self, start_sector: u64, nr_sectors: u32) -> IoResult<usize>;
+
+    /// Write zeros to sectors
+    fn write_zeroes(&self, start_sector: u64, nr_sectors: u32) -> IoResult<usize>;
+
+    /// Signal shutdown
+    fn shutdown(&self);
+}
+
 /// Compressed page storage
 pub struct PageStore {
-    pages: HashMap<u64, StoredPage>,
+    pages: FxHashMap<u64, StoredPage>,
     compressor: Arc<dyn PageCompressor>,
     entropy_threshold: f64,
 
@@ -74,7 +100,10 @@ impl PageStore {
                 .expect("Failed to create compressor"),
         );
         Self {
-            pages: HashMap::with_capacity((dev_size / PAGE_SIZE as u64) as usize),
+            pages: FxHashMap::with_capacity_and_hasher(
+                (dev_size / PAGE_SIZE as u64) as usize,
+                Default::default(),
+            ),
             compressor,
             entropy_threshold: 6.0,
             bytes_stored: AtomicU64::new(0),
@@ -89,7 +118,7 @@ impl PageStore {
     /// Create with custom compressor (for testing)
     pub fn with_compressor(compressor: Arc<dyn PageCompressor>, entropy_threshold: f64) -> Self {
         Self {
-            pages: HashMap::new(),
+            pages: FxHashMap::default(),
             compressor,
             entropy_threshold,
             bytes_stored: AtomicU64::new(0),
@@ -396,19 +425,24 @@ impl Default for BatchConfig {
 }
 
 /// Pending batch of pages awaiting compression
+///
+/// PERF-016: Uses FxHashMap for O(1) lookup instead of O(n) Vec search.
+/// This is critical for read performance when pages are still in pending batch.
+#[derive(Default)]
 struct PendingBatch {
-    /// Pages waiting to be compressed: (sector, page_data)
-    pages: Vec<(u64, [u8; PAGE_SIZE])>,
+    /// Pages waiting to be compressed: sector -> page_data (O(1) lookup)
+    pages: FxHashMap<u64, [u8; PAGE_SIZE]>,
     /// Timestamp of oldest page (for flush timer)
     oldest_timestamp: Option<Instant>,
 }
 
-impl Default for PendingBatch {
-    fn default() -> Self {
-        Self {
-            pages: Vec::with_capacity(1000),
-            oldest_timestamp: None,
-        }
+impl PendingBatch {
+    /// Drain all pages as a Vec for batch processing
+    fn drain_to_vec(&mut self) -> Vec<(u64, [u8; PAGE_SIZE])> {
+        self.oldest_timestamp = None;
+        std::mem::take(&mut self.pages)
+            .into_iter()
+            .collect()
     }
 }
 
@@ -435,8 +469,8 @@ pub struct BatchedPageStore {
     /// Pending pages awaiting batch compression
     pending: RwLock<PendingBatch>,
 
-    /// Compressed page storage
-    compressed: RwLock<HashMap<u64, StoredPage>>,
+    /// Compressed page storage (FxHashMap for fast u64 hashing)
+    compressed: RwLock<FxHashMap<u64, StoredPage>>,
 
     /// GPU batch compressor (initialized lazily)
     #[cfg(feature = "cuda")]
@@ -480,7 +514,7 @@ impl BatchedPageStore {
 
         Self {
             pending: RwLock::new(PendingBatch::default()),
-            compressed: RwLock::new(HashMap::new()),
+            compressed: RwLock::new(FxHashMap::default()),
             #[cfg(feature = "cuda")]
             gpu_compressor: Mutex::new(None),
             simd_compressor,
@@ -549,10 +583,10 @@ impl BatchedPageStore {
             return Ok(());
         }
 
-        // Add to pending batch (non-blocking)
+        // Add to pending batch (non-blocking) - PERF-016: O(1) insert
         {
-            let mut pending = self.pending.write().expect("rwlock poisoned");
-            pending.pages.push((sector, *data));
+            let mut pending = self.pending.write();
+            pending.pages.insert(sector, *data);
 
             if pending.oldest_timestamp.is_none() {
                 pending.oldest_timestamp = Some(Instant::now());
@@ -566,7 +600,7 @@ impl BatchedPageStore {
 
     /// Store a same-fill page (no compression needed - kernel ZRAM optimization)
     fn store_same_fill_page(&self, sector: u64, fill_value: u64) {
-        let mut store = self.compressed.write().expect("rwlock poisoned");
+        let mut store = self.compressed.write();
         // P0 CRITICAL: Store fill value directly - NO COMPRESSION!
         store.insert(sector, StoredPage::SameFill(fill_value));
         self.zero_pages.fetch_add(1, Ordering::Relaxed);
@@ -581,14 +615,13 @@ impl BatchedPageStore {
     /// 4. Minimal lock contention - only hold locks when necessary
     pub fn flush_batch(&self) -> Result<()> {
         let batch = {
-            let mut pending = self.pending.write().expect("rwlock poisoned");
+            let mut pending = self.pending.write();
             if pending.pages.is_empty() {
                 return Ok(());
             }
 
-            let batch = std::mem::take(&mut pending.pages);
-            pending.oldest_timestamp = None;
-            batch
+            // PERF-016: drain_to_vec converts HashMap to Vec for batch processing
+            pending.drain_to_vec()
         };
 
         let batch_size = batch.len();
@@ -616,7 +649,7 @@ impl BatchedPageStore {
         };
 
         // Store compressed pages with minimal lock time
-        let mut store = self.compressed.write().expect("rwlock poisoned");
+        let mut store = self.compressed.write();
         let mut total_compressed_bytes = 0usize;
 
         for (sector, compressed) in compressed_results {
@@ -839,18 +872,19 @@ impl BatchedPageStore {
     /// Load a page from the store
     ///
     /// PERF-013 (P0): Same-fill pages reconstructed with word-fill (no decompression)
+    /// PERF-016: O(1) pending batch lookup via FxHashMap
     pub fn load(&self, sector: u64, buffer: &mut [u8; PAGE_SIZE]) -> Result<bool> {
-        // Check pending batch first (uncommitted writes)
+        // Check pending batch first (uncommitted writes) - PERF-016: O(1) lookup
         {
-            let pending = self.pending.read().expect("rwlock poisoned");
-            if let Some((_, data)) = pending.pages.iter().find(|(s, _)| *s == sector) {
+            let pending = self.pending.read();
+            if let Some(data) = pending.pages.get(&sector) {
                 buffer.copy_from_slice(data);
                 return Ok(true);
             }
         }
 
         // Check compressed store
-        let store = self.compressed.read().expect("rwlock poisoned");
+        let store = self.compressed.read();
         match store.get(&sector) {
             Some(StoredPage::SameFill(fill_value)) => {
                 // P0: Same-fill fast path - word-fill (kernel memset_l equivalent)
@@ -899,25 +933,25 @@ impl BatchedPageStore {
         );
 
         // Get read locks once for the entire batch
-        let pending = self.pending.read().expect("rwlock poisoned");
-        let store = self.compressed.read().expect("rwlock poisoned");
+        let pending = self.pending.read();
+        let store = self.compressed.read();
 
-        // Collect references to compressed data (avoid cloning)
-        // Using indices to work around borrow checker
+        // PERF-016: O(1) lookup with direct data copy (no indices needed)
         #[derive(Clone)]
         enum PageRef {
-            SameFill(u64),       // Same-fill value (PERF-013)
-            Pending(usize),      // Index into pending.pages
-            Compressed(Vec<u8>), // Must clone for thread safety
+            SameFill(u64),                     // Same-fill value (PERF-013)
+            Pending(Box<[u8; PAGE_SIZE]>),     // Boxed to avoid large enum variant
+            Compressed(Vec<u8>),               // Must clone for thread safety
             NotFound,
         }
 
+        // PERF-016: O(1) HashMap lookup instead of O(n) Vec position()
         let page_refs: Vec<PageRef> = sectors
             .iter()
             .map(|&sector| {
-                // Check pending first
-                if let Some(idx) = pending.pages.iter().position(|(s, _)| *s == sector) {
-                    return PageRef::Pending(idx);
+                // Check pending first - O(1) lookup
+                if let Some(data) = pending.pages.get(&sector) {
+                    return PageRef::Pending(Box::new(*data));
                 }
 
                 // Check compressed store
@@ -931,39 +965,24 @@ impl BatchedPageStore {
             })
             .collect();
 
-        // Extract pending data before releasing locks (to avoid lifetime issues)
-        let pending_copies: Vec<Option<[u8; PAGE_SIZE]>> = page_refs
-            .iter()
-            .map(|pr| match pr {
-                PageRef::Pending(idx) => Some(pending.pages[*idx].1),
-                _ => None,
-            })
-            .collect();
-
         // Release locks before parallel decompression
         drop(pending);
         drop(store);
 
         // Parallel decompression directly into output buffers
-        // Use indexed parallel iteration for direct buffer access
         let found: Vec<bool> = buffers
             .par_iter_mut()
             .zip(page_refs.par_iter())
-            .zip(pending_copies.par_iter())
-            .map(|((buf, page_ref), pending_data)| {
+            .map(|(buf, page_ref)| {
                 match page_ref {
                     PageRef::SameFill(fill_value) => {
                         // P0: Same-fill fast path - word-fill (kernel memset_l equivalent)
                         fill_page_word(buf, *fill_value);
                         true
                     }
-                    PageRef::Pending(_) => {
-                        if let Some(data) = pending_data {
-                            buf.copy_from_slice(data);
-                            true
-                        } else {
-                            false
-                        }
+                    PageRef::Pending(data) => {
+                        buf.copy_from_slice(data.as_ref());
+                        true
                     }
                     PageRef::Compressed(compressed) => {
                         // Decompress directly into output buffer
@@ -982,14 +1001,14 @@ impl BatchedPageStore {
 
     /// Remove a page from the store
     pub fn remove(&self, sector: u64) -> bool {
-        // Remove from pending
+        // Remove from pending - PERF-016: O(1) remove
         {
-            let mut pending = self.pending.write().expect("rwlock poisoned");
-            pending.pages.retain(|(s, _)| *s != sector);
+            let mut pending = self.pending.write();
+            pending.pages.remove(&sector);
         }
 
         // Remove from compressed
-        let mut store = self.compressed.write().expect("rwlock poisoned");
+        let mut store = self.compressed.write();
         store.remove(&sector).is_some()
     }
 
@@ -997,7 +1016,7 @@ impl BatchedPageStore {
     ///
     /// PERF-002: Now checks both conditions to enable non-blocking store()
     pub fn should_flush(&self) -> bool {
-        let pending = self.pending.read().expect("rwlock poisoned");
+        let pending = self.pending.read();
 
         // Check threshold first (fast path)
         if pending.pages.len() >= self.config.batch_threshold {
@@ -1013,8 +1032,8 @@ impl BatchedPageStore {
 
     /// Get statistics
     pub fn stats(&self) -> BatchedPageStoreStats {
-        let pending = self.pending.read().expect("rwlock poisoned");
-        let compressed = self.compressed.read().expect("rwlock poisoned");
+        let pending = self.pending.read();
+        let compressed = self.compressed.read();
 
         BatchedPageStoreStats {
             pages_stored: compressed.len() as u64,
@@ -1053,10 +1072,10 @@ impl BatchedPageStore {
             let remaining_in_page = PAGE_SIZE - sector_offset_in_page;
             let to_read = (buffer.len() - offset).min(remaining_in_page);
 
-            // Check pending first
+            // Check pending first - PERF-016: O(1) lookup
             let found_pending = {
-                let pending = self.pending.read().expect("rwlock poisoned");
-                if let Some((_, data)) = pending.pages.iter().find(|(s, _)| *s == page_sector) {
+                let pending = self.pending.read();
+                if let Some(data) = pending.pages.get(&page_sector) {
                     buffer[offset..offset + to_read].copy_from_slice(
                         &data[sector_offset_in_page..sector_offset_in_page + to_read],
                     );
@@ -1067,7 +1086,7 @@ impl BatchedPageStore {
             };
 
             if !found_pending {
-                let store = self.compressed.read().expect("rwlock poisoned");
+                let store = self.compressed.read();
                 match store.get(&page_sector) {
                     Some(StoredPage::SameFill(fill_value)) => {
                         // P0: Same-fill fast path
@@ -1113,12 +1132,10 @@ impl BatchedPageStore {
                 // Partial page write - need to read-modify-write
                 let mut page_buf = [0u8; PAGE_SIZE];
 
-                // Check pending first
+                // Check pending first - PERF-016: O(1) lookup
                 let found_pending = {
-                    let pending = self.pending.read().expect("rwlock poisoned");
-                    if let Some((_, existing)) =
-                        pending.pages.iter().find(|(s, _)| *s == page_sector)
-                    {
+                    let pending = self.pending.read();
+                    if let Some(existing) = pending.pages.get(&page_sector) {
                         page_buf.copy_from_slice(existing);
                         true
                     } else {
@@ -1127,7 +1144,7 @@ impl BatchedPageStore {
                 };
 
                 if !found_pending {
-                    let store = self.compressed.read().expect("rwlock poisoned");
+                    let store = self.compressed.read();
                     if let Some(stored_page) = store.get(&page_sector) {
                         match stored_page {
                             StoredPage::SameFill(fill_value) => {
@@ -1193,8 +1210,31 @@ impl BatchedPageStore {
     }
 }
 
+// Implement PageStoreTrait for BatchedPageStore
+impl PageStoreTrait for BatchedPageStore {
+    fn read(&self, start_sector: u64, buffer: &mut [u8]) -> IoResult<usize> {
+        BatchedPageStore::read(self, start_sector, buffer)
+    }
+
+    fn write(&self, start_sector: u64, data: &[u8]) -> IoResult<usize> {
+        BatchedPageStore::write(self, start_sector, data)
+    }
+
+    fn discard(&self, start_sector: u64, nr_sectors: u32) -> IoResult<usize> {
+        BatchedPageStore::discard(self, start_sector, nr_sectors)
+    }
+
+    fn write_zeroes(&self, start_sector: u64, nr_sectors: u32) -> IoResult<usize> {
+        BatchedPageStore::write_zeroes(self, start_sector, nr_sectors)
+    }
+
+    fn shutdown(&self) {
+        BatchedPageStore::shutdown(self)
+    }
+}
+
 /// Statistics for batched page store
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BatchedPageStoreStats {
     pub pages_stored: u64,
     pub pending_pages: u64,
@@ -1234,6 +1274,408 @@ pub fn spawn_flush_thread(store: Arc<BatchedPageStore>) -> std::thread::JoinHand
 fn is_zero_page(data: &[u8]) -> bool {
     // Use SIMD-friendly comparison
     data.iter().all(|&b| b == 0)
+}
+
+// =============================================================================
+// KERN-001/002: TieredPageStore - Kernel-Cooperative Tiered Storage
+// =============================================================================
+
+use crate::backend::{
+    BackendType, EntropyThresholds, KernelZramBackend, StorageBackend, TieredStorageManager,
+};
+use std::io::Result as IoResult2;
+use std::sync::atomic::AtomicBool;
+
+/// Tiered page store configuration
+#[derive(Debug, Clone)]
+pub struct TieredConfig {
+    /// Backend type
+    pub backend: BackendType,
+    /// Enable entropy-based routing
+    pub entropy_routing: bool,
+    /// Kernel ZRAM device path
+    pub zram_device: Option<std::path::PathBuf>,
+    /// Entropy threshold for kernel routing (H(X) < this goes to kernel)
+    pub kernel_threshold: f64,
+    /// Entropy threshold for skipping compression (H(X) > this skips)
+    pub skip_threshold: f64,
+}
+
+impl Default for TieredConfig {
+    fn default() -> Self {
+        Self {
+            backend: BackendType::Memory,
+            entropy_routing: false,
+            zram_device: None,
+            kernel_threshold: 6.0,
+            skip_threshold: 7.5,
+        }
+    }
+}
+
+/// Statistics for tiered page store
+#[derive(Debug, Clone, Default)]
+pub struct TieredPageStoreStats {
+    /// Pages routed to kernel ZRAM (hot tier)
+    pub kernel_pages: u64,
+    /// Pages routed to trueno SIMD (warm tier)
+    pub trueno_pages: u64,
+    /// Pages with compression skipped (cold tier)
+    pub skipped_pages: u64,
+    /// Same-fill pages (no storage needed)
+    pub samefill_pages: u64,
+    /// Inner BatchedPageStore stats
+    pub inner_stats: BatchedPageStoreStats,
+}
+
+/// Tiered page store wrapping BatchedPageStore with kernel ZRAM routing.
+///
+/// Implements the kernel-cooperative philosophy:
+/// - H(X) < 6.0: Route to kernel ZRAM (171 GB/s, fast LZ4)
+/// - 6.0 ≤ H(X) ≤ 7.5: Route to trueno SIMD (15 GiB/s, better ratio)
+/// - H(X) > 7.5: Skip compression (incompressible data)
+pub struct TieredPageStore {
+    /// Inner BatchedPageStore for trueno SIMD tier
+    inner: Arc<BatchedPageStore>,
+    /// Kernel ZRAM backend (optional, for tiered mode)
+    kernel_backend: Option<Arc<KernelZramBackend>>,
+    /// Tiered storage manager for entropy routing
+    tiered_manager: Option<TieredStorageManager>,
+    /// Configuration
+    config: TieredConfig,
+    /// Track which pages are in kernel ZRAM tier (sector -> true if in kernel)
+    /// This allows fast tier lookups without probing inner store
+    kernel_tier_pages: RwLock<FxHashSet<u64>>,
+    /// Statistics
+    kernel_pages: AtomicU64,
+    trueno_pages: AtomicU64,
+    skipped_pages: AtomicU64,
+    samefill_pages: AtomicU64,
+    /// Shutdown flag
+    shutdown: AtomicBool,
+}
+
+impl TieredPageStore {
+    /// Create a new tiered page store.
+    ///
+    /// # Arguments
+    /// * `inner` - The underlying BatchedPageStore for trueno SIMD compression
+    /// * `config` - Tiered storage configuration
+    pub fn new(inner: Arc<BatchedPageStore>, config: TieredConfig) -> anyhow::Result<Self> {
+        let kernel_backend = match (&config.backend, &config.zram_device) {
+            (BackendType::KernelZram | BackendType::Tiered, Some(path)) => {
+                tracing::info!(
+                    "KERN-001: Opening kernel ZRAM backend: {}",
+                    path.display()
+                );
+                Some(Arc::new(KernelZramBackend::new(path)?))
+            }
+            _ => None,
+        };
+
+        let tiered_manager = if config.entropy_routing && kernel_backend.is_some() {
+            tracing::info!(
+                "KERN-002: Tiered storage enabled (kernel_threshold={}, skip_threshold={})",
+                config.kernel_threshold,
+                config.skip_threshold
+            );
+            Some(TieredStorageManager::with_thresholds(
+                config.zram_device.as_deref(),
+                EntropyThresholds {
+                    kernel_threshold: config.kernel_threshold,
+                    skip_threshold: config.skip_threshold,
+                },
+            )?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            inner,
+            kernel_backend,
+            tiered_manager,
+            config,
+            kernel_tier_pages: RwLock::new(FxHashSet::default()),
+            kernel_pages: AtomicU64::new(0),
+            trueno_pages: AtomicU64::new(0),
+            skipped_pages: AtomicU64::new(0),
+            samefill_pages: AtomicU64::new(0),
+            shutdown: AtomicBool::new(false),
+        })
+    }
+
+    /// Store a page with entropy-based routing.
+    pub fn store(&self, sector: u64, data: &[u8; PAGE_SIZE]) -> anyhow::Result<()> {
+        // P0: Same-fill fast path (kernel ZRAM pattern)
+        if let Some(fill_value) = page_same_filled(data) {
+            self.inner.store_same_fill_page(sector, fill_value);
+            self.samefill_pages.fetch_add(1, Ordering::Relaxed);
+            return Ok(());
+        }
+
+        // Check if entropy routing is enabled
+        if !self.config.entropy_routing {
+            // No routing - use inner store directly
+            self.inner.store(sector, data)?;
+            self.trueno_pages.fetch_add(1, Ordering::Relaxed);
+            return Ok(());
+        }
+
+        // Calculate entropy and route
+        let entropy = calculate_entropy(data);
+
+        if entropy < self.config.kernel_threshold {
+            // Low entropy - route to kernel ZRAM
+            if let Some(ref backend) = self.kernel_backend {
+                // Convert sector to page index for kernel backend
+                let page_idx = sector / SECTORS_PER_PAGE;
+                backend.store(page_idx, data)?;
+                // Track this page as being in kernel tier for fast lookups
+                self.kernel_tier_pages.write().insert(sector);
+                self.kernel_pages.fetch_add(1, Ordering::Relaxed);
+            } else {
+                // Fallback to inner store
+                self.inner.store(sector, data)?;
+                self.trueno_pages.fetch_add(1, Ordering::Relaxed);
+            }
+        } else if entropy > self.config.skip_threshold {
+            // High entropy - skip compression, store raw
+            // We still use inner store but mark it as skipped
+            self.inner.store(sector, data)?;
+            self.skipped_pages.fetch_add(1, Ordering::Relaxed);
+        } else {
+            // Medium entropy - route to trueno SIMD
+            self.inner.store(sector, data)?;
+            self.trueno_pages.fetch_add(1, Ordering::Relaxed);
+        }
+
+        Ok(())
+    }
+
+    /// Load a page (checks all tiers)
+    pub fn load(&self, sector: u64, buffer: &mut [u8; PAGE_SIZE]) -> anyhow::Result<bool> {
+        // Try inner store first (most common)
+        if self.inner.load(sector, buffer)? {
+            return Ok(true);
+        }
+
+        // Try kernel backend if available
+        if let Some(ref backend) = self.kernel_backend {
+            let page_idx = sector / SECTORS_PER_PAGE;
+            if backend.load(page_idx, buffer)? {
+                return Ok(true);
+            }
+        }
+
+        // Not found - return zeros
+        buffer.fill(0);
+        Ok(false)
+    }
+
+    /// Get statistics
+    pub fn stats(&self) -> TieredPageStoreStats {
+        TieredPageStoreStats {
+            kernel_pages: self.kernel_pages.load(Ordering::Relaxed),
+            trueno_pages: self.trueno_pages.load(Ordering::Relaxed),
+            skipped_pages: self.skipped_pages.load(Ordering::Relaxed),
+            samefill_pages: self.samefill_pages.load(Ordering::Relaxed),
+            inner_stats: self.inner.stats(),
+        }
+    }
+
+    /// Get inner BatchedPageStore (for flush thread)
+    pub fn inner(&self) -> &Arc<BatchedPageStore> {
+        &self.inner
+    }
+
+    /// Signal shutdown
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        self.inner.shutdown();
+    }
+
+    /// Check if shutdown was requested
+    pub fn is_shutdown(&self) -> bool {
+        self.shutdown.load(Ordering::SeqCst)
+    }
+
+    /// Check if should flush (delegates to inner)
+    pub fn should_flush(&self) -> bool {
+        self.inner.should_flush()
+    }
+
+    /// Flush batch (delegates to inner)
+    pub fn flush_batch(&self) -> anyhow::Result<()> {
+        self.inner.flush_batch()
+    }
+
+    // =========================================================================
+    // ublk daemon interface methods (compatible with BatchedPageStore)
+    // =========================================================================
+
+    /// Read data from store at sector offset.
+    ///
+    /// This method implements optimized tiered read:
+    /// 1. Check tier bitmap to determine which tier the page is in
+    /// 2. Use bulk reads for contiguous kernel ZRAM ranges
+    /// 3. Return zeros if not found
+    pub fn read(&self, start_sector: u64, buffer: &mut [u8]) -> IoResult2<usize> {
+        // Fast path: try bulk kernel ZRAM read if all pages are in kernel tier
+        if buffer.len() >= PAGE_SIZE && self.kernel_backend.is_some() {
+            let start_page = (start_sector / SECTORS_PER_PAGE) * SECTORS_PER_PAGE;
+            let num_pages = buffer.len() / PAGE_SIZE;
+
+            // Check if ALL pages in this range are in kernel tier
+            let kernel_pages = self.kernel_tier_pages.read();
+            let mut all_kernel = num_pages > 0;
+            for i in 0..num_pages {
+                let page_sector = start_page + (i as u64 * SECTORS_PER_PAGE);
+                if !kernel_pages.contains(&page_sector) {
+                    all_kernel = false;
+                    break;
+                }
+            }
+            drop(kernel_pages);
+
+            if all_kernel {
+                // All pages are in kernel tier - use bulk read!
+                let backend = self.kernel_backend.as_ref()
+                    .expect("kernel_backend must be Some when all pages are in kernel tier");
+                let page_idx = start_page / SECTORS_PER_PAGE;
+                let aligned_len = num_pages * PAGE_SIZE;
+                if backend.bulk_read(page_idx, &mut buffer[..aligned_len]).is_ok() {
+                    // Handle any remaining partial page
+                    if buffer.len() > aligned_len {
+                        buffer[aligned_len..].fill(0);
+                    }
+                    return Ok(buffer.len());
+                }
+                // Fall through to per-page if bulk fails
+            }
+        }
+
+        // Standard per-page path: try inner first (fast for same-fill), then kernel
+        let mut offset = 0;
+        let mut sector = start_sector;
+
+        while offset < buffer.len() {
+            let page_sector = (sector / SECTORS_PER_PAGE) * SECTORS_PER_PAGE;
+            let sector_offset_in_page = (sector % SECTORS_PER_PAGE) as usize * SECTOR_SIZE as usize;
+            let remaining_in_page = PAGE_SIZE - sector_offset_in_page;
+            let to_read = (buffer.len() - offset).min(remaining_in_page);
+
+            // For partial page reads or non-page-aligned, use inner
+            if to_read < PAGE_SIZE || sector_offset_in_page != 0 {
+                self.inner.read(sector, &mut buffer[offset..offset + to_read])?;
+            } else {
+                // Full page read - try inner first (same-fill is very fast)
+                let buf_slice = &mut buffer[offset..offset + PAGE_SIZE];
+                let buf_array: &mut [u8; PAGE_SIZE] = buf_slice
+                    .try_into()
+                    .expect("slice is exactly PAGE_SIZE bytes");
+
+                // Try inner store first (same-fill + trueno pages) - NO lock needed
+                if !self.inner.load(page_sector, buf_array).unwrap_or(false) {
+                    // Not in inner - try kernel backend
+                    if let Some(ref backend) = self.kernel_backend {
+                        let page_idx = page_sector / SECTORS_PER_PAGE;
+                        if !backend.load(page_idx, buf_array).unwrap_or(false) {
+                            buf_array.fill(0);
+                        }
+                    } else {
+                        buf_array.fill(0);
+                    }
+                }
+            }
+
+            offset += to_read;
+            sector += (to_read / SECTOR_SIZE as usize) as u64;
+        }
+
+        Ok(buffer.len())
+    }
+
+    /// Write data to store at sector offset
+    pub fn write(&self, start_sector: u64, data: &[u8]) -> IoResult2<usize> {
+        let mut offset = 0;
+        let mut sector = start_sector;
+
+        while offset < data.len() {
+            let page_sector = (sector / SECTORS_PER_PAGE) * SECTORS_PER_PAGE;
+            let sector_offset_in_page = (sector % SECTORS_PER_PAGE) as usize * SECTOR_SIZE as usize;
+            let remaining_in_page = PAGE_SIZE - sector_offset_in_page;
+            let to_write = (data.len() - offset).min(remaining_in_page);
+
+            if to_write < PAGE_SIZE {
+                // Partial page write - delegate to inner for read-modify-write
+                self.inner.write(sector, &data[offset..offset + to_write])?;
+            } else {
+                // Full page write - use tiered routing
+                let page_data: &[u8; PAGE_SIZE] = (&data[offset..offset + PAGE_SIZE])
+                    .try_into()
+                    .expect("slice is exactly PAGE_SIZE bytes");
+                self.store(page_sector, page_data)
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+            }
+
+            offset += to_write;
+            sector += (to_write / SECTOR_SIZE as usize) as u64;
+        }
+        Ok(data.len())
+    }
+
+    /// Discard sectors
+    pub fn discard(&self, start_sector: u64, nr_sectors: u32) -> IoResult2<usize> {
+        self.inner.discard(start_sector, nr_sectors)
+    }
+
+    /// Write zeros to sectors
+    pub fn write_zeroes(&self, start_sector: u64, nr_sectors: u32) -> IoResult2<usize> {
+        self.inner.write_zeroes(start_sector, nr_sectors)
+    }
+}
+
+// Implement PageStoreTrait for TieredPageStore
+impl PageStoreTrait for TieredPageStore {
+    fn read(&self, start_sector: u64, buffer: &mut [u8]) -> IoResult<usize> {
+        TieredPageStore::read(self, start_sector, buffer)
+    }
+
+    fn write(&self, start_sector: u64, data: &[u8]) -> IoResult<usize> {
+        TieredPageStore::write(self, start_sector, data)
+    }
+
+    fn discard(&self, start_sector: u64, nr_sectors: u32) -> IoResult<usize> {
+        TieredPageStore::discard(self, start_sector, nr_sectors)
+    }
+
+    fn write_zeroes(&self, start_sector: u64, nr_sectors: u32) -> IoResult<usize> {
+        TieredPageStore::write_zeroes(self, start_sector, nr_sectors)
+    }
+
+    fn shutdown(&self) {
+        TieredPageStore::shutdown(self)
+    }
+}
+
+/// Spawn background flush thread for tiered page store
+pub fn spawn_tiered_flush_thread(store: Arc<TieredPageStore>) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        while !store.is_shutdown() {
+            std::thread::sleep(Duration::from_millis(1));
+
+            if store.should_flush() {
+                if let Err(e) = store.flush_batch() {
+                    tracing::error!("Tiered flush failed: {}", e);
+                }
+            }
+        }
+
+        // Final flush on shutdown
+        if let Err(e) = store.flush_batch() {
+            tracing::error!("Tiered final flush failed: {}", e);
+        }
+    })
 }
 
 /// Calculate Shannon entropy of data
@@ -2060,6 +2502,7 @@ mod tests {
     /// - trueno-zram CPU parallel: 19-24 GB/s at 10GB scale (35-45x vs kernel zram)
     /// - BatchedPageStore: 3-6 GB/s at 100MB scale (includes store overhead)
     #[test]
+    #[ignore = "Performance test - skip during coverage (instrumentation overhead)"]
     fn test_g104_popperian_10gbps_throughput() {
         use std::time::Instant;
 
@@ -2434,6 +2877,7 @@ mod tests {
     /// HYPOTHESIS: Batch flush (1000 pages) completes in < 10ms
     /// Spec target: < 10ms
     #[test]
+    #[ignore = "Performance test - skip during coverage (instrumentation overhead)"]
     fn test_g112_batch_flush_latency() {
         let mut latencies_ms: Vec<f64> = Vec::with_capacity(10);
 
@@ -2966,6 +3410,7 @@ mod tests {
     /// HYPOTHESIS: Sequential writes achieve >3 GB/s with non-blocking flush
     /// Previously: 1 GB/s due to sync flush blocking
     #[test]
+    #[ignore = "Performance test - skip during coverage (instrumentation overhead)"]
     fn test_perf002_sequential_write_throughput() {
         use std::sync::Arc;
 

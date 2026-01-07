@@ -17,7 +17,12 @@
 #[cfg(not(test))]
 use crate::daemon::PageStore;
 #[cfg(not(test))]
-use crate::daemon::{spawn_flush_thread, BatchConfig, BatchedPageStore};
+use crate::daemon::{spawn_flush_thread, BatchConfig, BatchedPageStore, PageStoreTrait};
+// KERN-001/002: Tiered storage imports
+#[cfg(not(test))]
+use crate::backend::BackendType;
+#[cfg(not(test))]
+use crate::daemon::{spawn_tiered_flush_thread, TieredConfig, TieredPageStore};
 // PERF-001: Import PerfConfig unconditionally for BatchedDaemonConfig
 #[cfg(not(test))]
 use crate::perf::HiPerfContext;
@@ -577,6 +582,155 @@ impl UblkDaemon {
         }
     }
 
+    /// KERN-001/002: Generic batched I/O loop for any PageStoreTrait implementation.
+    ///
+    /// This enables tiered storage by allowing TieredPageStore to be used
+    /// in the same I/O loop as BatchedPageStore.
+    pub fn run_batched_generic<S: crate::daemon::PageStoreTrait + ?Sized>(
+        &mut self,
+        store: &Arc<S>,
+        mut hiperf: Option<&mut HiPerfContext>,
+    ) -> Result<(), DaemonError> {
+        let polling_enabled = hiperf.as_ref().is_some_and(|ctx| ctx.is_polling_enabled());
+        info!(
+            queue_depth = self.queue_depth,
+            polling = polling_enabled,
+            "Starting generic batched I/O loop (KERN-001/002)"
+        );
+
+        // Step 1: Submit initial FETCH commands
+        for tag in 0..self.queue_depth {
+            self.submit_fetch(tag)?;
+        }
+        self.ring.submission().sync();
+        let submitted = self.ring.submit().map_err(DaemonError::Submit)?;
+        info!(submitted, "Generic batched: FETCH commands submitted");
+
+        // Step 2: Spawn START_DEV thread with delay
+        let mut ctrl_clone = self.ctrl.clone_handle()?;
+        let ready_fd = self.ready_fd;
+        let dev_id = self.ctrl.dev_id();
+        let block_dev_path = self.ctrl.block_dev_path();
+
+        std::thread::spawn(move || {
+            debug!("Generic batched START_DEV thread: waiting...");
+            std::thread::sleep(Duration::from_millis(200));
+
+            debug!("Generic batched START_DEV thread: calling START_DEV ioctl");
+            match ctrl_clone.start() {
+                Ok(()) => {
+                    info!(block_dev = %block_dev_path, "Generic batched START_DEV succeeded!");
+                    if let Some(fd) = ready_fd {
+                        let val = (dev_id as u64) + 1;
+                        unsafe {
+                            libc::write(fd, &val as *const u64 as *const libc::c_void, 8);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "Generic batched START_DEV failed");
+                }
+            }
+        });
+
+        // Step 3: Enter I/O loop
+        info!(block_dev = %self.ctrl.block_dev_path(), "Generic batched: entering I/O loop");
+
+        loop {
+            if self.stop.load(Ordering::Relaxed) {
+                info!("Generic batched: stop signal received, exiting");
+                break Ok(());
+            }
+
+            // PERF-001: Use polling mode when enabled, otherwise block
+            let _completion_count = if polling_enabled {
+                self.poll_completions(hiperf.as_deref_mut())?
+            } else {
+                match self.ring.submit_and_wait(1) {
+                    Ok(_) => {}
+                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => continue,
+                    Err(e) => return Err(DaemonError::Submit(e)),
+                }
+                0
+            };
+
+            // Collect completions
+            let tags: Vec<(u16, i32)> = {
+                let cq = self.ring.completion();
+                cq.map(|cqe| (cqe.user_data() as u16, cqe.result()))
+                    .collect()
+            };
+
+            for (tag, result) in tags {
+                if result < 0 {
+                    if result == -libc::ENODEV {
+                        info!(tag, "Generic batched: Device stopped");
+                        return Ok(());
+                    }
+                    warn!(tag, result, "Generic batched: I/O completion error");
+                    self.submit_fetch(tag)?;
+                    continue;
+                }
+
+                let iod = self.get_iod(tag);
+                let op = (iod.op_flags & 0xff) as u8;
+                let start_sector = iod.start_sector;
+                let nr_sectors = iod.nr_sectors;
+                let len = (nr_sectors as usize) * SECTOR_SIZE as usize;
+                let char_fd = self.char_fd;
+                let data_buf_ptr = unsafe {
+                    self.data_buf
+                        .add((tag as usize) * (self.max_io_size as usize))
+                };
+
+                // Process I/O using generic PageStoreTrait
+                let io_result = match op {
+                    UBLK_IO_OP_READ => {
+                        let buf = unsafe { std::slice::from_raw_parts_mut(data_buf_ptr, len) };
+                        match store.read(start_sector, buf) {
+                            Ok(n) => {
+                                let offset = ublk_user_copy_offset(0, tag, 0);
+                                let fd = unsafe { BorrowedFd::borrow_raw(char_fd) };
+                                pwrite(fd, buf, offset)
+                                    .map(|_| n)
+                                    .map_err(|e| std::io::Error::from_raw_os_error(e as i32))
+                            }
+                            Err(e) => Err(e),
+                        }
+                    }
+                    UBLK_IO_OP_WRITE => {
+                        let buf = unsafe { std::slice::from_raw_parts_mut(data_buf_ptr, len) };
+                        let offset = ublk_user_copy_offset(0, tag, 0);
+                        let fd = unsafe { BorrowedFd::borrow_raw(char_fd) };
+                        match pread(fd, buf, offset) {
+                            Ok(_) => store.write(start_sector, buf),
+                            Err(e) => Err(std::io::Error::from_raw_os_error(e as i32)),
+                        }
+                    }
+                    UBLK_IO_OP_FLUSH => Ok(0),
+                    UBLK_IO_OP_DISCARD => store.discard(start_sector, nr_sectors),
+                    UBLK_IO_OP_WRITE_ZEROES => store.write_zeroes(start_sector, nr_sectors),
+                    _ => {
+                        warn!(op, "Generic batched: Unknown I/O operation");
+                        Err(std::io::Error::from_raw_os_error(libc::ENOTSUP))
+                    }
+                };
+
+                let result = match io_result {
+                    Ok(n) => n as i32,
+                    Err(e) => {
+                        warn!(tag, error = %e, "Generic batched I/O operation failed");
+                        -e.raw_os_error().unwrap_or(libc::EIO)
+                    }
+                };
+
+                self.submit_commit_and_fetch(tag, result)?;
+            }
+
+            self.ring.submit().map_err(DaemonError::Submit)?;
+        }
+    }
+
     fn submit_fetch(&mut self, tag: u16) -> Result<(), DaemonError> {
         // With UBLK_F_USER_COPY, addr must be 0 (data via pread/pwrite)
         let io_cmd = UblkIoCmd {
@@ -801,6 +955,21 @@ pub struct BatchedDaemonConfig {
     pub perf: Option<PerfConfig>,
     /// PERF-003: Number of hardware queues (1-8)
     pub nr_hw_queues: u16,
+    /// PERF-006: Enable ZERO_COPY mode (EXPERIMENTAL)
+    pub zero_copy: bool,
+    // =========================================================================
+    // KERN-001/002/003: Kernel-Cooperative Tiered Storage
+    // =========================================================================
+    /// Storage backend type: memory, zram, tiered
+    pub backend: crate::backend::BackendType,
+    /// Enable entropy-based routing for tiered storage
+    pub entropy_routing: bool,
+    /// Kernel ZRAM device path (e.g., /dev/zram0)
+    pub zram_device: Option<std::path::PathBuf>,
+    /// Entropy threshold for kernel ZRAM routing (pages below this go to kernel)
+    pub entropy_kernel_threshold: f64,
+    /// Entropy threshold for skipping compression
+    pub entropy_skip_threshold: f64,
 }
 
 impl Default for BatchedDaemonConfig {
@@ -814,6 +983,13 @@ impl Default for BatchedDaemonConfig {
             gpu_batch_size: 4000,
             perf: None,      // Disabled by default
             nr_hw_queues: 1, // PERF-003: Default single queue
+            zero_copy: false, // PERF-006: Disabled by default
+            // KERN-001/002/003: Kernel-Cooperative defaults
+            backend: crate::backend::BackendType::Memory,
+            entropy_routing: false,
+            zram_device: None,
+            entropy_kernel_threshold: 6.0,
+            entropy_skip_threshold: 7.5,
         }
     }
 }
@@ -884,42 +1060,31 @@ fn run_multi_queue_batched_internal(
     );
 
     // Open char device and get fd
-    let char_fd_owned = ctrl.open_char_dev()?;
+    tracing::debug!("PERF-003: About to open char device");
+    let char_fd_owned = match ctrl.open_char_dev() {
+        Ok(fd) => {
+            tracing::info!("PERF-003: Char device opened successfully");
+            fd
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "PERF-003: Failed to open char device - this will trigger Drop cleanup");
+            return Err(e.into());
+        }
+    };
     let char_fd = char_fd_owned.as_raw_fd();
     std::mem::forget(char_fd_owned); // Keep fd alive
+    tracing::debug!("PERF-003: char_fd={}", char_fd);
 
     // Calculate multi-queue buffer sizes
-    let iod_entry_size = std::mem::size_of::<UblkIoDesc>();
-    let iod_per_queue = (queue_depth as usize) * iod_entry_size;
+    // NOTE: IOD buffer is now mmap'd per-queue in QueueIoWorker with correct offsets
     let data_per_queue = (queue_depth as usize) * (max_io_size as usize);
 
-    // Total IOD buffer for all queues (kernel mmaps this)
-    let total_iod_size = (nr_hw_queues as usize) * iod_per_queue;
-    let total_iod_size_aligned = total_iod_size.div_ceil(4096) * 4096;
-
-    // mmap IOD buffer from char device (all queues) - use libc like existing code
-    // SAFETY: mmap is called with valid parameters for multi-queue IOD buffer:
-    // - char_fd is valid (from open_char_dev)
-    // - total_iod_size_aligned is page-aligned and computed from kernel params
-    // - PROT_READ|MAP_SHARED maps kernel's shared IOD buffer read-only as required
-    // - Result checked for MAP_FAILED before use
-    let iod_buf = unsafe {
-        mmap(
-            null_mut(),
-            total_iod_size_aligned,
-            PROT_READ,
-            libc::MAP_SHARED,
-            char_fd,
-            0, // UBLKSRV_CMD_BUF_OFFSET = 0
-        )
-    };
-    if iod_buf == libc::MAP_FAILED {
-        return Err(DaemonError::Mmap(std::io::Error::last_os_error()));
-    }
-    let iod_buf = iod_buf as *mut u8;
+    // IOD buffer pointer - each queue worker will mmap its own IOD buffer
+    // Pass a null pointer; workers ignore this and create their own mmap
+    let iod_buf = std::ptr::null_mut::<u8>();
     info!(
-        "PERF-003: IOD buffer mmap'd: {} bytes for {} queues",
-        total_iod_size_aligned, nr_hw_queues
+        "PERF-003: IOD buffers will be mmap'd per-queue (queue_depth={}, nr_queues={})",
+        queue_depth, nr_hw_queues
     );
 
     // Allocate anonymous data buffer for all queues
@@ -939,7 +1104,7 @@ fn run_multi_queue_batched_internal(
         )
     };
     if data_buf == libc::MAP_FAILED {
-        unsafe { munmap(iod_buf as *mut _, total_iod_size_aligned) };
+        // Note: iod_buf is null here - each queue worker will handle its own IOD mmap
         return Err(DaemonError::Mmap(std::io::Error::last_os_error()));
     }
     let data_buf = data_buf as *mut u8;
@@ -993,7 +1158,11 @@ fn run_multi_queue_batched_internal(
         .unwrap_or_default();
 
     // Spawn queue worker threads
-    info!("PERF-003: Spawning {} queue worker threads", nr_hw_queues);
+    info!(
+        "PERF-003: Spawning {} queue worker threads (ZERO_COPY={})",
+        nr_hw_queues,
+        batch_config.zero_copy
+    );
     // SAFETY: iod_buf and data_buf are valid mmap'd pointers for all queues
     let worker_handles = unsafe {
         spawn_queue_workers(
@@ -1007,6 +1176,7 @@ fn run_multi_queue_batched_internal(
             Arc::clone(&store),
             use_ioctl_encode,
             &cpu_cores,
+            batch_config.zero_copy, // PERF-006: Pass ZERO_COPY mode
         )
     };
 
@@ -1066,9 +1236,8 @@ fn run_multi_queue_batched_internal(
         warn!("Flush thread panicked: {:?}", e);
     }
 
-    // Cleanup mmap'd regions
+    // Cleanup mmap'd data buffer (IOD buffers are cleaned up by QueueIoWorker::drop)
     unsafe {
-        munmap(iod_buf as *mut _, total_iod_size_aligned);
         munmap(data_buf as *mut _, total_data_size);
     }
 
@@ -1109,10 +1278,24 @@ pub fn run_daemon_batched(
     stop: Arc<AtomicBool>,
     ready_fd: Option<i32>,
 ) -> Result<(), DaemonError> {
+    // PERF-006: Select flags based on zero_copy mode
+    let flags = if batch_config.zero_copy {
+        // ZERO_COPY mode: eliminates pwrite syscall per I/O
+        // NOTE: UBLK_F_USER_COPY must NOT be set with ZERO_COPY
+        info!("PERF-006: ZERO_COPY mode enabled (EXPERIMENTAL)");
+        crate::ublk::sys::UBLK_F_SUPPORT_ZERO_COPY
+            | crate::ublk::sys::UBLK_F_URING_CMD_COMP_IN_TASK
+            | crate::ublk::sys::UBLK_F_CMD_IOCTL_ENCODE
+    } else {
+        // USER_COPY mode (default): requires pwrite syscall per I/O
+        crate::ublk::sys::UBLK_F_USER_COPY | crate::ublk::sys::UBLK_F_CMD_IOCTL_ENCODE
+    };
+
     let device_config = DeviceConfig {
         dev_id: batch_config.dev_id,
         dev_size: batch_config.dev_size,
         nr_hw_queues: batch_config.nr_hw_queues, // PERF-003
+        flags,
         ..Default::default()
     };
 
@@ -1149,17 +1332,89 @@ pub fn run_daemon_batched(
     // Single queue mode - use existing UblkDaemon
     let mut daemon = UblkDaemon::new(device_config, stop.clone(), ready_fd)?;
 
-    // Create batched page store
+    // Create batched page store (base store for all modes)
     let store_config = BatchConfig {
         batch_threshold: batch_config.batch_threshold,
         flush_timeout: Duration::from_millis(batch_config.flush_timeout_ms),
         gpu_batch_size: batch_config.gpu_batch_size,
     };
-    let store = Arc::new(BatchedPageStore::with_config(
+    let batched_store = Arc::new(BatchedPageStore::with_config(
         batch_config.algorithm,
         store_config,
     ));
 
+    // KERN-001/002: Check if tiered storage is enabled
+    let use_tiered = !matches!(batch_config.backend, BackendType::Memory)
+        && batch_config.zram_device.is_some();
+
+    if use_tiered {
+        // KERN-001/002: Create tiered page store wrapping batched store
+        let tiered_config = TieredConfig {
+            backend: batch_config.backend,
+            entropy_routing: batch_config.entropy_routing,
+            zram_device: batch_config.zram_device.clone(),
+            kernel_threshold: batch_config.entropy_kernel_threshold,
+            skip_threshold: batch_config.entropy_skip_threshold,
+        };
+
+        let tiered_store = match TieredPageStore::new(Arc::clone(&batched_store), tiered_config) {
+            Ok(store) => Arc::new(store),
+            Err(e) => {
+                warn!("Failed to create tiered store, falling back to batched: {}", e);
+                // Fall through to non-tiered path
+                return run_batched_non_tiered(
+                    daemon, batched_store, batch_config, hiperf,
+                );
+            }
+        };
+
+        // Spawn background flush thread for tiered store
+        let flush_handle = spawn_tiered_flush_thread(Arc::clone(&tiered_store));
+
+        info!(
+            "KERN-001/002: Starting TIERED daemon: backend={}, entropy_routing={}, kernel_threshold={}, skip_threshold={}",
+            batch_config.backend,
+            batch_config.entropy_routing,
+            batch_config.entropy_kernel_threshold,
+            batch_config.entropy_skip_threshold
+        );
+
+        // Run daemon with tiered store
+        let result = daemon.run_batched_generic(&tiered_store, hiperf.as_mut());
+
+        // Signal shutdown
+        tiered_store.shutdown();
+
+        // Wait for flush thread
+        if let Err(e) = flush_handle.join() {
+            warn!("Tiered flush thread panicked: {:?}", e);
+        }
+
+        // Log tiered stats
+        let stats = tiered_store.stats();
+        info!(
+            "KERN-001/002 stats: kernel_pages={}, trueno_pages={}, skipped_pages={}, samefill_pages={}",
+            stats.kernel_pages,
+            stats.trueno_pages,
+            stats.skipped_pages,
+            stats.samefill_pages
+        );
+
+        return result;
+    }
+
+    // Non-tiered path (original code)
+    run_batched_non_tiered(daemon, batched_store, batch_config, hiperf)
+}
+
+/// Run batched daemon without tiered storage (original code path)
+#[cfg(not(test))]
+fn run_batched_non_tiered(
+    mut daemon: UblkDaemon,
+    store: Arc<BatchedPageStore>,
+    batch_config: BatchedDaemonConfig,
+    mut hiperf: Option<HiPerfContext>,
+) -> Result<(), DaemonError> {
     // Spawn background flush thread
     let flush_handle = spawn_flush_thread(Arc::clone(&store));
 

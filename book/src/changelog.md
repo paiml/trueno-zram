@@ -74,6 +74,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Background mode mlock (DT-007e: mlock called after fork)
 - Clippy warnings in GPU batch compression module
 
+## [3.17.0] - 2026-01-07
+
+### Added
+
+- **VIZ-001: TruenoCollector** - Renacer visualization integration
+  - Implements `renacer::Collector` trait for metrics collection
+  - Feeds throughput, IOPS, tier distribution to visualization framework
+
+- **VIZ-002: `--visualize` flag** - Real-time TUI dashboard
+  - Tier heatmap, throughput gauge, entropy timeline
+  - Requires `--foreground` mode
+
+- **VIZ-003: Benchmark reports** - JSON/HTML export
+  - `trueno-ublk benchmark --format json|html|text`
+  - `trueno-renacer-v1` schema for ML pipelines
+  - Self-contained HTML reports with tier distribution charts
+
+- **VIZ-004: OTLP integration** - Distributed tracing
+  - `--otlp-endpoint` and `--otlp-service-name` flags
+  - Export traces to Jaeger/Tempo
+
+- **Release Verification Matrix** (`docs/release_qa_checklist.md`)
+  - Falsification-first QA protocol
+  - Performance thresholds: >7.2 GB/s zero-page, >550K IOPS
+
+### Performance
+
+- **ZSTD Recommendation**: ZSTD-1 is 3x faster than LZ4 on AVX-512
+  - Compress: 15.4 GiB/s (vs 5.2 GiB/s LZ4)
+  - Decompress: ~10 GiB/s (vs ~1.5 GiB/s LZ4)
+  - Usage: `--algorithm zstd`
+
+### Documentation
+
+- New book chapter: [Visualization & Observability](./ublk/visualization.md)
+- Updated kernel-zram-parity roadmap (all items COMPLETE)
+- New examples:
+  - `visualization_demo` - TruenoCollector metrics demo
+  - `zstd_vs_lz4` - Algorithm performance comparison
+  - `tiered_storage` - Kernel-cooperative architecture demo
+
 ## [Unreleased]
 
 ### Planned

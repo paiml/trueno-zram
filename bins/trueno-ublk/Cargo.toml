@@ -72,11 +72,20 @@ libublk = "0.4.5"
 # Parallel processing
 rayon = "1.10"
 
+# Fast hasher for integer keys (2-5x faster than SipHash for u64)
+rustc-hash = "2.1"
+
+# Fast locks (PERF-018: 10-20% faster than std RwLock, spinning before sleeping)
+parking_lot = "0.12"
+
 # Memory locking for swap deadlock prevention (DT-007)
 duende-mlock = "1.0"
 
 # ublk device lifecycle management (cleanup orphaned devices)
 duende-ublk = "0.1"
+
+# Visualization integration (VIZ-001/002/003/004)
+renacer = { version = "0.9", default-features = false }
 
 [dev-dependencies]
 proptest = { workspace = true }

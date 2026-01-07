@@ -38,6 +38,7 @@
 - [Overview](./ublk/overview.md)
 - [Block Device API](./ublk/block-device.md)
 - [Entropy Routing](./ublk/entropy-routing.md)
+- [Visualization & Observability](./ublk/visualization.md)
 - [Examples](./ublk/examples.md)
 
 ---

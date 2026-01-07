@@ -398,8 +398,14 @@ impl Drop for UblkCtrl {
     fn drop(&mut self) {
         // Only the primary handle (not clones) cleans up the device
         if !self.is_clone {
+            tracing::warn!(
+                dev_id = self.dev_id,
+                "UblkCtrl::drop called - stopping and deleting device"
+            );
             let _ = self.stop();
             let _ = self.delete();
+        } else {
+            tracing::debug!(dev_id = self.dev_id, "UblkCtrl::drop skipped (clone)");
         }
     }
 }

@@ -42,14 +42,17 @@
 
 #![allow(dead_code, unused_imports)] // Daemon has helper functions and re-exports for future use
 
+pub mod backend; // KERN-001: Kernel-cooperative tiered storage
 pub mod cleanup;
 pub mod daemon;
 pub mod device;
 pub mod perf;
 pub mod stats;
 pub mod ublk;
+pub mod visualize; // VIZ-001: Renacer integration
 
 // Re-export commonly used types
+pub use backend::{BackendType, EntropyThresholds, StorageBackend, TieredStorageManager};
 pub use device::{BlockDevice, BlockDeviceStats, DeviceConfig, DeviceStats, UblkDevice};
 pub use ublk::{DaemonError, UblkCtrl, UblkDaemon};
 
@@ -67,3 +70,6 @@ pub use daemon::{spawn_flush_thread, BatchConfig, BatchedPageStore, BatchedPageS
 // Note: Additional types (BatchCoalescer, NumaAllocator, etc.) are available
 // in perf submodules for future PERF-001 integration
 pub use perf::{HiPerfContext, PerfConfig, PollResult, PollingConfig, TenXConfig, TenXContext};
+
+// Re-export visualization module (VIZ-001)
+pub use visualize::TruenoCollector;

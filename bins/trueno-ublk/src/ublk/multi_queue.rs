@@ -29,8 +29,22 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use nix::libc;
+use libc::{mmap, munmap, MAP_SHARED, PROT_READ, MAP_ANONYMOUS, MAP_PRIVATE, PROT_WRITE};
+use std::ptr::null_mut;
 
 use crate::perf::tenx::{FixedFileRegistry, RegisteredBufferConfig, RegisteredBufferPool, SqpollConfig};
+
+/// UBLK kernel constants for IOD buffer calculation
+const UBLK_MAX_QUEUE_DEPTH: u32 = 4096;
+const UBLKSRV_CMD_BUF_OFFSET: i64 = 0;
+const IOD_ENTRY_SIZE: usize = std::mem::size_of::<crate::ublk::sys::UblkIoDesc>();
+
+/// Calculate the page-aligned size for a command buffer
+fn cmd_buf_sz(depth: u32) -> usize {
+    let size = (depth as usize) * IOD_ENTRY_SIZE;
+    let page_sz = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+    (size + page_sz - 1) & !(page_sz - 1)
+}
 
 /// Wrapper for raw pointers that can be sent across threads.
 ///
@@ -261,8 +275,10 @@ pub struct QueueIoWorker {
     pub max_io_size: u32,
     /// Per-queue io_uring instance
     ring: io_uring::IoUring,
-    /// Pointer to this queue's IOD buffer region
+    /// Pointer to this queue's IOD buffer region (mmap'd by this worker)
     iod_buf: *mut u8,
+    /// Size of the IOD buffer (for munmap on Drop)
+    iod_buf_size: usize,
     /// Pointer to this queue's data buffer region
     data_buf: *mut u8,
     /// Character device fd (shared across all queues)
@@ -283,10 +299,37 @@ pub struct QueueIoWorker {
     files_registered: bool,
     /// PERF-007: Whether SQPOLL mode is enabled (for synchronization)
     sqpoll_enabled: bool,
+    /// PERF-006: Whether ZERO_COPY mode is enabled
+    zero_copy: bool,
+    /// PERF-006: mmap'd IO buffer region (ZERO_COPY mode only)
+    /// Points to the base of the mmap'd region at UBLKSRV_IO_BUF_OFFSET
+    io_buf: *mut u8,
+    /// Size of the IO buffer region (for munmap on Drop)
+    io_buf_size: usize,
 }
 
 #[cfg(not(test))]
 unsafe impl Send for QueueIoWorker {}
+
+#[cfg(not(test))]
+impl Drop for QueueIoWorker {
+    fn drop(&mut self) {
+        // Clean up the mmap'd IOD buffer
+        if self.iod_buf_size > 0 && !self.iod_buf.is_null() {
+            unsafe {
+                munmap(self.iod_buf as *mut libc::c_void, self.iod_buf_size);
+            }
+            tracing::debug!(queue_id = self.queue_id, "IOD buffer unmapped");
+        }
+        // PERF-006: Clean up the mmap'd IO buffer (ZERO_COPY mode)
+        if self.io_buf_size > 0 && !self.io_buf.is_null() {
+            unsafe {
+                munmap(self.io_buf as *mut libc::c_void, self.io_buf_size);
+            }
+            tracing::debug!(queue_id = self.queue_id, "IO buffer unmapped (ZERO_COPY)");
+        }
+    }
+}
 
 #[cfg(not(test))]
 impl QueueIoWorker {
@@ -315,59 +358,150 @@ impl QueueIoWorker {
             stop,
             use_ioctl_encode,
             None,
+            false, // PERF-006: Default to USER_COPY mode
         )
     }
 
     /// Create a new queue worker with optional SQPOLL configuration (PERF-007)
     ///
     /// # Safety
-    /// The iod_buf and data_buf pointers must be valid for this queue's region
+    /// The data_buf pointer must be valid for this queue's region.
+    /// The IOD buffer will be mmap'd internally by this worker with the correct per-queue offset.
     #[allow(clippy::too_many_arguments)]
     pub unsafe fn new_with_sqpoll(
         queue_id: u16,
         queue_depth: u16,
         max_io_size: u32,
         char_fd: i32,
-        iod_buf: *mut u8,
+        _iod_buf: *mut u8,  // Ignored - we mmap our own
         data_buf: *mut u8,
         stop: Arc<AtomicBool>,
         use_ioctl_encode: bool,
         sqpoll_config: Option<&SqpollConfig>,
+        zero_copy: bool,  // PERF-006: Enable ZERO_COPY mode
     ) -> Result<Self, super::daemon::DaemonError> {
+        // PERF-003 FIX: Each queue must mmap its own IOD buffer with correct offset
+        // The kernel expects: offset = UBLKSRV_CMD_BUF_OFFSET + queue_id * max_cmd_buf_sz
+        // where max_cmd_buf_sz is based on UBLK_MAX_QUEUE_DEPTH, not actual queue_depth
+        let max_cmd_buf_sz = cmd_buf_sz(UBLK_MAX_QUEUE_DEPTH) as i64;
+        let iod_buf_size = cmd_buf_sz(queue_depth as u32);
+        let offset = UBLKSRV_CMD_BUF_OFFSET + (queue_id as i64) * max_cmd_buf_sz;
+
+        tracing::debug!(
+            queue_id,
+            iod_buf_size,
+            offset,
+            "PERF-003: mmap'ing IOD buffer for queue"
+        );
+
+        let iod_buf = mmap(
+            null_mut(),
+            iod_buf_size,
+            PROT_READ,
+            MAP_SHARED,
+            char_fd,
+            offset,
+        );
+
+        if iod_buf == libc::MAP_FAILED {
+            let err = std::io::Error::last_os_error();
+            tracing::error!(queue_id, offset, size = iod_buf_size, "IOD mmap failed: {}", err);
+            return Err(super::daemon::DaemonError::Mmap(err));
+        }
+        let iod_buf = iod_buf as *mut u8;
+        tracing::debug!(queue_id, "IOD buffer mmap'd successfully");
+
         // Create per-queue io_uring with peak performance optimizations
         // PERF-004: io_uring tuning for maximum IOPS
         let mut builder = io_uring::IoUring::builder();
 
-        // SINGLE_ISSUER: Only one thread submits to this ring (per-queue threading)
-        builder.setup_single_issuer();
-        // COOP_TASKRUN: Cooperative task running reduces kernel overhead
-        builder.setup_coop_taskrun();
+        // Check if SQPOLL is requested
+        let sqpoll_requested = sqpoll_config.is_some_and(|cfg| cfg.enabled);
+
+        // PERF-007: Apply SQPOLL configuration if enabled
+        // NOTE: SINGLE_ISSUER and COOP_TASKRUN are incompatible with SQPOLL because:
+        // - SINGLE_ISSUER requires all submissions from one task context
+        // - SQPOLL uses a kernel thread which is a different task
+        // - COOP_TASKRUN requires SINGLE_ISSUER
+        if let Some(cfg) = sqpoll_config.filter(|c| c.enabled) {
+            builder.setup_sqpoll(cfg.idle_timeout_ms);
+            if cfg.cpu >= 0 {
+                builder.setup_sqpoll_cpu(cfg.cpu as u32);
+            }
+            tracing::info!(
+                queue_id,
+                idle_ms = cfg.idle_timeout_ms,
+                "PERF-007: SQPOLL mode enabled for queue"
+            );
+        } else {
+            // SINGLE_ISSUER: Only one thread submits to this ring (per-queue threading)
+            // Only valid when NOT using SQPOLL
+            builder.setup_single_issuer();
+            // COOP_TASKRUN: Cooperative task running reduces kernel overhead
+            // NOTE: COOP_TASKRUN requires SINGLE_ISSUER, so only enable when not using SQPOLL
+            builder.setup_coop_taskrun();
+        }
+
         // Larger CQ to handle burst completions without overflow
         builder.setup_cqsize(queue_depth as u32 * 4);
 
-        // PERF-007: Apply SQPOLL configuration if enabled
-        // WARNING: SQPOLL has known race conditions with ublk URING_CMD (FIX B)
-        // Only enable if explicitly configured and tested
-        if let Some(cfg) = sqpoll_config {
-            if cfg.enabled {
-                builder.setup_sqpoll(cfg.idle_timeout_ms);
-                if cfg.cpu >= 0 {
-                    builder.setup_sqpoll_cpu(cfg.cpu as u32);
-                }
-                tracing::info!(
-                    queue_id,
-                    idle_ms = cfg.idle_timeout_ms,
-                    "PERF-007: SQPOLL mode enabled for queue"
-                );
+        let ring = match builder.build(queue_depth as u32 * 2) {
+            Ok(r) => r,
+            Err(e) => {
+                // Clean up IOD mmap on io_uring creation failure
+                munmap(iod_buf as *mut libc::c_void, iod_buf_size);
+                return Err(super::daemon::DaemonError::IoUringCreate(e));
             }
-        }
-
-        let ring = builder
-            .build(queue_depth as u32 * 2)
-            .map_err(super::daemon::DaemonError::IoUringCreate)?;
+        };
 
         // Track if SQPOLL is enabled for synchronization (PERF-007 race fix)
-        let sqpoll_enabled = sqpoll_config.is_some_and(|cfg| cfg.enabled);
+        let sqpoll_enabled = sqpoll_requested;
+
+        // PERF-006: mmap IO buffer region for ZERO_COPY mode
+        // In ZERO_COPY mode, we access kernel buffers directly instead of using pread/pwrite
+        let (io_buf, io_buf_size) = if zero_copy {
+            // Calculate IO buffer size for this queue
+            // Each queue needs: queue_depth * max_io_size bytes
+            let buf_size = (queue_depth as usize) * (max_io_size as usize);
+            // IO buffer offset for this queue
+            // UBLKSRV_IO_BUF_OFFSET is the base, then each queue gets a slice
+            let io_offset =
+                crate::ublk::sys::UBLKSRV_IO_BUF_OFFSET as i64 + (queue_id as i64) * (buf_size as i64);
+
+            tracing::info!(
+                queue_id,
+                buf_size,
+                io_offset,
+                "PERF-006: mmap'ing IO buffer for ZERO_COPY mode"
+            );
+
+            let ptr = mmap(
+                null_mut(),
+                buf_size,
+                PROT_READ | PROT_WRITE, // Need both read and write for ZERO_COPY
+                MAP_SHARED,
+                char_fd,
+                io_offset,
+            );
+
+            if ptr == libc::MAP_FAILED {
+                let err = std::io::Error::last_os_error();
+                tracing::error!(
+                    queue_id,
+                    io_offset,
+                    size = buf_size,
+                    "IO buffer mmap failed (ZERO_COPY): {}",
+                    err
+                );
+                // Clean up IOD mmap on failure
+                munmap(iod_buf as *mut libc::c_void, iod_buf_size);
+                return Err(super::daemon::DaemonError::Mmap(err));
+            }
+            tracing::info!(queue_id, "IO buffer mmap'd successfully (ZERO_COPY)");
+            (ptr as *mut u8, buf_size)
+        } else {
+            (std::ptr::null_mut(), 0)
+        };
 
         Ok(Self {
             queue_id,
@@ -375,6 +509,7 @@ impl QueueIoWorker {
             max_io_size,
             ring,
             iod_buf,
+            iod_buf_size,
             data_buf,
             char_fd,
             stop,
@@ -385,6 +520,9 @@ impl QueueIoWorker {
             fixed_files: None,
             files_registered: false,
             sqpoll_enabled,
+            zero_copy,
+            io_buf,
+            io_buf_size,
         })
     }
 
@@ -724,15 +862,24 @@ impl QueueIoWorker {
                 let op = (iod.op_flags & 0xff) as u8;
                 let start_sector = iod.start_sector;
                 let nr_sectors = iod.nr_sectors;
+                let io_addr = iod.addr; // PERF-006: Buffer address for ZERO_COPY mode
 
                 let io_result = match op {
                     UBLK_IO_OP_READ => {
                         self.stats.record_read();
-                        self.handle_read(tag, start_sector, nr_sectors, store)
+                        if self.zero_copy {
+                            self.handle_read_zerocopy(tag, start_sector, nr_sectors, io_addr, store)
+                        } else {
+                            self.handle_read(tag, start_sector, nr_sectors, store)
+                        }
                     }
                     UBLK_IO_OP_WRITE => {
                         self.stats.record_write();
-                        self.handle_write(tag, start_sector, nr_sectors, store)
+                        if self.zero_copy {
+                            self.handle_write_zerocopy(tag, start_sector, nr_sectors, io_addr, store)
+                        } else {
+                            self.handle_write(tag, start_sector, nr_sectors, store)
+                        }
                     }
                     _ => {
                         debug!(
@@ -829,6 +976,90 @@ impl QueueIoWorker {
             Err(e) => -(e as i32),
         }
     }
+
+    /// Handle read operation (ZERO_COPY mode) - PERF-006
+    ///
+    /// In ZERO_COPY mode:
+    /// 1. Read data from store directly into the mmap'd kernel buffer
+    /// 2. No syscall needed - kernel sees data immediately
+    ///
+    /// # Arguments
+    /// * `io_addr` - The buffer address from io_desc.addr (offset into mmap'd region)
+    fn handle_read_zerocopy(
+        &self,
+        _tag: u16,
+        start_sector: u64,
+        nr_sectors: u32,
+        io_addr: u64,
+        store: &Arc<crate::daemon::BatchedPageStore>,
+    ) -> i32 {
+        let len = (nr_sectors as usize) * 512;
+
+        // In ZERO_COPY mode, io_addr is the offset into the mmap'd IO buffer
+        // We write directly to the kernel buffer - no syscall needed!
+        let buf = unsafe {
+            let ptr = self.io_buf.add(io_addr as usize);
+            std::slice::from_raw_parts_mut(ptr, len)
+        };
+
+        // Read from store directly into kernel buffer
+        match store.read(start_sector, buf) {
+            Ok(n) => {
+                // No pwrite needed! Kernel sees data immediately through mmap
+                n as i32
+            }
+            Err(e) => {
+                tracing::warn!(
+                    queue_id = self.queue_id,
+                    start_sector,
+                    "ZERO_COPY read error: {}",
+                    e
+                );
+                -nix::libc::EIO
+            }
+        }
+    }
+
+    /// Handle write operation (ZERO_COPY mode) - PERF-006
+    ///
+    /// In ZERO_COPY mode:
+    /// 1. Read data directly from the mmap'd kernel buffer
+    /// 2. Write to store
+    /// 3. No syscall needed - data is already accessible
+    ///
+    /// # Arguments
+    /// * `io_addr` - The buffer address from io_desc.addr (offset into mmap'd region)
+    fn handle_write_zerocopy(
+        &self,
+        _tag: u16,
+        start_sector: u64,
+        nr_sectors: u32,
+        io_addr: u64,
+        store: &Arc<crate::daemon::BatchedPageStore>,
+    ) -> i32 {
+        let len = (nr_sectors as usize) * 512;
+
+        // In ZERO_COPY mode, io_addr is the offset into the mmap'd IO buffer
+        // We read directly from the kernel buffer - no syscall needed!
+        let buf = unsafe {
+            let ptr = self.io_buf.add(io_addr as usize);
+            std::slice::from_raw_parts(ptr, len)
+        };
+
+        // Write from kernel buffer to store
+        match store.write(start_sector, buf) {
+            Ok(n) => n as i32,
+            Err(e) => {
+                tracing::warn!(
+                    queue_id = self.queue_id,
+                    start_sector,
+                    "ZERO_COPY write error: {}",
+                    e
+                );
+                -e.raw_os_error().unwrap_or(nix::libc::EIO)
+            }
+        }
+    }
 }
 
 /// Spawn queue worker threads for multi-queue operation
@@ -850,6 +1081,7 @@ pub unsafe fn spawn_queue_workers(
     store: Arc<crate::daemon::BatchedPageStore>,
     use_ioctl_encode: bool,
     cpu_cores: &[usize],
+    zero_copy: bool, // PERF-006: Enable ZERO_COPY mode
 ) -> Vec<QueueWorkerHandle> {
     // Wire to new function with 10X optimizations enabled by default
     spawn_queue_workers_with_tenx(
@@ -863,11 +1095,17 @@ pub unsafe fn spawn_queue_workers(
         store,
         use_ioctl_encode,
         cpu_cores,
-        Some(&crate::perf::TenXConfig::default()),
+        // PERF-007 tuning: Use conservative config (SQPOLL disabled) for better baseline
+        // SQPOLL adds overhead for ublk workloads due to extra kernel thread context switches
+        Some(&crate::perf::TenXConfig::conservative()),
+        zero_copy, // PERF-006: Pass through zero_copy setting
     )
 }
 
 /// Spawn queue workers with full 10X optimization stack (PERF-005 through PERF-012)
+///
+/// # Arguments
+/// * `zero_copy` - PERF-006: Enable ZERO_COPY mode (explicit override, takes precedence over TenXConfig)
 ///
 /// # Safety
 /// The base_iod_buf and base_data_buf pointers must be valid for all queues
@@ -885,6 +1123,7 @@ pub unsafe fn spawn_queue_workers_with_tenx(
     use_ioctl_encode: bool,
     cpu_cores: &[usize],
     tenx_config: Option<&crate::perf::TenXConfig>,
+    zero_copy: bool, // PERF-006: Explicit ZERO_COPY override
 ) -> Vec<QueueWorkerHandle> {
     use tracing::info;
 
@@ -915,6 +1154,7 @@ pub unsafe fn spawn_queue_workers_with_tenx(
         // Clone TenXConfig for this thread (PERF-007)
         let sqpoll_config = tenx_config.map(|c| c.sqpoll.clone());
         let reg_buf_config = tenx_config.map(|c| c.registered_buffers.clone());
+        // PERF-006: Use explicit zero_copy parameter (passed through from BatchedDaemonConfig)
 
         let thread = std::thread::spawn(move || {
             // Pin to CPU if specified
@@ -927,6 +1167,7 @@ pub unsafe fn spawn_queue_workers_with_tenx(
             }
 
             // Create worker with SQPOLL config (PERF-007 race fixed via squeue_wait)
+            // PERF-006: Pass zero_copy flag to enable ZERO_COPY I/O path
             let worker_result = unsafe {
                 QueueIoWorker::new_with_sqpoll(
                     q,
@@ -938,6 +1179,7 @@ pub unsafe fn spawn_queue_workers_with_tenx(
                     stop_clone,
                     use_ioctl_encode,
                     sqpoll_config.as_ref(),
+                    zero_copy,
                 )
             };
 

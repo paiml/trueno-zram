@@ -13,6 +13,21 @@ cargo run --example compression_stats -p trueno-ublk
 
 # Entropy-based routing demonstration
 cargo run --example entropy_routing -p trueno-ublk
+
+# v3.17.0 Examples
+# ----------------
+
+# Visualization demo (VIZ-001/002/003/004)
+cargo run --example visualization_demo -p trueno-ublk
+
+# ZSTD vs LZ4 performance comparison (use --release for accurate benchmarks)
+cargo run --example zstd_vs_lz4 -p trueno-ublk --release
+
+# Tiered storage architecture demo (KERN-001/002/003)
+cargo run --example tiered_storage -p trueno-ublk
+
+# Batched compression benchmark
+cargo run --example batched_benchmark -p trueno-ublk --release
 ```
 
 ## Example: Basic Block Device

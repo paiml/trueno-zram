@@ -40,6 +40,32 @@ pub struct DeviceConfig {
     /// PERF-003: Number of hardware queues (1-8)
     /// Multiple queues enable parallel I/O with separate io_uring per queue.
     pub nr_hw_queues: u16,
+    /// PERF-006: Enable ZERO_COPY mode (EXPERIMENTAL)
+    /// Eliminates pwrite syscall per I/O by using mmap'd kernel buffers.
+    pub zero_copy: bool,
+    // =========================================================================
+    // KERN-001/002/003: Kernel-Cooperative Tiered Storage
+    // =========================================================================
+    /// Storage backend type: memory, zram, tiered
+    pub backend: crate::backend::BackendType,
+    /// Enable entropy-based routing for tiered storage
+    pub entropy_routing: bool,
+    /// Kernel ZRAM device path (e.g., /dev/zram0)
+    pub zram_device: Option<PathBuf>,
+    /// Entropy threshold for kernel ZRAM routing (pages below this go to kernel)
+    pub entropy_kernel_threshold: f64,
+    // =========================================================================
+    // VIZ-002: Renacer Visualization Integration
+    // =========================================================================
+    /// Enable real-time TUI visualization (renacer dashboard)
+    pub visualize: bool,
+    // =========================================================================
+    // VIZ-004: OTLP Integration (OpenTelemetry)
+    // =========================================================================
+    /// OTLP endpoint for trace/metric export
+    pub otlp_endpoint: Option<String>,
+    /// Service name for OTLP traces
+    pub otlp_service_name: String,
 }
 
 /// Device statistics (zram-compatible)
@@ -495,6 +521,13 @@ impl UblkDevice {
                         gpu_batch_size: config.gpu_batch_size,
                         perf: config.perf.clone(), // PERF-001: Pass performance config
                         nr_hw_queues: config.nr_hw_queues, // PERF-003: Multi-queue
+                        zero_copy: config.zero_copy, // PERF-006: Zero-copy mode
+                        // KERN-001/002/003: Kernel-Cooperative Tiered Storage
+                        backend: config.backend,
+                        entropy_routing: config.entropy_routing,
+                        zram_device: config.zram_device.clone(),
+                        entropy_kernel_threshold: config.entropy_kernel_threshold,
+                        entropy_skip_threshold: config.entropy_skip_threshold,
                     };
                     run_daemon_batched(batch_config, stop, ready_fd)
                 } else {
@@ -1957,6 +1990,7 @@ mod tests {
     /// C31: Sequential write throughput test.
     /// Validates write path is functional with reasonable throughput.
     #[test]
+    #[ignore = "Performance test - skip during coverage (instrumentation overhead)"]
     fn popperian_c31_sequential_write_throughput() {
         use std::time::Instant;
 
@@ -2179,7 +2213,7 @@ mod tests {
         for t in 0..num_threads {
             let dev = device.clone();
             handles.push(thread::spawn(move || {
-                let data = vec![(t as u8); PAGE_SIZE];
+                let data = vec![t as u8; PAGE_SIZE];
                 for i in 0..ops_per_thread {
                     let offset = ((t * ops_per_thread + i) * PAGE_SIZE) as u64;
                     dev.lock().unwrap().write(offset, &data).unwrap();

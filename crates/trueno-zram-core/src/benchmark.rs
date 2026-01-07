@@ -334,6 +334,7 @@ mod tests {
     // ============================================================
 
     #[test]
+    #[ignore = "Performance test - skip during coverage (instrumentation overhead)"]
     fn test_f051_scalar_achieves_baseline() {
         // F051: Scalar achieves reasonable throughput
         // Note: Debug builds are ~10x slower than release builds

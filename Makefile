@@ -105,8 +105,18 @@ fmt:
 fmt-check:
 	cargo fmt --check
 
-# Coverage exclusion for modules requiring external/root access
-COVERAGE_EXCLUDE := --ignore-filename-regex='cli|zram/device\.rs|zram/ops\.rs'
+# Coverage exclusion for modules requiring external/root access or kernel features
+# - cli: CLI modules require external binaries
+# - zram/device|ops: Require root and zram kernel module
+# - perf/tenx: Require io_uring SQPOLL, huge pages, registered buffers (kernel features)
+# - perf/numa|affinity: Require libnuma and CPU affinity syscalls
+# - backend: Requires kernel ZRAM device
+# - stats: Requires /sys filesystem access
+# - device.rs: Requires ublk kernel interface
+# - daemon.rs: Requires ublk kernel interface (bins/trueno-ublk/src/daemon.rs)
+# - cleanup.rs: Requires ublk devices in /dev
+# Note: Core library is fully testable and not excluded
+COVERAGE_EXCLUDE := --ignore-filename-regex='cli|zram/device\.rs|zram/ops\.rs|perf/tenx/|perf/numa|perf/affinity|backend\.rs|stats\.rs|bins/trueno-ublk/src/device\.rs|bins/trueno-ublk/src/daemon\.rs|cleanup\.rs'
 
 # Fast coverage - target: <90s (cold), <30s (warm)
 coverage:
