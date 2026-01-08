@@ -36,7 +36,7 @@ path = "examples/batched_benchmark.rs"
 
 [dependencies]
 # Internal crates (cuda disabled - API mismatch with trueno-gpu)
-trueno-zram-core = { path = "../../crates/trueno-zram-core" }
+trueno-zram-core = { version = "0.3.0", path = "../../crates/trueno-zram-core" }
 
 # CLI
 clap = { workspace = true }
