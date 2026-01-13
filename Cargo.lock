@@ -1481,7 +1481,9 @@ dependencies = [
 
 [[package]]
 name = "duende-core"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d727bf9ff95f2950ee82116f61fc76f997e8387ada8a69e0054fe9846387af78"
 dependencies = [
  "async-trait",
  "dirs-next",
@@ -1501,13 +1503,17 @@ dependencies = [
 [[package]]
 name = "duende-mlock"
 version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a79abd55ed5f318a0ebddd9ab6027b393caee1e28f1840fe7bd29e1b5aa0af9"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "duende-platform"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e60d7f4f3fb9fe3b36818a547d1b2375f3aef1ec3ef00a7f90495e289ed54f0"
 dependencies = [
  "async-trait",
  "duende-core",
@@ -1522,7 +1528,9 @@ dependencies = [
 
 [[package]]
 name = "duende-policy"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4edbbff1cb2ebb1c5a1300d352c40cb1c47482e72165c0070b18cff162dd306"
 dependencies = [
  "async-trait",
  "duende-core",
@@ -1535,7 +1543,9 @@ dependencies = [
 
 [[package]]
 name = "duende-ublk"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bb4bd3b34b81c94694c753578827e74d1fd432764646ef96c5421ceb412638b"
 dependencies = [
  "io-uring",
  "libc",
