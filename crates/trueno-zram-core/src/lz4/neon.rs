@@ -153,6 +153,19 @@ pub unsafe fn decompress_neon(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> Res
 }
 
 /// Internal NEON decompression implementation.
+///
+/// # Complexity Analysis
+///
+/// **Cyclomatic Complexity: 32** (intentionally high)
+///
+/// Similar to `decompress_fast`, this function has elevated complexity because:
+/// 1. **LZ4 format** - sequential token processing with variable-length fields
+/// 2. **NEON-specific copy paths** - 16/32/64-byte SIMD copies vs byte-by-byte
+/// 3. **Overlap handling** - different strategies for non-overlapping, RLE, and overlapping
+/// 4. **Performance-critical** - cannot extract branches without adding call overhead
+///
+/// The complexity is **justified** - NEON decompression targets ≥4 GB/s and any
+/// refactoring would regress performance on the hot path.
 #[cfg(target_arch = "aarch64")]
 #[inline(never)]
 unsafe fn decompress_neon_impl(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> Result<usize> {

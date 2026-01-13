@@ -81,6 +81,24 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> Result<usize> {
 }
 
 /// Fast decompression using unsafe pointer arithmetic.
+///
+/// # Complexity Analysis
+///
+/// **Cyclomatic Complexity: 31** (intentionally high)
+///
+/// This function has elevated complexity because:
+/// 1. **LZ4 format requires sequential token processing** - each token encodes
+///    literal length, offset, and match length with variable-length encoding
+/// 2. **Multiple copy strategies** - non-overlapping (wildcard), RLE (single-byte),
+///    and overlapping (byte-by-byte) each require different code paths
+/// 3. **Bounds checking at every step** - mandatory for memory safety
+/// 4. **Performance-critical hot loop** - extracting any branch would add call overhead
+///
+/// The complexity is **justified and not refactorable** without significant
+/// performance regression. LZ4 decompression inherently requires handling
+/// multiple format cases in a tight loop.
+///
+/// See: <https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md>
 #[inline(never)]
 unsafe fn decompress_fast(input: &[u8], output: &mut [u8]) -> Result<usize> {
     let mut ip = input.as_ptr();
