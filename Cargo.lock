@@ -1435,6 +1435,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs-next"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b98cf8ebf19c3d1b223e151f99a4f9f0690dca41414773390fc824184ac833e1"
+dependencies = [
+ "cfg-if",
+ "dirs-sys-next",
+]
+
+[[package]]
 name = "dirs-sys"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1444,6 +1454,17 @@ dependencies = [
  "option-ext",
  "redox_users",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "dirs-sys-next"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ebda144c4fe02d1f7ea1a7d9641b6fc6b580adcfa024ae48797ecdeb6825b4d"
+dependencies = [
+ "libc",
+ "redox_users",
+ "winapi",
 ]
 
 [[package]]
@@ -1461,10 +1482,9 @@ dependencies = [
 [[package]]
 name = "duende-core"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a57afe613662a3cf5b10d0f53fa7ac31a9cdf38f6e626569f59bca6e4a722d74"
 dependencies = [
  "async-trait",
+ "dirs-next",
  "humantime",
  "nix 0.29.0",
  "pacha",
@@ -1481,8 +1501,6 @@ dependencies = [
 [[package]]
 name = "duende-mlock"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a79abd55ed5f318a0ebddd9ab6027b393caee1e28f1840fe7bd29e1b5aa0af9"
 dependencies = [
  "libc",
 ]
@@ -1490,8 +1508,6 @@ dependencies = [
 [[package]]
 name = "duende-platform"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c1548b64b3e0b3640e683713c1a8adc01c998cb06ce4954361f43f5e1c38766"
 dependencies = [
  "async-trait",
  "duende-core",
@@ -1507,8 +1523,6 @@ dependencies = [
 [[package]]
 name = "duende-policy"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8591bd5a44c363b32b6fd96b7cef806d315bfa973e7c0744f01ba35ccdd69f"
 dependencies = [
  "async-trait",
  "duende-core",
@@ -1522,8 +1536,6 @@ dependencies = [
 [[package]]
 name = "duende-ublk"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c1cc52d55f87a144413de88305d35a002402663005ac6cf5d411c038c065837"
 dependencies = [
  "io-uring",
  "libc",
@@ -4222,6 +4234,7 @@ name = "trueno-ublk"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "criterion",
  "crossterm",

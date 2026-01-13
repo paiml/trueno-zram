@@ -599,11 +599,11 @@ roadmap:
   github_issue: null
   item_type: epic
   title: duende Integration for trueno-ublk
-  status: inprogress
+  status: completed
   priority: high
   assigned_to: null
   created: 2026-01-06T12:00:00Z
-  updated: 2026-01-13T11:22:31.307038451+00:00
+  updated: 2026-01-13T11:32:34.645522957+00:00
   spec: null
   acceptance_criteria:
   - trueno-ublk uses duende for all daemon lifecycle management
@@ -843,7 +843,7 @@ roadmap:
   priority: critical
   assigned_to: null
   created: 2026-01-06T20:00:00Z
-  updated: 2026-01-13T11:22:11.345655757+00:00
+  updated: 2026-01-13T11:26:50.330180189+00:00
   spec: docs/specifications/scientific-swap-benchmark.md
   acceptance_criteria:
   - Reproducible benchmark comparing Regular Swap vs Kernel ZRAM vs trueno-zram
@@ -871,13 +871,13 @@ roadmap:
   - id: BENCH-001d
     github_issue: null
     title: Run full benchmark and collect data
-    status: planned
-    completion: 0
+    status: completed
+    completion: 100
   - id: BENCH-001e
     github_issue: null
     title: Add CI workflow for benchmark regression
-    status: planned
-    completion: 0
+    status: completed
+    completion: 100
   estimated_effort: 8h
   labels:
   - benchmark

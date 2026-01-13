@@ -46,6 +46,7 @@ pub mod backend; // KERN-001: Kernel-cooperative tiered storage
 pub mod cleanup;
 pub mod daemon;
 pub mod device;
+pub mod duende_lifecycle; // DT-008: Duende daemon lifecycle management
 pub mod perf;
 pub mod stats;
 pub mod ublk;
@@ -60,6 +61,9 @@ pub use ublk::{DaemonError, UblkCtrl, UblkDaemon};
 pub use duende_mlock::{
     is_locked as is_memory_locked, lock_all as lock_daemon_memory, MlockStatus,
 };
+
+// Re-export duende-core lifecycle management (DT-008)
+pub use duende_lifecycle::{create_daemon, setup_duende_signals, TruenoUblkDaemon};
 #[cfg(not(test))]
 pub use ublk::{run_daemon, run_daemon_batched, BatchedDaemonConfig};
 

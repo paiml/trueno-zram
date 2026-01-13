@@ -79,15 +79,18 @@ rustc-hash = "2.1"
 parking_lot = "0.12"
 
 # Memory locking for swap deadlock prevention (DT-007)
-duende-mlock = "1.0"
+duende-mlock = { path = "../../../duende/crates/duende-mlock" }
 
 # ublk device lifecycle management (cleanup orphaned devices)
-duende-ublk = "0.1"
+duende-ublk = { path = "../../../duende/crates/duende-ublk" }
 
 # Daemon lifecycle management (DT-008)
-duende-core = "0.1"
-duende-platform = "0.1"
-duende-policy = "0.1"
+duende-core = { path = "../../../duende/crates/duende-core" }
+duende-platform = { path = "../../../duende/crates/duende-platform" }
+duende-policy = { path = "../../../duende/crates/duende-policy" }
+
+# Async trait for Daemon impl
+async-trait = "0.1"
 
 # Visualization integration (VIZ-001/002/003/004)
 renacer = { version = "0.9", default-features = false }
