@@ -142,7 +142,7 @@ check_requirements() {
     log_info "Checking requirements... (platform: $OS_TYPE, GPU: $GPU_BACKEND)"
 
     # Root check
-    if [[ $EUID -ne 0 ]]; then
+    if [[ "$EUID" -ne 0 ]]; then
         log_fail "This script must be run as root"
         exit 1
     fi
@@ -167,7 +167,7 @@ check_requirements() {
         mem_gb=0
     fi
 
-    if [[ $mem_gb -lt 32 ]]; then
+    if [[ "$mem_gb" -lt 32 ]]; then
         log_warn "Less than 32GB RAM detected ($mem_gb GB). Results may be affected."
     fi
 

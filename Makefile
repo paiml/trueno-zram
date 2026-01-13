@@ -50,15 +50,25 @@ lint-rust:
 BASH_SCRIPTS := $(wildcard scripts/*.sh)
 DOCKERFILES := $(wildcard docker/Dockerfile.*)
 
-# Lint bash scripts - informational only (non-blocking for now)
-# TODO: Enable strict mode after fixing existing issues
+# Lint bash scripts - strict mode (blocking on errors/warnings)
+# Fixed: SC2066 warnings in scientific-swap-benchmark.sh (2025-01-13)
 lint-bash:
-	@echo "🐚 Linting bash scripts with bashrs..."
-	@for script in $(BASH_SCRIPTS); do \
+	@echo "🐚 Linting bash scripts with bashrs (strict mode)..."
+	@failed=0; \
+	for script in $(BASH_SCRIPTS); do \
 		echo "  Checking $$script..."; \
-		bashrs lint "$$script" --level error 2>&1 | grep -E "^(✗|Summary:)" || true; \
-	done
-	@echo "✅ Bash scripts checked (issues logged above if any)"
+		if ! bashrs lint "$$script" --level warning 2>&1 | grep -qE "^✗"; then \
+			echo "    ✅ passed"; \
+		else \
+			bashrs lint "$$script" --level warning 2>&1 | grep -E "^(✗|⚠)" || true; \
+			failed=1; \
+		fi; \
+	done; \
+	if [ $$failed -eq 1 ]; then \
+		echo "❌ Bash lint failed! Fix warnings above."; \
+		exit 1; \
+	fi
+	@echo "✅ All bash scripts passed lint!"
 
 # Verbose lint - show all warnings
 lint-bash-verbose:
