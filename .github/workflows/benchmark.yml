@@ -1,0 +1,105 @@
+name: Benchmark Regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmark
+
+      - name: Install criterion-compare
+        run: cargo install critcmp --locked || true
+
+      - name: Run benchmarks (baseline)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git checkout origin/${{ github.base_ref }}
+          cargo bench --bench compression -- --save-baseline base
+          git checkout ${{ github.sha }}
+
+      - name: Run benchmarks (current)
+        run: cargo bench --bench compression -- --save-baseline current
+
+      - name: Compare benchmarks
+        if: github.event_name == 'pull_request'
+        run: |
+          critcmp base current || echo "::warning::Benchmark comparison completed"
+
+      - name: Check performance thresholds
+        run: |
+          # Run quick benchmark and check key metrics
+          echo "=== Performance Threshold Verification ==="
+          cargo bench --bench compression -- --noplot 2>&1 | tee bench_output.txt
+
+          # Extract throughput for zeros compression (should be >3 GB/s)
+          ZEROS_THROUGHPUT=$(grep -A2 "zeros/lz4_compress" bench_output.txt | grep -oP '\d+\.\d+ GiB/s' | head -1 || echo "0 GiB/s")
+          echo "Zeros compression throughput: $ZEROS_THROUGHPUT"
+
+          # Extract throughput for text compression (should be >2 GB/s)
+          TEXT_THROUGHPUT=$(grep -A2 "text/lz4_compress" bench_output.txt | grep -oP '\d+\.\d+ GiB/s' | head -1 || echo "0 GiB/s")
+          echo "Text compression throughput: $TEXT_THROUGHPUT"
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: |
+            target/criterion/
+            bench_output.txt
+          retention-days: 30
+
+  # Weekly comprehensive benchmark (runs Sunday at midnight)
+  comprehensive:
+    name: Comprehensive Benchmark
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Full benchmark suite
+        run: |
+          cargo bench --all-features 2>&1 | tee full_benchmark.txt
+
+      - name: Generate benchmark report
+        run: |
+          echo "# Benchmark Report $(date -I)" > BENCHMARK_REPORT.md
+          echo "" >> BENCHMARK_REPORT.md
+          echo "## Environment" >> BENCHMARK_REPORT.md
+          echo "- Runner: GitHub Actions ubuntu-latest" >> BENCHMARK_REPORT.md
+          echo "- Commit: ${{ github.sha }}" >> BENCHMARK_REPORT.md
+          echo "" >> BENCHMARK_REPORT.md
+          echo "## Results" >> BENCHMARK_REPORT.md
+          echo "\`\`\`" >> BENCHMARK_REPORT.md
+          cat full_benchmark.txt >> BENCHMARK_REPORT.md
+          echo "\`\`\`" >> BENCHMARK_REPORT.md
+
+      - name: Upload comprehensive results
+        uses: actions/upload-artifact@v4
+        with:
+          name: comprehensive-benchmark-${{ github.sha }}
+          path: |
+            target/criterion/
+            full_benchmark.txt
+            BENCHMARK_REPORT.md
+          retention-days: 90

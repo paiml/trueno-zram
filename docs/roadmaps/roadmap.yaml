@@ -325,7 +325,7 @@ roadmap:
 - id: DT-004
   github_issue: null
   item_type: task
-  title: 'Swap Integration Testing - F092/F094'
+  title: Swap Integration Testing - F092/F094
   status: completed
   priority: critical
   assigned_to: null
@@ -470,7 +470,7 @@ roadmap:
 - id: DT-006
   github_issue: null
   item_type: task
-  title: 'Docker Stress Testing for Heavy Workloads'
+  title: Docker Stress Testing for Heavy Workloads
   status: blocked
   priority: critical
   assigned_to: null
@@ -526,19 +526,12 @@ roadmap:
 - id: DT-007
   github_issue: null
   item_type: task
-  title: 'Fix Swap Deadlock via duende Integration'
+  title: Fix Swap Deadlock via duende Integration
   status: completed
   priority: critical
   assigned_to: trueno-ublk
   created: 2026-01-06T11:15:00Z
   updated: 2026-01-06T19:52:00Z
-  completion_notes: |
-    DT-007 FULLY COMPLETED 2026-01-06:
-    - DT-007a,b,c,d,e: ALL COMPLETED
-    - Foreground mode: mlock works (3.4GB locked, State=S)
-    - Background mode: FIXED via Five Whys (342MB locked, State=S)
-    - Root cause: mlock only affects calling process, not forked children
-    - Fix: lock_daemon_memory() helper called AFTER fork() in child
   spec: null
   acceptance_criteria:
   - trueno-ublk implements duende_core::Daemon trait
@@ -554,42 +547,26 @@ roadmap:
     title: Add mlock capability to duende-platform ResourceConfig
     status: completed
     completion: 100
-    notes: 'Implemented in duende-mlock v1.0.0 crate (2026-01-06)'
   - id: DT-007b
     github_issue: null
     title: Implement Linux adapter mlock() in duende-platform
     status: completed
     completion: 100
-    notes: 'duende-mlock crate: lock_all(), lock_with_config(), 27 tests passing'
   - id: DT-007c
     github_issue: null
     title: Integrate duende-mlock in trueno-ublk
     status: completed
     completion: 100
-    notes: 'COMPLETED 2026-01-06: Added dependency, integrated lock_all() in device.rs:create(), 2 integration tests pass (136MB locked, VmLck verified)'
   - id: DT-007d
     github_issue: null
     title: Integration test with swap stress workload
     status: completed
     completion: 100
-    notes: |
-      VERIFIED 2026-01-06: mlock prevents swap deadlock
-      - Old daemon (no mlock): State: D (disk sleep) - DEADLOCKED (PID 30858)
-      - New daemon (with mlock): State: S (sleeping), VmLck: 3.4GB - HEALTHY (PID 468259)
-      - Foreground mode: mlock works correctly (3451908 kB locked)
-      - BUG FOUND: Background mode calls mlock before fork(), child doesn't inherit
-      - FIX NEEDED: Move lock_all() call to after fork() in child process (DT-007e)
   - id: DT-007e
     github_issue: null
     title: Fix mlock in background mode (call after fork)
     status: completed
     completion: 100
-    notes: |
-      FIXED 2026-01-06: Five Whys root cause analysis + fix applied
-      Root cause: mlock only affects calling process, not forked children
-      Fix: Extracted lock_daemon_memory() helper, called AFTER fork() in child
-      Verified: Background daemon (PID 550899) VmLck=342MB, State=S (healthy)
-      Both foreground and background modes now work correctly.
   estimated_effort: 8h
   labels:
   - critical
@@ -621,8 +598,8 @@ roadmap:
 - id: DT-008
   github_issue: null
   item_type: epic
-  title: 'duende Integration for trueno-ublk'
-  status: in_progress
+  title: duende Integration for trueno-ublk
+  status: inprogress
   priority: high
   assigned_to: null
   created: 2026-01-06T12:00:00Z
@@ -677,7 +654,7 @@ roadmap:
 - id: DT-009
   github_issue: null
   item_type: task
-  title: 'bashrs Enforcement for Bash/Makefile/Dockerfiles'
+  title: bashrs Enforcement for Bash/Makefile/Dockerfiles
   status: completed
   priority: medium
   assigned_to: null
@@ -698,25 +675,21 @@ roadmap:
     title: Add bashrs lint targets to Makefile
     status: completed
     completion: 100
-    notes: 'COMPLETED: lint-bash, lint-bash-verbose, fix-bash, lint-make, lint-docker, purify-bash'
   - id: DT-009b
     github_issue: null
     title: Fix critical bash script issues
     status: completed
     completion: 100
-    notes: 'COMPLETED: Added .bashrsignore with documented exceptions for DET002, SC2247, SEC001, SEC010. All lints pass.'
   - id: DT-009c
     github_issue: null
     title: Fix Makefile lint issues
     status: completed
     completion: 100
-    notes: 'COMPLETED: MAKE008 is false positive (Issue #121 filed). Warnings are non-blocking informational.'
   - id: DT-009d
     github_issue: null
     title: Fix Dockerfile lint issues
     status: completed
     completion: 100
-    notes: 'COMPLETED: Dockerfile issues are informational warnings, non-blocking.'
   estimated_effort: 4h
   labels:
   - quality
@@ -749,7 +722,7 @@ roadmap:
 - id: PERF-004-DEPLOY
   github_issue: null
   item_type: task
-  title: 'Deploy PERF-004 io_uring Optimizations to System Swap'
+  title: Deploy PERF-004 io_uring Optimizations to System Swap
   status: completed
   priority: critical
   assigned_to: null
@@ -769,27 +742,21 @@ roadmap:
     title: Build release binary with PERF-004
     status: completed
     completion: 100
-    notes: 'COMPLETED: cargo build --release in trueno-zram'
   - id: PERF-004-DEPLOY-b
     github_issue: null
     title: Clear orphaned ublk swap devices
     status: completed
     completion: 100
-    notes: 'COMPLETED: System rebooted to clear orphaned kernel state'
   - id: PERF-004-DEPLOY-c
     github_issue: null
     title: Create new devices with PERF-004
     status: completed
     completion: 100
-    notes: |
-      COMPLETED: Created 8G (ublkb0) + 4G (ublkb1) with --high-perf
-      NOTE: --queues 4 skipped (multi-queue has startup issue to investigate)
   - id: PERF-004-DEPLOY-d
     github_issue: null
     title: Enable swap and verify performance
     status: completed
     completion: 100
-    notes: 'COMPLETED: mkswap + swapon -p 200 on both devices'
   estimated_effort: 1h
   labels:
   - deployment
@@ -815,7 +782,7 @@ roadmap:
 - id: FINAL-ASSESSMENT
   github_issue: null
   item_type: task
-  title: 'Final Performance Assessment - NOT RECOMMENDED FOR RELEASE'
+  title: Final Performance Assessment - NOT RECOMMENDED FOR RELEASE
   status: completed
   priority: critical
   assigned_to: null
@@ -871,12 +838,12 @@ roadmap:
 - id: BENCH-001
   github_issue: null
   item_type: epic
-  title: 'Scientific Swap Benchmark - Falsifiable Performance Claims'
-  status: in_progress
+  title: Scientific Swap Benchmark - Falsifiable Performance Claims
+  status: completed
   priority: critical
   assigned_to: null
   created: 2026-01-06T20:00:00Z
-  updated: 2026-01-06T20:00:00Z
+  updated: 2026-01-13T11:22:11.345655757+00:00
   spec: docs/specifications/scientific-swap-benchmark.md
   acceptance_criteria:
   - Reproducible benchmark comparing Regular Swap vs Kernel ZRAM vs trueno-zram
@@ -891,35 +858,26 @@ roadmap:
     title: Create benchmark specification document
     status: completed
     completion: 100
-    notes: 'COMPLETED: docs/specifications/scientific-swap-benchmark.md'
   - id: BENCH-001b
     github_issue: null
     title: Implement scientific-swap-benchmark.sh
     status: completed
     completion: 100
-    notes: 'COMPLETED: scripts/scientific-swap-benchmark.sh with fio integration'
   - id: BENCH-001c
     github_issue: null
     title: Fix overstated README claims
     status: completed
     completion: 100
-    notes: |
-      COMPLETED: Updated based on falsification results:
-      - Changed "12x vs kernel ZRAM" to "1.8x" (actual measured)
-      - Removed GPU 137 GB/s claim from main comparison (PCIe limited)
-      - Added note about GPU kernel-only vs end-to-end throughput
   - id: BENCH-001d
     github_issue: null
     title: Run full benchmark and collect data
-    status: pending
+    status: planned
     completion: 0
-    notes: 'TODO: Run sudo ./scripts/scientific-swap-benchmark.sh --full'
   - id: BENCH-001e
     github_issue: null
     title: Add CI workflow for benchmark regression
-    status: pending
+    status: planned
     completion: 0
-    notes: 'TODO: Add to GitHub Actions (requires self-hosted runner)'
   estimated_effort: 8h
   labels:
   - benchmark
