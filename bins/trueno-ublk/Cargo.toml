@@ -84,6 +84,11 @@ duende-mlock = "1.0"
 # ublk device lifecycle management (cleanup orphaned devices)
 duende-ublk = "0.1"
 
+# Daemon lifecycle management (DT-008)
+duende-core = "0.1"
+duende-platform = "0.1"
+duende-policy = "0.1"
+
 # Visualization integration (VIZ-001/002/003/004)
 renacer = { version = "0.9", default-features = false }
 
