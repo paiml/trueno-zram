@@ -33,3 +33,8 @@ silesia/
 
 # macOS
 .DS_Store
+
+# Benchmark raw data (keep reports only)
+benchmark-results/*/
+benchmark-results/criterion-reports/
+benchmark-results/*.svg
