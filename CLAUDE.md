@@ -39,7 +39,7 @@ trueno-zram is a SIMD-accelerated memory compression library for Linux systems, 
 | System Swap | ACTIVE | 8GB device, priority 150 |
 | CPU SIMD Compress | PRODUCTION | 20-24 GB/s at 10GB scale |
 | GPU Decompress | PRODUCTION | 137 GB/s on RTX 4090 |
-| GPU Compress | BLOCKED | NVIDIA F081 bug (Loaded Value Bug) |
+| GPU Compress | BLOCKED | F082 Computed Address Bug (F081 was FALSIFIED) |
 | mlock() Fix | **COMPLETED** | DT-007 via duende-mlock v1.0.0 |
 
 ### DT-007 Swap Deadlock Fix (COMPLETED 2026-01-06)
@@ -56,7 +56,7 @@ grep VmLck /proc/$(pgrep trueno-ublk)/status
 
 1. **Swap Deadlock (DT-007):** ✅ **FIXED** - Daemon memory is now pinned with mlock() via duende-mlock crate. Both foreground and background modes work correctly.
 
-2. **GPU Compression Blocked (KF-002):** NVIDIA PTX bug F081 prevents using loaded values from shared memory in stores. Workaround: hybrid architecture (CPU compress + GPU decompress).
+2. **GPU Compression Blocked (KF-002):** NVIDIA PTX bug **F082** (Computed Address Bug) - addresses computed from shared memory values cause crashes. Note: F081 (Loaded Value Bug) was **FALSIFIED** on 2026-01-05. Workaround: hybrid architecture (CPU compress + GPU decompress).
 
 3. **Docker Isolation:** ublk devices are host kernel resources and cannot be isolated in Docker containers. Test on host with controlled swap fill.
 

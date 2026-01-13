@@ -4,24 +4,31 @@ trueno-zram supports CUDA GPU acceleration for batch compression of memory pages
 
 ## Current Status (2026-01-06)
 
-**Important:** GPU compression is currently blocked by NVIDIA PTX bug F081 (Loaded Value Bug). The production architecture uses:
+**Important:** GPU compression is currently blocked by NVIDIA PTX bug **F082** (Computed Address Bug). The production architecture uses:
 
 - **Compression:** CPU SIMD (AVX-512) at 20-30 GB/s with 3.87x ratio
 - **Decompression:** CPU parallel at 50+ GB/s (primary path)
 
 GPU decompression is available but CPU parallel path is faster due to PCIe transfer overhead (~6 GB/s end-to-end vs 50+ GB/s CPU).
 
-### NVIDIA F081 Bug
+### NVIDIA F082 Bug (Computed Address Bug)
 
-The "Loaded Value Bug" causes CUDA_ERROR_UNKNOWN when storing values loaded from shared memory:
+> **F081 (Loaded Value Bug) was FALSIFIED on 2026-01-05** - the pattern works correctly.
+
+The **actual** bug is F082: addresses *computed from* shared memory values cause crashes:
 
 ```ptx
-// This pattern crashes:
+// F081 pattern - WORKS CORRECTLY (falsified):
 ld.shared.u32 %r_val, [addr];      // Load from shared memory
-st.global.u32 [dest], %r_val;      // CRASH - storing loaded value
+st.global.u32 [dest], %r_val;      // Actually works!
+
+// F082 pattern - CRASHES:
+ld.shared.u32 %r_offset, [shared_addr];  // Load offset from shared memory
+add.u64 %r_dest, %r_base, %r_offset;     // Compute destination address
+st.global.u32 [%r_dest], %r_data;        // CRASH - address derived from shared load
 ```
 
-Status: Reported to NVIDIA, awaiting fix. See KF-002 in roadmap for details.
+Status: True root cause identified via Popperian falsification. See KF-002 and ublk-batched-gpu-compression.md for details.
 
 ## When to Use GPU
 

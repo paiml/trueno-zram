@@ -13,7 +13,7 @@
 **DT-007 COMPLETED:** Swap deadlock issue FIXED via mlock() - 211 MB daemon memory pinned.
 
 **Known Limitations:**
-- GPU compression blocked by NVIDIA F081 bug (using CPU SIMD instead)
+- GPU compression blocked by NVIDIA F082 bug (F081 was falsified, using CPU SIMD instead)
 - I/O throughput lower than kernel ZRAM (userspace overhead)
 
 ## Why trueno-zram?
