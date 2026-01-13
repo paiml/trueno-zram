@@ -489,4 +489,228 @@ mod tests {
         // Should not crash, may be larger than input
         assert!(!result.is_empty());
     }
+
+    // === Coverage improvement tests ===
+
+    #[test]
+    fn test_compress_tls_empty() {
+        let result = compress_tls(&[]).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_compress_tls_small() {
+        let input = b"Hello World!";
+        let result = compress_tls(input).unwrap();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_compress_tls_repetitive() {
+        let input = [0xBB; 4096];
+        let result = compress_tls(&input).unwrap();
+        assert!(result.len() < input.len() / 10);
+    }
+
+    #[test]
+    fn test_compress_tls_page() {
+        // Standard page size
+        let input = [0xCC; 4096];
+        let result = compress_tls(&input).unwrap();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_compress_at_mf_limit_boundary() {
+        // MF_LIMIT = 12, test inputs around this boundary
+        for len in [10, 11, 12, 13, 14, 15, 16] {
+            let input = vec![0x42u8; len];
+            let result = compress(&input).unwrap();
+            assert!(!result.is_empty(), "len={}", len);
+        }
+    }
+
+    #[test]
+    fn test_compress_extended_literal_length() {
+        // Create input with >15 literals before first match
+        // Pattern: 20 unique bytes, then repeated pattern
+        let mut input = Vec::with_capacity(100);
+        for i in 0..20 {
+            input.push(i as u8);
+        }
+        // Add repeated pattern that will match
+        input.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        input.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        input.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+
+        let result = compress(&input).unwrap();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_compress_extended_match_length() {
+        // Create input with long repeating pattern for >15 byte match
+        let mut input = Vec::with_capacity(200);
+        // Initial unique data
+        input.extend_from_slice(b"HEADER_");
+        // Repeating pattern that will create long match
+        let pattern = b"ABCDEFGHIJKLMNOP"; // 16 bytes
+        input.extend_from_slice(pattern);
+        input.extend_from_slice(pattern);
+        input.extend_from_slice(pattern);
+        input.extend_from_slice(pattern);
+        input.extend_from_slice(pattern);
+
+        let result = compress(&input).unwrap();
+        assert!(!result.is_empty());
+        // Should compress significantly due to repetition
+        assert!(result.len() < input.len());
+    }
+
+    #[test]
+    fn test_compress_very_long_match() {
+        // Create input with very long match (>255 + 15 = 270 bytes)
+        let mut input = Vec::with_capacity(1024);
+        // Short unique prefix
+        input.extend_from_slice(b"XYZ");
+        // 300-byte repeating pattern
+        let pattern: Vec<u8> = (0..300).map(|i| (i % 7) as u8).collect();
+        input.extend_from_slice(&pattern);
+        input.extend_from_slice(&pattern);
+
+        let result = compress(&input).unwrap();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_emit_length_edge_cases() {
+        // Test emit_length with various values
+        let mut output = Vec::new();
+        emit_length(&mut output, 0);
+        assert_eq!(output, vec![0]);
+
+        let mut output = Vec::new();
+        emit_length(&mut output, 254);
+        assert_eq!(output, vec![254]);
+
+        let mut output = Vec::new();
+        emit_length(&mut output, 255);
+        assert_eq!(output, vec![255, 0]);
+
+        let mut output = Vec::new();
+        emit_length(&mut output, 256);
+        assert_eq!(output, vec![255, 1]);
+
+        let mut output = Vec::new();
+        emit_length(&mut output, 510);
+        assert_eq!(output, vec![255, 255, 0]);
+    }
+
+    #[test]
+    fn test_hash_table_new() {
+        let table = HashTable::new();
+        assert_eq!(table.table[0], 0);
+        assert_eq!(table.table[HASH_SIZE - 1], 0);
+    }
+
+    #[test]
+    fn test_hash_determinism() {
+        // Same input should always produce same hash
+        let h1 = HashTable::hash(0xDEADBEEF);
+        let h2 = HashTable::hash(0xDEADBEEF);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_hash_in_bounds() {
+        // Hash should always be within table bounds
+        for val in [0u32, 1, 0xFFFFFFFF, 0x12345678, 0xDEADC0DE] {
+            let hash = HashTable::hash(val);
+            assert!(hash < HASH_SIZE, "hash {} out of bounds for val {:x}", hash, val);
+        }
+    }
+
+    #[test]
+    fn test_compress_alternating_pattern() {
+        // Alternating bytes - tests hash collision handling
+        let input: Vec<u8> = (0..512).map(|i| if i % 2 == 0 { 0xAA } else { 0x55 }).collect();
+        let result = compress(&input).unwrap();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_compress_ascending_bytes() {
+        // Ascending sequence - less compressible
+        let input: Vec<u8> = (0u8..=255).cycle().take(1024).collect();
+        let result = compress(&input).unwrap();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_compress_sparse_matches() {
+        // Data with sparse matching opportunities
+        let mut input = Vec::with_capacity(500);
+        for i in 0..50 {
+            input.extend_from_slice(&[i as u8; 10]);
+        }
+        let result = compress(&input).unwrap();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_compress_tls_multiple_calls() {
+        // Thread-local hash table should work across multiple calls
+        let input1 = [0xDD; 256];
+        let input2 = [0xEE; 256];
+        let input3 = [0xFF; 256];
+
+        let r1 = compress_tls(&input1).unwrap();
+        let r2 = compress_tls(&input2).unwrap();
+        let r3 = compress_tls(&input3).unwrap();
+
+        assert!(!r1.is_empty());
+        assert!(!r2.is_empty());
+        assert!(!r3.is_empty());
+    }
+
+    #[test]
+    fn test_compress_min_match_boundary() {
+        // Test around MIN_MATCH (4 bytes) boundary
+        let mut input = Vec::with_capacity(100);
+        input.extend_from_slice(b"ABCD"); // 4 bytes
+        input.extend_from_slice(b"XXXX"); // filler
+        input.extend_from_slice(b"ABCD"); // repeat for match
+        input.extend_from_slice(b"YYYY");
+        input.extend_from_slice(b"ABCD"); // another match
+
+        let result = compress(&input).unwrap();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_count_match_various_lengths() {
+        // Test count_match through compress with different match lengths
+        for repeat_count in [1, 2, 4, 8, 16, 32] {
+            let pattern = b"MATCHME!";
+            let mut input = Vec::new();
+            input.extend_from_slice(b"PREFIX__");
+            for _ in 0..repeat_count {
+                input.extend_from_slice(pattern);
+            }
+            let result = compress(&input).unwrap();
+            assert!(!result.is_empty(), "repeat_count={}", repeat_count);
+        }
+    }
+
+    #[test]
+    fn test_compress_max_distance_boundary() {
+        // MAX_DISTANCE = 65535, test matches near this limit
+        let mut input = vec![0u8; 70000];
+        // Put matching pattern at start and near max distance
+        input[0..4].copy_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        input[65530..65534].copy_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+
+        let result = compress(&input).unwrap();
+        assert!(!result.is_empty());
+    }
 }
