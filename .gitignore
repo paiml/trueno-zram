@@ -38,3 +38,10 @@ silesia/
 benchmark-results/*/
 benchmark-results/criterion-reports/
 benchmark-results/*.svg
+
+# PMAT
+.pmat/backup/
+.pmat-qa/
+.pmat/context.idx/
+.pmat/workspace.idx/
+.pmat/deps-cache.json

@@ -60,6 +60,37 @@ grep VmLck /proc/$(pgrep trueno-ublk)/status
 
 3. **Docker Isolation:** ublk devices are host kernel resources and cannot be isolated in Docker containers. Test on host with controlled swap fill.
 
+## Code Search (pmat query)
+
+**NEVER use grep or rg for code discovery.** Use `pmat query` instead -- it returns quality-annotated, ranked results with TDG scores and fault annotations.
+
+```bash
+# Find functions by intent
+pmat query "compression kernel" --limit 10
+
+# Find high-quality code
+pmat query "lz4 encode" --min-grade A --exclude-tests
+
+# Find with fault annotations (unwrap, panic, unsafe, etc.)
+pmat query "decompression" --faults
+
+# Filter by complexity
+pmat query "page handler" --max-complexity 10
+
+# Cross-project search
+pmat query "simd acceleration" --include-project ../trueno
+
+# Git history search (find code by commit intent via RRF fusion)
+pmat query "fix zstd decode" -G
+pmat query "fix zstd decode" --git-history
+
+# Enrichment flags (combine freely)
+pmat query "compressor" --churn              # git volatility (commit count, churn score)
+pmat query "algorithm" --duplicates          # code clone detection (MinHash+LSH)
+pmat query "page manager" --entropy             # pattern diversity (repetitive vs unique)
+pmat query "compression pipeline" --churn --duplicates --entropy --faults -G  # full audit
+```
+
 ## ⚠️ Safe Performance Testing (MANDATORY)
 
 **A system crash occurred due to unsafe memory allocation testing.** Follow these rules:
