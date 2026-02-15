@@ -4241,7 +4241,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-ublk"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4295,7 +4295,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-zram-adaptive"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "proptest",
  "thiserror 2.0.17",
@@ -4304,7 +4304,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-zram-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "serde",
@@ -4318,7 +4318,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-zram-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "cudarc",
@@ -4330,7 +4330,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-zram-generator"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
