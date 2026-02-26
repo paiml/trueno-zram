@@ -14,5 +14,9 @@ thiserror.workspace = true
 serde.workspace = true
 toml.workspace = true
 
+[features]
+default = ["std"]
+std = []
+
 [lints]
 workspace = true

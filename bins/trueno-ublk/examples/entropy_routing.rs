@@ -49,20 +49,11 @@ fn main() -> anyhow::Result<()> {
         // Very low entropy - all same value
         ("All zeros (0.0 bits)", vec![0u8; PAGE_SIZE]),
         // Low entropy - simple pattern
-        (
-            "2-byte pattern (~1.0 bits)",
-            (0..PAGE_SIZE).map(|i| (i % 2) as u8).collect(),
-        ),
+        ("2-byte pattern (~1.0 bits)", (0..PAGE_SIZE).map(|i| (i % 2) as u8).collect()),
         // Medium-low entropy
-        (
-            "16-value pattern (~4.0 bits)",
-            (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect(),
-        ),
+        ("16-value pattern (~4.0 bits)", (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect()),
         // Medium entropy
-        (
-            "Sequential bytes (~5.5 bits)",
-            (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect(),
-        ),
+        ("Sequential bytes (~5.5 bits)", (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect()),
         // Medium-high entropy
         ("LCG pseudo-random (~6.5 bits)", {
             let mut data = vec![0u8; PAGE_SIZE];
@@ -89,10 +80,7 @@ fn main() -> anyhow::Result<()> {
         }),
     ];
 
-    println!(
-        "{:<30} {:>12} {:>15}",
-        "Pattern", "Entropy", "Expected Route"
-    );
+    println!("{:<30} {:>12} {:>15}", "Pattern", "Entropy", "Expected Route");
     println!("{:-<60}", "");
 
     for (i, (name, data)) in test_cases.iter().enumerate() {
@@ -115,27 +103,12 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n{:-<60}", "");
     println!("\nRouting Statistics:");
-    println!(
-        "  GPU pages:    {} (low entropy, highly compressible)",
-        stats.gpu_pages
-    );
-    println!(
-        "  SIMD pages:   {} (medium entropy, normal data)",
-        stats.simd_pages
-    );
-    println!(
-        "  Scalar pages: {} (high entropy, incompressible)",
-        stats.scalar_pages
-    );
-    println!(
-        "  Zero pages:   {} (all zeros, deduplicated)",
-        stats.zero_pages
-    );
+    println!("  GPU pages:    {} (low entropy, highly compressible)", stats.gpu_pages);
+    println!("  SIMD pages:   {} (medium entropy, normal data)", stats.simd_pages);
+    println!("  Scalar pages: {} (high entropy, incompressible)", stats.scalar_pages);
+    println!("  Zero pages:   {} (all zeros, deduplicated)", stats.zero_pages);
 
-    println!(
-        "\nTotal compression ratio: {:.2}x",
-        stats.compression_ratio()
-    );
+    println!("\nTotal compression ratio: {:.2}x", stats.compression_ratio());
 
     // Verify routing worked correctly
     println!("\nRouting Verification:");

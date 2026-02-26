@@ -109,11 +109,7 @@ unsafe fn decompress_fast(input: &[u8], output: &mut [u8]) -> Result<usize> {
     let op_end = op.add(output.len());
 
     // We need headroom for wildcard copies
-    let _op_safe_end = if output.len() >= 16 {
-        op_end.sub(16)
-    } else {
-        op_start
-    };
+    let _op_safe_end = if output.len() >= 16 { op_end.sub(16) } else { op_start };
 
     loop {
         // Read token
@@ -144,9 +140,7 @@ unsafe fn decompress_fast(input: &[u8], output: &mut [u8]) -> Result<usize> {
         // Copy literals
         if literal_len > 0 {
             if ip.add(literal_len) > ip_end {
-                return Err(Error::CorruptedData(
-                    "literal extends past input".to_string(),
-                ));
+                return Err(Error::CorruptedData("literal extends past input".to_string()));
             }
             if op.add(literal_len) > op_end {
                 return Err(Error::BufferTooSmall {
@@ -174,9 +168,7 @@ unsafe fn decompress_fast(input: &[u8], output: &mut [u8]) -> Result<usize> {
 
         // Read offset (little-endian 16-bit)
         if ip.add(2) > ip_end {
-            return Err(Error::CorruptedData(
-                "unexpected end of input at offset".to_string(),
-            ));
+            return Err(Error::CorruptedData("unexpected end of input at offset".to_string()));
         }
         let offset = read_u16_le(ip) as usize;
         ip = ip.add(2);

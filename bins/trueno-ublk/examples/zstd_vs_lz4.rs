@@ -53,10 +53,7 @@ fn benchmark_algorithm(
     data: &[u8; PAGE_SIZE],
     iterations: usize,
 ) -> (f64, f64, f64) {
-    let compressor = CompressorBuilder::new()
-        .algorithm(algorithm)
-        .build()
-        .unwrap();
+    let compressor = CompressorBuilder::new().algorithm(algorithm).build().unwrap();
 
     // Compression benchmark
     let start = Instant::now();
@@ -66,8 +63,7 @@ fn benchmark_algorithm(
         last_compressed = Some(compressed);
     }
     let compress_time = start.elapsed();
-    let compress_throughput =
-        (PAGE_SIZE * iterations) as f64 / compress_time.as_secs_f64() / 1e9;
+    let compress_throughput = (PAGE_SIZE * iterations) as f64 / compress_time.as_secs_f64() / 1e9;
 
     let compressed = last_compressed.unwrap();
     let compressed_size = compressed.data.len();
@@ -124,10 +120,7 @@ fn main() {
         let data = generate_test_data(entropy_level);
 
         println!("{}", description);
-        println!(
-            "{:<14} {:>14} {:>14} {:>8}",
-            "Algorithm", "Compress", "Decompress", "Ratio"
-        );
+        println!("{:<14} {:>14} {:>14} {:>8}", "Algorithm", "Compress", "Decompress", "Ratio");
         println!("{:-<56}", "");
 
         let (lz4_c, lz4_d, _) = benchmark_algorithm("LZ4", Algorithm::Lz4, &data, iterations);

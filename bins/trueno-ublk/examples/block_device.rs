@@ -42,9 +42,7 @@ fn main() -> anyhow::Result<()> {
     println!("  Page 2: Sequential data");
 
     // Pattern 4: Pseudo-random data (less compressible)
-    let random: Vec<u8> = (0..PAGE_SIZE)
-        .map(|i| ((i * 17 + 31) % 256) as u8)
-        .collect();
+    let random: Vec<u8> = (0..PAGE_SIZE).map(|i| ((i * 17 + 31) % 256) as u8).collect();
     device.write(3 * PAGE_SIZE as u64, &random)?;
     println!("  Page 3: Pseudo-random data\n");
 

@@ -262,12 +262,8 @@ mod tests {
 
     #[test]
     fn test_zram_config_for_create() {
-        let config = ZramConfig {
-            device: 0,
-            size: 1024 * 1024,
-            algorithm: "zstd".to_string(),
-            streams: 4,
-        };
+        let config =
+            ZramConfig { device: 0, size: 1024 * 1024, algorithm: "zstd".to_string(), streams: 4 };
         assert_eq!(config.device, 0);
         assert_eq!(config.size, 1024 * 1024);
         assert_eq!(config.algorithm, "zstd");
@@ -360,12 +356,8 @@ mod tests {
     #[test]
     fn test_create_with_high_device_number() {
         let ops = SysfsOps::new();
-        let config = ZramConfig {
-            device: 999,
-            size: 1024 * 1024,
-            algorithm: "lz4".to_string(),
-            streams: 1,
-        };
+        let config =
+            ZramConfig { device: 999, size: 1024 * 1024, algorithm: "lz4".to_string(), streams: 1 };
         // This will fail because device doesn't exist
         let result = ops.create(&config);
         // Either fails (expected) or somehow succeeds

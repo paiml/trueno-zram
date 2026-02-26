@@ -4,10 +4,10 @@
 
 ## Table of Contents
 
-- [Installation](#quick-start)
-- [Usage](#library-usage)
+- [Installation](#installation)
+- [Usage](#usage)
 - [Architecture](#architecture)
-- [API Reference](#cli-commands)
+- [API Reference](#api-reference)
 - [Examples](#examples)
 - [Testing](#testing)
 - [Contributing](#contributing)
@@ -37,7 +37,7 @@ Kernel zram uses scalar LZ4 limited to **1.3 GB/s**. trueno-zram uses AVX-512 ZS
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Start
+## Installation
 
 ```bash
 # Install
@@ -113,7 +113,7 @@ Algorithm            Compress     Decompress    Ratio
   ZSTD-1 speedup: 32x faster decompression
 ```
 
-## Library Usage
+## Usage
 
 ```rust
 use trueno_zram_core::{CompressorBuilder, Algorithm, PageCompressor, PAGE_SIZE};
@@ -131,7 +131,7 @@ let decompressed = compressor.decompress(&compressed)?;
 assert_eq!(page, decompressed);
 ```
 
-## CLI Commands
+## API Reference
 
 ```bash
 trueno-ublk create    # Create compressed RAM device

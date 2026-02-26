@@ -26,9 +26,7 @@ fn main() {
     println!("╚══════════════════════════════════════════════════════════════════╝\n");
 
     // System info
-    let num_cpus = std::thread::available_parallelism()
-        .map(|p| p.get())
-        .unwrap_or(1);
+    let num_cpus = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1);
     println!("CPU Cores: {}", num_cpus);
 
     #[cfg(feature = "cuda")]
@@ -62,11 +60,7 @@ fn main() {
         let pages = generate_mixed_pages(count);
         let result = benchmark_per_page(&pages);
 
-        let throughput_indicator = if result.throughput_gbps >= 10.0 {
-            "✓"
-        } else {
-            "✗"
-        };
+        let throughput_indicator = if result.throughput_gbps >= 10.0 { "✓" } else { "✗" };
         println!(
             "  {:>6} pages: {:>6.2} GB/s, {:>5.2}x ratio, {:>7.2} ms  {} >10 GB/s",
             count, result.throughput_gbps, result.ratio, result.time_ms, throughput_indicator
@@ -89,11 +83,7 @@ fn main() {
         let result = benchmark_batched(&pages, 1000);
         batched_results.push((count, result.clone()));
 
-        let throughput_indicator = if result.throughput_gbps >= 10.0 {
-            "✓"
-        } else {
-            "✗"
-        };
+        let throughput_indicator = if result.throughput_gbps >= 10.0 { "✓" } else { "✗" };
         let backend = match result.backend_used.as_str() {
             "simd" => "SIMD",
             "simd_parallel" => "SIMD||",
@@ -123,11 +113,7 @@ fn main() {
         let pages = generate_mixed_pages(count);
         let result = benchmark_batched(&pages, 100);
 
-        let throughput_indicator = if result.throughput_gbps >= 10.0 {
-            "✓"
-        } else {
-            "✗"
-        };
+        let throughput_indicator = if result.throughput_gbps >= 10.0 { "✓" } else { "✗" };
         println!(
             "  {:>6} pages: {:>6.2} GB/s, {:>5.2}x ratio, {:>7.2} ms  {} >10 GB/s",
             count, result.throughput_gbps, result.ratio, result.time_ms, throughput_indicator
@@ -174,11 +160,7 @@ fn main() {
     // Find best batched result
     let best_batched = batched_results
         .iter()
-        .max_by(|a, b| {
-            a.1.throughput_gbps
-                .partial_cmp(&b.1.throughput_gbps)
-                .unwrap()
-        })
+        .max_by(|a, b| a.1.throughput_gbps.partial_cmp(&b.1.throughput_gbps).unwrap())
         .unwrap();
 
     let achieved_target = best_batched.1.throughput_gbps >= 10.0;
@@ -187,14 +169,7 @@ fn main() {
         "Best batched throughput: {:.2} GB/s ({} pages)",
         best_batched.1.throughput_gbps, best_batched.0
     );
-    println!(
-        "Target: >10 GB/s: {}",
-        if achieved_target {
-            "ACHIEVED ✓"
-        } else {
-            "NOT YET ✗"
-        }
-    );
+    println!("Target: >10 GB/s: {}", if achieved_target { "ACHIEVED ✓" } else { "NOT YET ✗" });
 
     if achieved_target {
         println!("\n✓ BatchedPageStore meets the >10 GB/s target!");
@@ -329,11 +304,7 @@ fn generate_mixed_pages(count: usize) -> Vec<[u8; PAGE_SIZE]> {
                     for (j, byte) in page.iter_mut().enumerate() {
                         // Weighted towards ASCII letters
                         let base = ((i * 31 + j * 17) % 52) as u8;
-                        *byte = if base < 26 {
-                            b'a' + base
-                        } else {
-                            b'A' + (base - 26)
-                        };
+                        *byte = if base < 26 { b'a' + base } else { b'A' + (base - 26) };
                     }
                 }
                 _ => {

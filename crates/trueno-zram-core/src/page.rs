@@ -29,21 +29,13 @@ impl CompressedPage {
             )));
         }
 
-        Ok(Self {
-            data,
-            original_size,
-            algorithm,
-        })
+        Ok(Self { data, original_size, algorithm })
     }
 
     /// Create a compressed page for incompressible data (stored uncompressed).
     #[must_use]
     pub fn uncompressed(data: [u8; PAGE_SIZE]) -> Self {
-        Self {
-            data: data.to_vec(),
-            original_size: PAGE_SIZE,
-            algorithm: Algorithm::None,
-        }
+        Self { data: data.to_vec(), original_size: PAGE_SIZE, algorithm: Algorithm::None }
     }
 
     /// Get the compression ratio (original / compressed).
@@ -178,11 +170,7 @@ mod tests {
 
     #[test]
     fn test_compression_stats_ratio() {
-        let stats = CompressionStats {
-            bytes_in: 4096,
-            bytes_out: 1024,
-            ..Default::default()
-        };
+        let stats = CompressionStats { bytes_in: 4096, bytes_out: 1024, ..Default::default() };
         assert!((stats.overall_ratio() - 4.0).abs() < 0.001);
     }
 
@@ -199,11 +187,8 @@ mod tests {
     #[test]
     fn test_compressed_page_ratio_empty_data() {
         // Edge case: empty data should return ratio of 1.0
-        let page = CompressedPage {
-            data: vec![],
-            original_size: PAGE_SIZE,
-            algorithm: Algorithm::None,
-        };
+        let page =
+            CompressedPage { data: vec![], original_size: PAGE_SIZE, algorithm: Algorithm::None };
         assert!((page.ratio() - 1.0).abs() < f64::EPSILON);
     }
 

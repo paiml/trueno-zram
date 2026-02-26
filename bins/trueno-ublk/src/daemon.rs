@@ -13,17 +13,17 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
+use parking_lot::RwLock;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::io::{Error as IoError, ErrorKind, Result as IoResult};
-use parking_lot::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 #[cfg(feature = "cuda")]
 use std::sync::Mutex;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use trueno_zram_core::{
+    samefill::{fill_page_word, page_same_filled},
     Algorithm, CompressedPage as CoreCompressedPage, CompressorBuilder, PageCompressor, PAGE_SIZE,
-    samefill::{page_same_filled, fill_page_word},
 };
 
 #[cfg(feature = "cuda")]
@@ -146,11 +146,7 @@ impl PageStore {
 
         // Convert slice to fixed-size array
         let page: &[u8; PAGE_SIZE] = data.try_into().map_err(|_| {
-            anyhow::anyhow!(
-                "Invalid page size: expected {}, got {}",
-                PAGE_SIZE,
-                data.len()
-            )
+            anyhow::anyhow!("Invalid page size: expected {}, got {}", PAGE_SIZE, data.len())
         })?;
 
         // P0 CRITICAL: Check same-fill BEFORE compression (kernel zram pattern)
@@ -175,10 +171,8 @@ impl PageStore {
             self.simd_pages.fetch_add(1, Ordering::Relaxed);
         }
 
-        self.bytes_stored
-            .fetch_add(data.len() as u64, Ordering::Relaxed);
-        self.bytes_compressed
-            .fetch_add(compressed.data.len() as u64, Ordering::Relaxed);
+        self.bytes_stored.fetch_add(data.len() as u64, Ordering::Relaxed);
+        self.bytes_compressed.fetch_add(compressed.data.len() as u64, Ordering::Relaxed);
 
         self.pages.insert(sector, StoredPage::Compressed(compressed));
         Ok(())
@@ -198,8 +192,8 @@ impl PageStore {
         match self.pages.get(&sector) {
             Some(StoredPage::SameFill(fill_value)) => {
                 // Same-fill path: use word-fill (kernel memset_l equivalent)
-                let buf_array: &mut [u8; PAGE_SIZE] = buffer.try_into()
-                    .map_err(|_| anyhow::anyhow!("Buffer size mismatch"))?;
+                let buf_array: &mut [u8; PAGE_SIZE] =
+                    buffer.try_into().map_err(|_| anyhow::anyhow!("Buffer size mismatch"))?;
                 fill_page_word(buf_array, *fill_value);
                 Ok(true)
             }
@@ -367,10 +361,8 @@ impl PageStore {
             self.simd_pages.fetch_add(1, Ordering::Relaxed);
         }
 
-        self.bytes_stored
-            .fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
-        self.bytes_compressed
-            .fetch_add(compressed.data.len() as u64, Ordering::Relaxed);
+        self.bytes_stored.fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
+        self.bytes_compressed.fetch_add(compressed.data.len() as u64, Ordering::Relaxed);
         self.pages.insert(sector, StoredPage::Compressed(compressed));
         Ok(())
     }
@@ -440,9 +432,7 @@ impl PendingBatch {
     /// Drain all pages as a Vec for batch processing
     fn drain_to_vec(&mut self) -> Vec<(u64, [u8; PAGE_SIZE])> {
         self.oldest_timestamp = None;
-        std::mem::take(&mut self.pages)
-            .into_iter()
-            .collect()
+        std::mem::take(&mut self.pages).into_iter().collect()
     }
 }
 
@@ -659,17 +649,13 @@ impl BatchedPageStore {
         drop(store); // Release lock early
 
         // Update statistics
-        self.bytes_stored
-            .fetch_add((batch_size * PAGE_SIZE) as u64, Ordering::Relaxed);
-        self.bytes_compressed
-            .fetch_add(total_compressed_bytes as u64, Ordering::Relaxed);
+        self.bytes_stored.fetch_add((batch_size * PAGE_SIZE) as u64, Ordering::Relaxed);
+        self.bytes_compressed.fetch_add(total_compressed_bytes as u64, Ordering::Relaxed);
         self.batch_flushes.fetch_add(1, Ordering::Relaxed);
         if is_gpu {
-            self.gpu_pages
-                .fetch_add(batch_size as u64, Ordering::Relaxed);
+            self.gpu_pages.fetch_add(batch_size as u64, Ordering::Relaxed);
         } else {
-            self.simd_pages
-                .fetch_add(batch_size as u64, Ordering::Relaxed);
+            self.simd_pages.fetch_add(batch_size as u64, Ordering::Relaxed);
         }
 
         Ok(())
@@ -861,11 +847,7 @@ impl BatchedPageStore {
     ) -> Result<Vec<CoreCompressedPage>> {
         pages
             .iter()
-            .map(|page| {
-                self.simd_compressor
-                    .compress(page)
-                    .map_err(|e| anyhow::anyhow!("{}", e))
-            })
+            .map(|page| self.simd_compressor.compress(page).map_err(|e| anyhow::anyhow!("{}", e)))
             .collect()
     }
 
@@ -926,11 +908,7 @@ impl BatchedPageStore {
         use rayon::prelude::*;
         use trueno_zram_core::lz4;
 
-        assert_eq!(
-            sectors.len(),
-            buffers.len(),
-            "sectors and buffers must have same length"
-        );
+        assert_eq!(sectors.len(), buffers.len(), "sectors and buffers must have same length");
 
         // Get read locks once for the entire batch
         let pending = self.pending.read();
@@ -939,9 +917,9 @@ impl BatchedPageStore {
         // PERF-016: O(1) lookup with direct data copy (no indices needed)
         #[derive(Clone)]
         enum PageRef {
-            SameFill(u64),                     // Same-fill value (PERF-013)
-            Pending(Box<[u8; PAGE_SIZE]>),     // Boxed to avoid large enum variant
-            Compressed(Vec<u8>),               // Must clone for thread safety
+            SameFill(u64),                 // Same-fill value (PERF-013)
+            Pending(Box<[u8; PAGE_SIZE]>), // Boxed to avoid large enum variant
+            Compressed(Vec<u8>),           // Must clone for thread safety
             NotFound,
         }
 
@@ -1024,10 +1002,7 @@ impl BatchedPageStore {
         }
 
         // Check timeout
-        pending
-            .oldest_timestamp
-            .map(|t| t.elapsed() > self.config.flush_timeout)
-            .unwrap_or(false)
+        pending.oldest_timestamp.map(|t| t.elapsed() > self.config.flush_timeout).unwrap_or(false)
     }
 
     /// Get statistics
@@ -1151,10 +1126,10 @@ impl BatchedPageStore {
                                 fill_page_word(&mut page_buf, *fill_value);
                             }
                             StoredPage::Compressed(compressed) => {
-                                let decompressed = self
-                                    .simd_compressor
-                                    .decompress(compressed)
-                                    .map_err(|e| IoError::new(ErrorKind::InvalidData, e.to_string()))?;
+                                let decompressed =
+                                    self.simd_compressor.decompress(compressed).map_err(|e| {
+                                        IoError::new(ErrorKind::InvalidData, e.to_string())
+                                    })?;
                                 page_buf.copy_from_slice(&decompressed);
                             }
                         }
@@ -1179,8 +1154,7 @@ impl BatchedPageStore {
 
     /// Store a single page (internal helper)
     fn store_page(&self, sector: u64, data: &[u8; PAGE_SIZE]) -> IoResult<()> {
-        self.store(sector, data)
-            .map_err(|e| IoError::other(e.to_string()))
+        self.store(sector, data).map_err(|e| IoError::other(e.to_string()))
     }
 
     /// Discard sectors (ublk daemon interface)
@@ -1372,10 +1346,7 @@ impl TieredPageStore {
     pub fn new(inner: Arc<BatchedPageStore>, config: TieredConfig) -> anyhow::Result<Self> {
         let kernel_backend = match (&config.backend, &config.zram_device) {
             (BackendType::KernelZram | BackendType::Tiered, Some(path)) => {
-                tracing::info!(
-                    "KERN-001: Opening kernel ZRAM backend: {}",
-                    path.display()
-                );
+                tracing::info!("KERN-001: Opening kernel ZRAM backend: {}", path.display());
                 Some(Arc::new(KernelZramBackend::new(path)?))
             }
             _ => None,
@@ -1384,10 +1355,7 @@ impl TieredPageStore {
         // KERN-003: NVMe cold tier backend
         let nvme_backend = match &config.cold_tier {
             Some(path) => {
-                tracing::info!(
-                    "KERN-003: Opening NVMe cold tier backend: {}",
-                    path.display()
-                );
+                tracing::info!("KERN-003: Opening NVMe cold tier backend: {}", path.display());
                 Some(Arc::new(NvmeColdBackend::new(path)?))
             }
             _ => None,
@@ -1578,7 +1546,9 @@ impl TieredPageStore {
 
             if all_kernel {
                 // All pages are in kernel tier - use bulk read!
-                let backend = self.kernel_backend.as_ref()
+                let backend = self
+                    .kernel_backend
+                    .as_ref()
                     .expect("kernel_backend must be Some when all pages are in kernel tier");
                 let page_idx = start_page / SECTORS_PER_PAGE;
                 let aligned_len = num_pages * PAGE_SIZE;
@@ -1609,9 +1579,8 @@ impl TieredPageStore {
             } else {
                 // Full page read - try inner first (same-fill is very fast)
                 let buf_slice = &mut buffer[offset..offset + PAGE_SIZE];
-                let buf_array: &mut [u8; PAGE_SIZE] = buf_slice
-                    .try_into()
-                    .expect("slice is exactly PAGE_SIZE bytes");
+                let buf_array: &mut [u8; PAGE_SIZE] =
+                    buf_slice.try_into().expect("slice is exactly PAGE_SIZE bytes");
 
                 // Try inner store first (same-fill + trueno pages) - NO lock needed
                 if !self.inner.load(page_sector, buf_array).unwrap_or(false) {
@@ -1935,10 +1904,7 @@ mod tests {
 
         // First 512 bytes should match, rest should be zeros
         assert_eq!(&buffer[..512], &sector_data[..], "First sector mismatch");
-        assert!(
-            buffer[512..].iter().all(|&b| b == 0),
-            "Rest should be zeros"
-        );
+        assert!(buffer[512..].iter().all(|&b| b == 0), "Rest should be zeros");
     }
 
     /// B.14: Boundary check: Write to last sector
@@ -1952,15 +1918,11 @@ mod tests {
 
         // Write to last page
         let data = [0xEFu8; PAGE_SIZE];
-        store
-            .write(last_page_sector, &data)
-            .expect("write to last sector failed");
+        store.write(last_page_sector, &data).expect("write to last sector failed");
 
         // Read back
         let mut buffer = [0u8; PAGE_SIZE];
-        store
-            .read(last_page_sector, &mut buffer)
-            .expect("read from last sector failed");
+        store.read(last_page_sector, &mut buffer).expect("read from last sector failed");
         assert_eq!(data, buffer, "Last sector data mismatch");
     }
 
@@ -2017,11 +1979,7 @@ mod tests {
             store.read(sector, &mut buffer).expect("read failed");
 
             let checksum: u64 = buffer.iter().map(|&b| b as u64).sum();
-            assert_eq!(
-                checksum, expected_checksums[i],
-                "Checksum mismatch at page {}",
-                i
-            );
+            assert_eq!(checksum, expected_checksums[i], "Checksum mismatch at page {}", i);
         }
     }
 
@@ -2040,14 +1998,10 @@ mod tests {
         assert_eq!(data, buffer, "Data not written");
 
         // Discard the sector
-        store
-            .discard(0, SECTORS_PER_PAGE as u32)
-            .expect("discard failed");
+        store.discard(0, SECTORS_PER_PAGE as u32).expect("discard failed");
 
         // Read should return zeros (unallocated)
-        store
-            .read(0, &mut buffer)
-            .expect("read after discard failed");
+        store.read(0, &mut buffer).expect("read after discard failed");
         assert!(is_zero_page(&buffer), "Data not cleared after discard");
     }
 
@@ -2061,9 +2015,7 @@ mod tests {
         store.write(0, &data).expect("write failed");
 
         // Issue write_zeroes
-        store
-            .write_zeroes(0, SECTORS_PER_PAGE as u32)
-            .expect("write_zeroes failed");
+        store.write_zeroes(0, SECTORS_PER_PAGE as u32).expect("write_zeroes failed");
 
         // Read should return zeros
         let mut buffer = [0xFFu8; PAGE_SIZE];
@@ -2093,10 +2045,7 @@ mod tests {
 
         let mut buffer = [0xFFu8; PAGE_SIZE];
         store.read(0, &mut buffer).expect("read failed");
-        assert!(
-            is_zero_page(&buffer),
-            "Unallocated sector should return zeros"
-        );
+        assert!(is_zero_page(&buffer), "Unallocated sector should return zeros");
     }
 
     /// Test overwrite existing data
@@ -2190,9 +2139,7 @@ mod tests {
         for i in 0..99 {
             let mut data = [0u8; PAGE_SIZE];
             data[0] = (i + 1) as u8; // Non-zero to avoid zero-page fast path
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // Verify pages are still in pending
@@ -2203,25 +2150,17 @@ mod tests {
         // Write one more page to reach threshold
         let mut data = [0u8; PAGE_SIZE];
         data[0] = 100;
-        store
-            .store((99 * SECTORS_PER_PAGE as usize) as u64, &data)
-            .unwrap();
+        store.store((99 * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
 
         // Verify threshold reached (should_flush returns true)
-        assert!(
-            store.should_flush(),
-            "should_flush() should return true at threshold"
-        );
+        assert!(store.should_flush(), "should_flush() should return true at threshold");
 
         // PERF-002: Explicitly flush (in production, background thread does this)
         store.flush_batch().unwrap();
 
         // Verify batch was flushed
         let stats = store.stats();
-        assert_eq!(
-            stats.pending_pages, 0,
-            "Pending should be empty after flush"
-        );
+        assert_eq!(stats.pending_pages, 0, "Pending should be empty after flush");
         assert_eq!(stats.batch_flushes, 1, "One flush should have occurred");
     }
 
@@ -2242,9 +2181,7 @@ mod tests {
         for i in 0..50 {
             let mut data = [0u8; PAGE_SIZE];
             data[0] = (i + 1) as u8;
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // Verify pages are pending
@@ -2261,10 +2198,7 @@ mod tests {
 
         // Verify pages are now compressed
         let stats = store.stats();
-        assert_eq!(
-            stats.pending_pages, 0,
-            "Pending should be empty after timeout flush"
-        );
+        assert_eq!(stats.pending_pages, 0, "Pending should be empty after timeout flush");
         assert_eq!(stats.batch_flushes, 1, "Flush should have occurred");
     }
 
@@ -2284,9 +2218,7 @@ mod tests {
                 data[j] = ((i * 17 + j * 31) % 256) as u8;
             }
             expected_data.push(data);
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // Verify pages are in pending (not flushed)
@@ -2295,9 +2227,7 @@ mod tests {
         // Read back and verify from pending buffer
         for (i, expected) in expected_data.iter().enumerate() {
             let mut buffer = [0u8; PAGE_SIZE];
-            let found = store
-                .load((i * SECTORS_PER_PAGE as usize) as u64, &mut buffer)
-                .unwrap();
+            let found = store.load((i * SECTORS_PER_PAGE as usize) as u64, &mut buffer).unwrap();
             assert!(found, "Page {} should be found", i);
             assert_eq!(expected, &buffer, "Page {} data mismatch", i);
         }
@@ -2320,9 +2250,7 @@ mod tests {
         for i in 0..50 {
             let mut data = [0u8; PAGE_SIZE];
             data[0] = (i + 1) as u8;
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // PERF-002: Explicitly flush (background thread does this in production)
@@ -2353,11 +2281,7 @@ mod tests {
 
         // Small batch (< 100) uses Simd for lowest latency
         let backend = store.select_backend(50);
-        assert_eq!(
-            backend,
-            Backend::Simd,
-            "50 pages should use Simd (3.7 GB/s)"
-        );
+        assert_eq!(backend, Backend::Simd, "50 pages should use Simd (3.7 GB/s)");
 
         let backend = store.select_backend(99);
         assert_eq!(backend, Backend::Simd, "99 pages should use Simd");
@@ -2365,18 +2289,10 @@ mod tests {
         // Medium and large batches use SimdParallel (19-24 GB/s)
         // GPU disabled: literal-only kernel is slower than CPU parallel
         let backend = store.select_backend(100);
-        assert_eq!(
-            backend,
-            Backend::SimdParallel,
-            "100 pages should use SimdParallel"
-        );
+        assert_eq!(backend, Backend::SimdParallel, "100 pages should use SimdParallel");
 
         let backend = store.select_backend(500);
-        assert_eq!(
-            backend,
-            Backend::SimdParallel,
-            "500 pages should use SimdParallel"
-        );
+        assert_eq!(backend, Backend::SimdParallel, "500 pages should use SimdParallel");
 
         let backend = store.select_backend(2000);
         assert_eq!(
@@ -2386,11 +2302,7 @@ mod tests {
         );
 
         let backend = store.select_backend(10000);
-        assert_eq!(
-            backend,
-            Backend::SimdParallel,
-            "10000 pages should use SimdParallel"
-        );
+        assert_eq!(backend, Backend::SimdParallel, "10000 pages should use SimdParallel");
     }
 
     /// G.106: Zero-Page Fast Path Test
@@ -2404,9 +2316,7 @@ mod tests {
         // Write 100 zero pages (should bypass batching)
         for i in 0..100 {
             let data = [0u8; PAGE_SIZE];
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // Zero pages should be stored immediately, not in pending
@@ -2418,9 +2328,7 @@ mod tests {
         for i in 100..200 {
             let mut data = [0u8; PAGE_SIZE];
             data[0] = (i - 99) as u8;
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // PERF-002: Explicitly flush (background thread does this in production)
@@ -2428,10 +2336,7 @@ mod tests {
 
         // Non-zero pages should trigger batch (threshold is 100)
         let stats = store.stats();
-        assert!(
-            stats.batch_flushes >= 1,
-            "Non-zero pages should trigger batch flush"
-        );
+        assert!(stats.batch_flushes >= 1, "Non-zero pages should trigger batch flush");
     }
 
     /// Test BatchedPageStore roundtrip with ublk interface
@@ -2469,10 +2374,7 @@ mod tests {
         // Read should return zeros
         let mut buffer = [0xFFu8; PAGE_SIZE];
         store.read(0, &mut buffer).unwrap();
-        assert!(
-            is_zero_page(&buffer),
-            "Discarded sector should return zeros"
-        );
+        assert!(is_zero_page(&buffer), "Discarded sector should return zeros");
     }
 
     /// Test BatchedPageStore write_zeroes
@@ -2547,9 +2449,7 @@ mod tests {
 
         println!(
             "CPU cores: {}, rayon threads: {}",
-            std::thread::available_parallelism()
-                .map(|p| p.get())
-                .unwrap_or(1),
+            std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1),
             rayon::current_num_threads()
         );
 
@@ -2593,11 +2493,7 @@ mod tests {
             let elapsed = start.elapsed();
             let throughput_gbps = input_bytes as f64 / elapsed.as_secs_f64() / 1e9;
 
-            let status = if throughput_gbps >= target_gbps {
-                "✓"
-            } else {
-                "✗"
-            };
+            let status = if throughput_gbps >= target_gbps { "✓" } else { "✗" };
             println!(
                 "  {:>6} pages: {:>6.2} GB/s ({:>6.2}ms, {} MB) {}",
                 batch_size,
@@ -2613,10 +2509,7 @@ mod tests {
             }
         }
 
-        println!(
-            "\nBest: {:.2} GB/s @ {} pages",
-            best_throughput, best_batch_size
-        );
+        println!("\nBest: {:.2} GB/s @ {} pages", best_throughput, best_batch_size);
         println!("Target: {:.1} GB/s", target_gbps);
 
         // FALSIFICATION: Best throughput must be >= 3 GB/s for small-scale test
@@ -2654,9 +2547,7 @@ mod tests {
         for i in 0..5 {
             let mut data = [0u8; PAGE_SIZE];
             data[0] = (i + 1) as u8; // Non-zero
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
             // With threshold=1, should_flush returns true, background thread would flush
             // For test determinism, we flush explicitly
             store.flush_batch().unwrap();
@@ -2687,19 +2578,12 @@ mod tests {
         store.store(0, &data).unwrap();
 
         // should_flush should return true immediately (timeout=0)
-        assert!(
-            store.should_flush(),
-            "Timeout=0 should always indicate flush needed"
-        );
+        assert!(store.should_flush(), "Timeout=0 should always indicate flush needed");
 
         // Flush and verify
         store.flush_batch().unwrap();
         assert_eq!(store.stats().pending_pages, 0, "Pending should be empty");
-        assert_eq!(
-            store.stats().batch_flushes,
-            1,
-            "One flush should have occurred"
-        );
+        assert_eq!(store.stats().batch_flushes, 1, "One flush should have occurred");
     }
 
     /// QA Edge Case: Large batch_threshold doesn't prevent timer flush
@@ -2779,9 +2663,7 @@ mod tests {
             for (j, byte) in data.iter_mut().enumerate() {
                 *byte = ((i + j) % 256) as u8;
             }
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // PERF-002: store() is non-blocking, flush explicitly for test
@@ -2844,11 +2726,7 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            errors, 0,
-            "G.110 REFUTED: {} pages failed roundtrip verification",
-            errors
-        );
+        assert_eq!(errors, 0, "G.110 REFUTED: {} pages failed roundtrip verification", errors);
 
         let stats = store.stats();
         println!(
@@ -2879,9 +2757,7 @@ mod tests {
             data[0] = (i + 1) as u8;
 
             let start = std::time::Instant::now();
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
             latencies_ns.push(start.elapsed().as_nanos() as u64);
         }
 
@@ -2905,10 +2781,7 @@ mod tests {
             target_us
         );
 
-        println!(
-            "G.111 VERIFIED: p99 latency {:.2}us < {}us target",
-            p99_us, target_us
-        );
+        println!("G.111 VERIFIED: p99 latency {:.2}us < {}us target", p99_us, target_us);
     }
 
     /// G.112: Batch Flush Latency (Popperian Falsification)
@@ -2936,9 +2809,7 @@ mod tests {
                 for (j, byte) in data.iter_mut().enumerate() {
                     *byte = ((iteration * 1000 + i + j) % 256) as u8;
                 }
-                store
-                    .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                    .unwrap();
+                store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
             }
 
             // Time the flush
@@ -2968,10 +2839,7 @@ mod tests {
             target_ms
         );
 
-        println!(
-            "G.112 VERIFIED: p99 flush latency {:.2}ms < {}ms target",
-            p99, target_ms
-        );
+        println!("G.112 VERIFIED: p99 flush latency {:.2}ms < {}ms target", p99, target_ms);
     }
 
     /// G.113: Single Page Read Latency (Popperian Falsification)
@@ -2995,9 +2863,7 @@ mod tests {
             for (j, byte) in data.iter_mut().enumerate() {
                 *byte = ((i * 17 + j * 31) % 256) as u8;
             }
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // Measure read latencies
@@ -3006,9 +2872,7 @@ mod tests {
         for i in 0..1000 {
             let mut buffer = [0u8; PAGE_SIZE];
             let start = std::time::Instant::now();
-            store
-                .load((i * SECTORS_PER_PAGE as usize) as u64, &mut buffer)
-                .unwrap();
+            store.load((i * SECTORS_PER_PAGE as usize) as u64, &mut buffer).unwrap();
             latencies_ns.push(start.elapsed().as_nanos() as u64);
         }
 
@@ -3034,10 +2898,7 @@ mod tests {
             target_us
         );
 
-        println!(
-            "G.113 VERIFIED: p99 read latency {:.2}us < {}us target",
-            p99_us, target_us
-        );
+        println!("G.113 VERIFIED: p99 read latency {:.2}us < {}us target", p99_us, target_us);
     }
 
     /// G.114: Batch Read Latency (Popperian Falsification)
@@ -3062,15 +2923,11 @@ mod tests {
             for (j, byte) in data.iter_mut().enumerate() {
                 *byte = ((i * 17 + j * 31) % 256) as u8;
             }
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // Prepare sectors and buffers for batch read
-        let sectors: Vec<u64> = (0..1000)
-            .map(|i| (i * SECTORS_PER_PAGE as usize) as u64)
-            .collect();
+        let sectors: Vec<u64> = (0..1000).map(|i| (i * SECTORS_PER_PAGE as usize) as u64).collect();
         let mut buffers = vec![[0u8; PAGE_SIZE]; 1000];
 
         // Measure batch read latency (10 iterations) using PARALLEL decompression
@@ -3346,17 +3203,13 @@ mod tests {
         // Pre-fill to just below threshold (use i+1 to avoid zero page fast path)
         for i in 0..99 {
             let data = [((i + 1) as u8); PAGE_SIZE];
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // This store would trigger flush - measure latency
         let data = [0xABu8; PAGE_SIZE];
         let start = std::time::Instant::now();
-        store
-            .store((99 * SECTORS_PER_PAGE as usize) as u64, &data)
-            .unwrap();
+        store.store((99 * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         let latency = start.elapsed();
 
         // Target: <1ms (was 50-100ms with sync flush)
@@ -3400,9 +3253,7 @@ mod tests {
         // Fill to threshold (use i+1 to avoid zero page fast path at i=0)
         for i in 0..50 {
             let data = [((i + 1) as u8); PAGE_SIZE];
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
 
         // Measure time for pending to be flushed
@@ -3421,10 +3272,7 @@ mod tests {
         let latency = start.elapsed();
         store.shutdown();
 
-        assert!(
-            flushed,
-            "PERF-002.2 REFUTED: Pending pages not flushed within 100ms"
-        );
+        assert!(flushed, "PERF-002.2 REFUTED: Pending pages not flushed within 100ms");
 
         // Target: <20ms wake latency (was 5ms poll interval)
         // NOTE: Current implementation may not meet this without condvar
@@ -3472,9 +3320,7 @@ mod tests {
 
         let start = std::time::Instant::now();
         for i in 0..num_pages {
-            store
-                .store((i * SECTORS_PER_PAGE as usize) as u64, &data)
-                .unwrap();
+            store.store((i * SECTORS_PER_PAGE as usize) as u64, &data).unwrap();
         }
         // Wait for all flushes to complete
         while store.stats().pending_pages > 0 {
@@ -3488,15 +3334,8 @@ mod tests {
         let bytes = num_pages * PAGE_SIZE;
         let throughput_gbps = (bytes as f64) / elapsed.as_secs_f64() / 1e9;
 
-        println!(
-            "PERF-002.3: Sequential write throughput: {:.2} GB/s",
-            throughput_gbps
-        );
-        println!(
-            "  {} pages in {:.2}ms",
-            num_pages,
-            elapsed.as_secs_f64() * 1000.0
-        );
+        println!("PERF-002.3: Sequential write throughput: {:.2} GB/s", throughput_gbps);
+        println!("  {} pages in {:.2}ms", num_pages, elapsed.as_secs_f64() * 1000.0);
 
         // Target: >0.8 GB/s - demonstrates non-blocking store() works
         // NOTE: Single flush thread architecture limits throughput here.
@@ -3541,11 +3380,7 @@ mod tests {
                     // Text-like (20%)
                     for (j, byte) in page.iter_mut().enumerate() {
                         let base = ((i * 31 + j * 17) % 52) as u8;
-                        *byte = if base < 26 {
-                            b'a' + base
-                        } else {
-                            b'A' + (base - 26)
-                        };
+                        *byte = if base < 26 { b'a' + base } else { b'A' + (base - 26) };
                     }
                 }
                 _ => {

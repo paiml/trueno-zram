@@ -73,10 +73,7 @@ pub struct RatioTracker {
 
 impl RatioTracker {
     pub fn new() -> Self {
-        Self {
-            orig_bytes: AtomicU64::new(0),
-            compr_bytes: AtomicU64::new(0),
-        }
+        Self { orig_bytes: AtomicU64::new(0), compr_bytes: AtomicU64::new(0) }
     }
 
     /// Record a compression operation

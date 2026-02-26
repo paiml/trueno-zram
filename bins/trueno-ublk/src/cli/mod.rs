@@ -726,10 +726,7 @@ mod tests {
             "invalid_algo",
         ]);
 
-        assert!(
-            result.is_err(),
-            "E51: Invalid algorithm should be rejected by clap"
-        );
+        assert!(result.is_err(), "E51: Invalid algorithm should be rejected by clap");
 
         let err = result.unwrap_err();
         let err_str = err.to_string();
@@ -753,11 +750,7 @@ mod tests {
 
         for size_str in &invalid_sizes {
             let result = parse_size(size_str);
-            assert!(
-                result.is_err(),
-                "E52: Invalid size '{}' should be rejected",
-                size_str
-            );
+            assert!(result.is_err(), "E52: Invalid size '{}' should be rejected", size_str);
         }
     }
 
@@ -779,11 +772,7 @@ mod tests {
         // Verify all output columns have headers
         for col in OutputColumn::all() {
             let header = col.header();
-            assert!(
-                !header.is_empty(),
-                "E53: Column {:?} should have a header",
-                col
-            );
+            assert!(!header.is_empty(), "E53: Column {:?} should have a header", col);
         }
     }
 
@@ -801,10 +790,7 @@ mod tests {
             debug: false,
         };
 
-        assert!(
-            stat_args.mm_stat,
-            "E54: mm_stat should be available for compression ratio"
-        );
+        assert!(stat_args.mm_stat, "E54: mm_stat should be available for compression ratio");
         assert!(stat_args.entropy, "E54: entropy stat should be available");
     }
 
@@ -819,10 +805,7 @@ mod tests {
 
         // Reset specific devices
         let result = Cli::try_parse_from(["trueno-ublk", "reset", "/dev/ublkb0", "/dev/ublkb1"]);
-        assert!(
-            result.is_ok(),
-            "E55: Reset with multiple devices should parse"
-        );
+        assert!(result.is_ok(), "E55: Reset with multiple devices should parse");
 
         if let Ok(cli) = result {
             if let Commands::Reset(args) = cli.command {
@@ -839,10 +822,7 @@ mod tests {
         let cmd = Cli::command();
 
         // Verify main command has about text
-        assert!(
-            cmd.get_about().is_some(),
-            "E56: Main command should have about text"
-        );
+        assert!(cmd.get_about().is_some(), "E56: Main command should have about text");
 
         // Verify subcommands exist
         let subcommands: Vec<_> = cmd.get_subcommands().collect();
@@ -882,17 +862,10 @@ mod tests {
 
         // Version should match Cargo.toml format (e.g., "0.1.0")
         let parts: Vec<&str> = version_str.split('.').collect();
-        assert!(
-            parts.len() >= 2,
-            "E57: Version should be semver format, got: {}",
-            version_str
-        );
+        assert!(parts.len() >= 2, "E57: Version should be semver format, got: {}", version_str);
 
         // First part should be numeric
-        assert!(
-            parts[0].parse::<u32>().is_ok(),
-            "E57: Major version should be numeric"
-        );
+        assert!(parts[0].parse::<u32>().is_ok(), "E57: Major version should be numeric");
     }
 
     /// E58: Log levels - verify RUST_LOG parsing works.
@@ -911,10 +884,7 @@ mod tests {
 
         // Verify module-specific filtering pattern
         let complex_filter = "trueno_ublk=debug,trueno_zram_core=trace";
-        assert!(
-            complex_filter.contains("="),
-            "E58: Module-specific filters should use '=' syntax"
-        );
+        assert!(complex_filter.contains("="), "E58: Module-specific filters should use '=' syntax");
     }
 
     /// E59: TUI - verify TopArgs can enable demo mode.

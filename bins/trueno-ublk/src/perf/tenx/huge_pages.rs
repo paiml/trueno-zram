@@ -355,10 +355,7 @@ impl std::error::Error for HugePageError {
 
 /// Parse a numeric value from a /proc/meminfo line
 fn parse_meminfo_value(line: &str) -> u64 {
-    line.split_whitespace()
-        .nth(1)
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0)
+    line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0)
 }
 
 /// Populate huge page support from /proc/meminfo contents

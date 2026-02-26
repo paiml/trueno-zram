@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    ".",
     "crates/trueno-zram-core",
     "crates/trueno-zram-adaptive",
     "crates/trueno-zram-generator",
@@ -41,10 +42,48 @@ criterion = { version = "0.5", features = ["html_reports"] }
 # Async (for CLI)
 tokio = { version = "1.44", features = ["full"] }
 
+[package]
+name = "trueno-zram"
+description = "SIMD-accelerated LZ4/ZSTD compression engine for Linux zram devices"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--generate-link-to-definition"]
+
+[dependencies]
+trueno-zram-core.workspace = true
+trueno-zram-adaptive = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "benchmarks"
+harness = false
+
+[features]
+default = ["std", "adaptive"]
+std = []
+cuda = ["trueno-zram-core/cuda"]
+adaptive = ["dep:trueno-zram-adaptive"]
+
+[lints]
+workspace = true
+
 [workspace.lints.rust]
-unsafe_code = "deny"
+unsafe_code = "warn"
 unsafe_op_in_unsafe_fn = "warn"
 unreachable_pub = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -67,3 +106,11 @@ codegen-units = 1
 
 [profile.dev]
 panic = "abort"
+
+[workspace.metadata.release]
+shared-version = true
+
+[[workspace.metadata.release.pre-release-replacements]]
+file = "CHANGELOG.md"
+search = "## \\[Unreleased\\]"
+replace = "## [{{version}}] - {{date}}"

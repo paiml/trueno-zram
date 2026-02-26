@@ -40,18 +40,13 @@ pub struct TruenoCollector {
 impl TruenoCollector {
     /// Create a new collector for the given tiered page store.
     pub fn new(store: Arc<TieredPageStore>) -> Self {
-        Self {
-            store,
-            prev_stats: None,
-            prev_time: None,
-            prev_bytes: 0,
-            prev_pages: 0,
-        }
+        Self { store, prev_stats: None, prev_time: None, prev_bytes: 0, prev_pages: 0 }
     }
 
     /// Calculate tier distribution percentages.
     fn tier_percentages(stats: &TieredPageStoreStats) -> (f64, f64, f64, f64) {
-        let total = stats.kernel_pages + stats.trueno_pages + stats.skipped_pages + stats.samefill_pages;
+        let total =
+            stats.kernel_pages + stats.trueno_pages + stats.skipped_pages + stats.samefill_pages;
         if total == 0 {
             return (0.0, 0.0, 0.0, 0.0);
         }
@@ -82,7 +77,8 @@ impl Collector for TruenoCollector {
         let mut values = HashMap::new();
 
         // Total pages processed
-        let total_pages = stats.kernel_pages + stats.trueno_pages + stats.skipped_pages + stats.samefill_pages;
+        let total_pages =
+            stats.kernel_pages + stats.trueno_pages + stats.skipped_pages + stats.samefill_pages;
         values.insert("pages_total".into(), MetricValue::Counter(total_pages));
 
         // Same-fill pages (no storage needed)
@@ -101,8 +97,12 @@ impl Collector for TruenoCollector {
 
         // Batched store stats
         values.insert("pages_stored".into(), MetricValue::Counter(stats.inner_stats.pages_stored));
-        values.insert("pending_pages".into(), MetricValue::Gauge(stats.inner_stats.pending_pages as f64));
-        values.insert("batch_flushes".into(), MetricValue::Counter(stats.inner_stats.batch_flushes));
+        values.insert(
+            "pending_pages".into(),
+            MetricValue::Gauge(stats.inner_stats.pending_pages as f64),
+        );
+        values
+            .insert("batch_flushes".into(), MetricValue::Counter(stats.inner_stats.batch_flushes));
 
         // Rate-based metrics (need previous snapshot)
         if let (Some(prev_time), Some(_prev_stats)) = (self.prev_time, &self.prev_stats) {
@@ -157,11 +157,16 @@ impl Collector for TruenoCollector {
 mod tests {
     use super::*;
     use crate::daemon::{BatchConfig, BatchedPageStore, BatchedPageStoreStats, TieredConfig};
-    use trueno_zram_core::Algorithm;
     use renacer::visualize::collectors::Collector;
     use std::time::Duration;
+    use trueno_zram_core::Algorithm;
 
-    fn make_test_stats(kernel: u64, trueno: u64, skipped: u64, samefill: u64) -> TieredPageStoreStats {
+    fn make_test_stats(
+        kernel: u64,
+        trueno: u64,
+        skipped: u64,
+        samefill: u64,
+    ) -> TieredPageStoreStats {
         TieredPageStoreStats {
             kernel_pages: kernel,
             trueno_pages: trueno,

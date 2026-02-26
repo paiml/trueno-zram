@@ -21,9 +21,8 @@ pub const ML_DEFAULT_DISTRIBUTION: &[i16] = &[
 ];
 
 /// Predefined offsets table.
-pub const OF_DEFAULT_DISTRIBUTION: &[i16] = &[
-    1, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1,
-];
+pub const OF_DEFAULT_DISTRIBUTION: &[i16] =
+    &[1, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1];
 
 /// FSE decoding table entry.
 #[derive(Debug, Clone, Copy, Default)]
@@ -93,10 +92,7 @@ impl FseTable {
             entry.baseline = ((next << bits) - table_size as u32) as u16;
         }
 
-        Ok(Self {
-            entries,
-            accuracy_log,
-        })
+        Ok(Self { entries, accuracy_log })
     }
 
     /// Decode one symbol and advance state.

@@ -21,9 +21,7 @@ struct HashTable {
 impl HashTable {
     #[inline]
     fn new() -> Self {
-        Self {
-            table: [0; HASH_SIZE],
-        }
+        Self { table: [0; HASH_SIZE] }
     }
 
     /// Fast hash using Knuth multiplicative method.
@@ -54,10 +52,7 @@ unsafe fn write_u16(ptr: *mut u8, val: u16) {
 /// Copy 8 bytes (wildcard copy).
 #[inline(always)]
 unsafe fn copy_8(dst: *mut u8, src: *const u8) {
-    std::ptr::write_unaligned(
-        dst.cast::<u64>(),
-        std::ptr::read_unaligned(src.cast::<u64>()),
-    );
+    std::ptr::write_unaligned(dst.cast::<u64>(), std::ptr::read_unaligned(src.cast::<u64>()));
 }
 
 /// Count matching bytes using 64-bit comparisons.

@@ -47,22 +47,13 @@ fn g107_start_dev_fix_block_device_appears() {
     std::thread::sleep(Duration::from_millis(500));
 
     // Cleanup any existing devices
-    let _ = Command::new("trueno-ublk")
-        .args(["reset", "--all"])
-        .output();
+    let _ = Command::new("trueno-ublk").args(["reset", "--all"]).output();
     std::thread::sleep(Duration::from_millis(500));
 
     // Start daemon in background
     eprintln!("G.107: Starting trueno-ublk daemon...");
     let mut daemon = Command::new("trueno-ublk")
-        .args([
-            "create",
-            "--size",
-            "256M",
-            "--algorithm",
-            "lz4",
-            "--foreground",
-        ])
+        .args(["create", "--size", "256M", "--algorithm", "lz4", "--foreground"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -75,10 +66,7 @@ fn g107_start_dev_fix_block_device_appears() {
 
     while start.elapsed() < timeout {
         // Check for any ublkb device
-        let output = Command::new("ls")
-            .arg("/dev/")
-            .output()
-            .expect("Failed to list /dev");
+        let output = Command::new("ls").arg("/dev/").output().expect("Failed to list /dev");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.lines().any(|line| line.starts_with("ublkb")) {
@@ -91,9 +79,7 @@ fn g107_start_dev_fix_block_device_appears() {
     // Cleanup
     let _ = daemon.kill();
     let _ = daemon.wait();
-    let _ = Command::new("trueno-ublk")
-        .args(["reset", "--all"])
-        .output();
+    let _ = Command::new("trueno-ublk").args(["reset", "--all"]).output();
 
     // Verify
     if device_appeared {
@@ -139,13 +125,7 @@ fn g107_io_operations_succeed() {
     // Test write
     eprintln!("G.107: Testing write I/O...");
     let write_result = Command::new("dd")
-        .args([
-            "if=/dev/zero",
-            "of=/dev/ublkb0",
-            "bs=4K",
-            "count=100",
-            "oflag=direct",
-        ])
+        .args(["if=/dev/zero", "of=/dev/ublkb0", "bs=4K", "count=100", "oflag=direct"])
         .output()
         .expect("dd write failed");
 
@@ -155,13 +135,7 @@ fn g107_io_operations_succeed() {
     // Test read
     eprintln!("G.107: Testing read I/O...");
     let read_result = Command::new("dd")
-        .args([
-            "if=/dev/ublkb0",
-            "of=/dev/null",
-            "bs=4K",
-            "count=100",
-            "iflag=direct",
-        ])
+        .args(["if=/dev/ublkb0", "of=/dev/null", "bs=4K", "count=100", "iflag=direct"])
         .output()
         .expect("dd read failed");
 

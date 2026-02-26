@@ -99,10 +99,7 @@ impl std::fmt::Debug for GpuContext {
         f.debug_struct("GpuContext")
             .field("device_index", &self.device_index)
             .field("lz4_compress_loaded", &self.lz4_module.is_some())
-            .field(
-                "lz4_decompress_loaded",
-                &self.lz4_decompress_module.is_some(),
-            )
+            .field("lz4_decompress_loaded", &self.lz4_decompress_module.is_some())
             .finish()
     }
 }
@@ -203,9 +200,7 @@ impl GpuBatchCompressor {
     pub fn new(config: GpuBatchConfig) -> Result<Self> {
         // Create SIMD-accelerated compressor for parallel CPU path
         let simd_compressor = std::sync::Arc::new(
-            crate::CompressorBuilder::new()
-                .algorithm(config.algorithm)
-                .build()?,
+            crate::CompressorBuilder::new().algorithm(config.algorithm).build()?,
         );
 
         #[cfg(feature = "cuda")]
@@ -366,11 +361,7 @@ impl GpuBatchCompressor {
                         let compressed = crate::lz4::compress(page)?;
                         // Always use LZ4 data - GPU decompression needs valid LZ4 format
                         // For incompressible data, LZ4 will be slightly larger but valid
-                        Ok(CompressedPage {
-                            data: compressed,
-                            original_size: PAGE_SIZE,
-                            algorithm,
-                        })
+                        Ok(CompressedPage { data: compressed, original_size: PAGE_SIZE, algorithm })
                     })
                     .collect()
             })
@@ -387,10 +378,7 @@ impl GpuBatchCompressor {
         // Update statistics
         self.pages_compressed += pages.len() as u64;
         self.total_bytes_in += (pages.len() * PAGE_SIZE) as u64;
-        self.total_bytes_out += pages_result
-            .iter()
-            .map(|p| p.data.len() as u64)
-            .sum::<u64>();
+        self.total_bytes_out += pages_result.iter().map(|p| p.data.len() as u64).sum::<u64>();
         self.total_time_ns += total_time_ns;
 
         Ok(BatchResult {
@@ -423,9 +411,7 @@ impl GpuBatchCompressor {
 
         #[cfg(not(feature = "cuda"))]
         {
-            Err(Error::GpuNotAvailable(
-                "CUDA feature not enabled".to_string(),
-            ))
+            Err(Error::GpuNotAvailable("CUDA feature not enabled".to_string()))
         }
     }
 
@@ -457,10 +443,7 @@ impl GpuBatchCompressor {
         // Update statistics
         self.pages_compressed += pages.len() as u64;
         self.total_bytes_in += (pages.len() * PAGE_SIZE) as u64;
-        self.total_bytes_out += pages_result
-            .iter()
-            .map(|p| p.data.len() as u64)
-            .sum::<u64>();
+        self.total_bytes_out += pages_result.iter().map(|p| p.data.len() as u64).sum::<u64>();
         self.total_time_ns += total_time_ns;
 
         Ok(BatchResult {
@@ -651,10 +634,7 @@ impl GpuBatchCompressor {
 
         // [RENACER] Stage 8: Data Flow Analysis
         // GPU output can be up to output_stride bytes (4352), not just PAGE_SIZE
-        let gpu_count = sizes
-            .iter()
-            .filter(|&&s| s > 0 && s <= output_stride as u32)
-            .count();
+        let gpu_count = sizes.iter().filter(|&&s| s > 0 && s <= output_stride as u32).count();
         let cpu_fallback_count = batch_size - gpu_count;
         let gpu_output_bytes: usize = sizes
             .iter()
@@ -813,9 +793,7 @@ impl GpuBatchCompressor {
             .ok_or_else(|| Error::GpuNotAvailable("CUDA context not initialized".to_string()))?;
 
         let Some(module_cell) = context.lz4_decompress_module.as_ref() else {
-            return Err(Error::GpuNotAvailable(
-                "LZ4 decompress module not loaded".to_string(),
-            ));
+            return Err(Error::GpuNotAvailable("LZ4 decompress module not loaded".to_string()));
         };
 
         let batch_size = compressed.len();
@@ -874,11 +852,7 @@ impl GpuBatchCompressor {
         // Stage 4: Launch decompression kernel (overlapped with H2D tail)
         let batch_size_u32 = batch_size as u32;
         let num_blocks = batch_size_u32.div_ceil(256);
-        let config = LaunchConfig {
-            grid: (num_blocks, 1, 1),
-            block: (256, 1, 1),
-            shared_mem: 0,
-        };
+        let config = LaunchConfig { grid: (num_blocks, 1, 1), block: (256, 1, 1), shared_mem: 0 };
 
         let kernel_start = Instant::now();
         let mut args: [*mut c_void; 4] = [
@@ -1095,10 +1069,7 @@ mod tests {
         let result = GpuBatchCompressor::new(config);
         // Should succeed on systems with CUDA, fail gracefully otherwise
         if crate::gpu::gpu_available() {
-            assert!(
-                result.is_ok(),
-                "Should create compressor when GPU available"
-            );
+            assert!(result.is_ok(), "Should create compressor when GPU available");
         } else {
             assert!(result.is_err(), "Should fail when GPU not available");
         }
@@ -1122,10 +1093,7 @@ mod tests {
             return;
         }
 
-        let config = GpuBatchConfig {
-            batch_size: 100,
-            ..Default::default()
-        };
+        let config = GpuBatchConfig { batch_size: 100, ..Default::default() };
         let mut compressor = GpuBatchCompressor::new(config).unwrap();
 
         // Create test pages with compressible data
@@ -1143,10 +1111,7 @@ mod tests {
         assert_eq!(result.pages.len(), 100, "Should compress all pages");
         for page in &result.pages {
             assert!(!page.data.is_empty(), "Compressed data should not be empty");
-            assert!(
-                page.data.len() <= PAGE_SIZE,
-                "Compressed size should not exceed original"
-            );
+            assert!(page.data.len() <= PAGE_SIZE, "Compressed size should not exceed original");
         }
     }
 
@@ -1164,10 +1129,7 @@ mod tests {
         let mut compressor = GpuBatchCompressor::new(config).unwrap();
 
         let result = compressor.compress_batch(&[]).unwrap();
-        assert!(
-            result.pages.is_empty(),
-            "Empty input should produce empty output"
-        );
+        assert!(result.pages.is_empty(), "Empty input should produce empty output");
         assert_eq!(result.total_time_ns, 0);
     }
 
@@ -1268,11 +1230,7 @@ mod tests {
 
         let stats = compressor.stats();
         assert_eq!(stats.pages_compressed, 100, "Should accumulate page count");
-        assert_eq!(
-            stats.total_bytes_in,
-            100 * PAGE_SIZE as u64,
-            "Should accumulate input bytes"
-        );
+        assert_eq!(stats.total_bytes_in, 100 * PAGE_SIZE as u64, "Should accumulate input bytes");
     }
 
     // ==========================================================================
@@ -1308,10 +1266,7 @@ mod tests {
         };
 
         let ratio = stats.compression_ratio();
-        assert!(
-            (ratio - 2.0).abs() < 0.001,
-            "Compression ratio should be 2:1 for 50% compression"
-        );
+        assert!((ratio - 2.0).abs() < 0.001, "Compression ratio should be 2:1 for 50% compression");
     }
 
     // ==========================================================================
@@ -1322,19 +1277,10 @@ mod tests {
         let config = GpuBatchConfig::default();
 
         assert_eq!(config.device_index, 0, "Default device should be 0");
-        assert!(
-            config.batch_size >= 100,
-            "Batch size should be >= 100 for PCIe efficiency"
-        );
-        assert!(
-            config.batch_size <= 100_000,
-            "Batch size should be reasonable"
-        );
+        assert!(config.batch_size >= 100, "Batch size should be >= 100 for PCIe efficiency");
+        assert!(config.batch_size <= 100_000, "Batch size should be reasonable");
         assert!(config.async_dma, "Async DMA should be enabled by default");
-        assert!(
-            config.ring_buffer_slots >= 2,
-            "Ring buffer needs >= 2 slots"
-        );
+        assert!(config.ring_buffer_slots >= 2, "Ring buffer needs >= 2 slots");
     }
 
     // ==========================================================================
@@ -1348,21 +1294,14 @@ mod tests {
         }
 
         for algo in [Algorithm::Lz4, Algorithm::Zstd { level: 1 }] {
-            let config = GpuBatchConfig {
-                algorithm: algo,
-                batch_size: 10,
-                ..Default::default()
-            };
+            let config = GpuBatchConfig { algorithm: algo, batch_size: 10, ..Default::default() };
             let mut compressor = GpuBatchCompressor::new(config).unwrap();
 
             let pages: Vec<[u8; PAGE_SIZE]> = vec![[0xCCu8; PAGE_SIZE]; 10];
             let result = compressor.compress_batch(&pages).unwrap();
 
             for page in &result.pages {
-                assert_eq!(
-                    page.algorithm, algo,
-                    "Output should use configured algorithm"
-                );
+                assert_eq!(page.algorithm, algo, "Output should use configured algorithm");
             }
         }
     }
@@ -1429,18 +1368,12 @@ mod tests {
         }
 
         // Verify async_dma config is stored correctly
-        let async_config = GpuBatchConfig {
-            async_dma: true,
-            batch_size: 1000,
-            ..Default::default()
-        };
+        let async_config =
+            GpuBatchConfig { async_dma: true, batch_size: 1000, ..Default::default() };
         assert!(async_config.async_dma);
 
-        let sync_config = GpuBatchConfig {
-            async_dma: false,
-            batch_size: 1000,
-            ..Default::default()
-        };
+        let sync_config =
+            GpuBatchConfig { async_dma: false, batch_size: 1000, ..Default::default() };
         assert!(!sync_config.async_dma);
 
         // Verify both configurations can create compressors
@@ -1457,10 +1390,7 @@ mod tests {
     // ==========================================================================
     #[test]
     fn test_f048_ring_buffer_config() {
-        let config = GpuBatchConfig {
-            ring_buffer_slots: 8,
-            ..Default::default()
-        };
+        let config = GpuBatchConfig { ring_buffer_slots: 8, ..Default::default() };
         assert_eq!(config.ring_buffer_slots, 8);
     }
 
@@ -1483,10 +1413,7 @@ mod tests {
 
         let throughput = result.throughput_bytes_per_sec(PAGE_SIZE);
         // 4096 bytes / 0.001 seconds = 4,096,000 bytes/sec
-        assert!(
-            (throughput - 4_096_000.0).abs() < 1.0,
-            "Throughput helper should be correct"
-        );
+        assert!((throughput - 4_096_000.0).abs() < 1.0, "Throughput helper should be correct");
     }
 
     // ==========================================================================
@@ -1537,10 +1464,7 @@ mod tests {
         };
         // 2 pages * 4096 bytes = 8192 original / 3072 compressed = 2.67:1
         let ratio = result.compression_ratio();
-        assert!(
-            ratio > 2.0 && ratio < 3.0,
-            "Compression ratio should be ~2.67"
-        );
+        assert!(ratio > 2.0 && ratio < 3.0, "Compression ratio should be ~2.67");
     }
 
     #[test]
@@ -1731,10 +1655,7 @@ mod tests {
         let input_bytes = 1024 * 1024 * 1024; // 1GiB = 1073741824 bytes
         let throughput = result.throughput_bytes_per_sec(input_bytes);
         let expected = 1073741824.0;
-        assert!(
-            (throughput - expected).abs() < 1.0,
-            "Should be ~1 GiB/s, got {throughput}"
-        );
+        assert!((throughput - expected).abs() < 1.0, "Should be ~1 GiB/s, got {throughput}");
     }
 
     #[test]
@@ -1920,11 +1841,7 @@ mod tests {
             // Verify decompression roundtrip
             let mut decompressed = [0u8; PAGE_SIZE];
             let decomp_result = lz4_decompress_block(&compressed_page.data, &mut decompressed);
-            assert!(
-                decomp_result.is_ok(),
-                "[PROBADOR-ZERO] Decompress failed for page {}",
-                i
-            );
+            assert!(decomp_result.is_ok(), "[PROBADOR-ZERO] Decompress failed for page {}", i);
             assert_eq!(
                 &decompressed[..],
                 &pages[i][..],
@@ -1933,10 +1850,7 @@ mod tests {
             );
         }
 
-        eprintln!(
-            "[PROBADOR-ZERO] 100% GPU path verified: {} zero pages",
-            NUM_PAGES
-        );
+        eprintln!("[PROBADOR-ZERO] 100% GPU path verified: {} zero pages", NUM_PAGES);
     }
 
     // ==========================================================================
@@ -1978,11 +1892,7 @@ mod tests {
         for (i, compressed_page) in batch_result.pages.iter().enumerate() {
             let mut decompressed = [0u8; PAGE_SIZE];
             let decomp_result = lz4_decompress_block(&compressed_page.data, &mut decompressed);
-            assert!(
-                decomp_result.is_ok(),
-                "[PROBADOR-RAND] Decompress failed for page {}",
-                i
-            );
+            assert!(decomp_result.is_ok(), "[PROBADOR-RAND] Decompress failed for page {}", i);
             assert_eq!(
                 &decompressed[..],
                 &pages[i][..],
@@ -1991,10 +1901,7 @@ mod tests {
             );
         }
 
-        eprintln!(
-            "[PROBADOR-RAND] CPU fallback path verified: {} random pages",
-            NUM_PAGES
-        );
+        eprintln!("[PROBADOR-RAND] CPU fallback path verified: {} random pages", NUM_PAGES);
     }
 
     // ==========================================================================
@@ -2034,11 +1941,7 @@ mod tests {
         for (i, compressed_page) in batch_result.pages.iter().enumerate() {
             let mut decompressed = [0u8; PAGE_SIZE];
             let decomp_result = lz4_decompress_block(&compressed_page.data, &mut decompressed);
-            assert!(
-                decomp_result.is_ok(),
-                "[PROBADOR-INC] Decompress failed for page {}",
-                i
-            );
+            assert!(decomp_result.is_ok(), "[PROBADOR-INC] Decompress failed for page {}", i);
 
             // Byte-by-byte verification
             for (j, (&expected, &actual)) in pages[i].iter().zip(decompressed.iter()).enumerate() {
@@ -2050,10 +1953,7 @@ mod tests {
             }
         }
 
-        eprintln!(
-            "[PROBADOR-INC] Byte-level integrity verified: {} pages",
-            NUM_PAGES
-        );
+        eprintln!("[PROBADOR-INC] Byte-level integrity verified: {} pages", NUM_PAGES);
     }
 
     // ==========================================================================
@@ -2098,17 +1998,10 @@ mod tests {
 
         // [PROBADOR] Stress test: compress large batch
         let result = compressor.compress_batch_gpu(&pages);
-        assert!(
-            result.is_ok(),
-            "[PROBADOR-STRESS] Large batch compression failed"
-        );
+        assert!(result.is_ok(), "[PROBADOR-STRESS] Large batch compression failed");
         let batch_result = result.unwrap();
 
-        assert_eq!(
-            batch_result.pages.len(),
-            NUM_PAGES,
-            "[PROBADOR-STRESS] Output count mismatch"
-        );
+        assert_eq!(batch_result.pages.len(), NUM_PAGES, "[PROBADOR-STRESS] Output count mismatch");
 
         // [PROBADOR] Verify random sample of pages (full verification too slow)
         use trueno_gpu::kernels::lz4::lz4_decompress_block;
@@ -2118,11 +2011,7 @@ mod tests {
             let mut decompressed = [0u8; PAGE_SIZE];
             let decomp_result =
                 lz4_decompress_block(&batch_result.pages[i].data, &mut decompressed);
-            assert!(
-                decomp_result.is_ok(),
-                "[PROBADOR-STRESS] Decompress failed for page {}",
-                i
-            );
+            assert!(decomp_result.is_ok(), "[PROBADOR-STRESS] Decompress failed for page {}", i);
             assert_eq!(
                 &decompressed[..],
                 &pages[i][..],
@@ -2161,27 +2050,16 @@ mod tests {
         // Test with single zero page
         let pages = vec![[0u8; PAGE_SIZE]];
         let result = compressor.compress_batch_gpu(&pages);
-        assert!(
-            result.is_ok(),
-            "[PROBADOR-SINGLE] Single page compression failed"
-        );
+        assert!(result.is_ok(), "[PROBADOR-SINGLE] Single page compression failed");
 
         let batch_result = result.unwrap();
-        assert_eq!(
-            batch_result.pages.len(),
-            1,
-            "[PROBADOR-SINGLE] Output count mismatch"
-        );
+        assert_eq!(batch_result.pages.len(), 1, "[PROBADOR-SINGLE] Output count mismatch");
 
         use trueno_gpu::kernels::lz4::lz4_decompress_block;
         let mut decompressed = [0u8; PAGE_SIZE];
         let decomp_result = lz4_decompress_block(&batch_result.pages[0].data, &mut decompressed);
         assert!(decomp_result.is_ok(), "[PROBADOR-SINGLE] Decompress failed");
-        assert_eq!(
-            &decompressed[..],
-            &pages[0][..],
-            "[PROBADOR-SINGLE] Data mismatch"
-        );
+        assert_eq!(&decompressed[..], &pages[0][..], "[PROBADOR-SINGLE] Data mismatch");
 
         eprintln!("[PROBADOR-SINGLE] Single page edge case verified");
     }

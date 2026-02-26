@@ -10,17 +10,9 @@ use std::path::PathBuf;
 pub fn run(args: CreateArgs) -> Result<()> {
     let size = parse_size(&args.size)?;
     let mem_limit = args.mem_limit.as_ref().map(|s| parse_size(s)).transpose()?;
-    let writeback_limit = args
-        .writeback_limit
-        .as_ref()
-        .map(|s| parse_size(s))
-        .transpose()?;
+    let writeback_limit = args.writeback_limit.as_ref().map(|s| parse_size(s)).transpose()?;
 
-    let streams = if args.streams == 0 {
-        num_cpus()
-    } else {
-        args.streams
-    };
+    let streams = if args.streams == 0 { num_cpus() } else { args.streams };
 
     // PERF-001: Build performance configuration from CLI args
     let perf = build_perf_config(&args);
@@ -98,10 +90,7 @@ pub fn run(args: CreateArgs) -> Result<()> {
     }
 
     if config.nr_hw_queues > 1 {
-        tracing::info!(
-            queues = config.nr_hw_queues,
-            "PERF-003: Multi-queue mode enabled"
-        );
+        tracing::info!(queues = config.nr_hw_queues, "PERF-003: Multi-queue mode enabled");
     }
 
     // KERN-001/002/003: Log tiered storage configuration
@@ -125,13 +114,9 @@ pub fn run(args: CreateArgs) -> Result<()> {
 
     // VIZ-002: Log visualization configuration
     if config.visualize {
-        tracing::info!(
-            "VIZ-002: Renacer TUI visualization enabled (requires foreground mode)"
-        );
+        tracing::info!("VIZ-002: Renacer TUI visualization enabled (requires foreground mode)");
         if !config.foreground {
-            tracing::warn!(
-                "Visualization requires foreground mode. Add -f/--foreground flag."
-            );
+            tracing::warn!("Visualization requires foreground mode. Add -f/--foreground flag.");
         }
     }
 
@@ -193,10 +178,7 @@ fn build_perf_config(args: &CreateArgs) -> Option<PerfConfig> {
 
     // CPU affinity
     if let Some(ref affinity) = args.cpu_affinity {
-        config.cpu_cores = affinity
-            .split(',')
-            .filter_map(|c| c.trim().parse().ok())
-            .collect();
+        config.cpu_cores = affinity.split(',').filter_map(|c| c.trim().parse().ok()).collect();
     }
 
     // NUMA node
@@ -208,7 +190,5 @@ fn build_perf_config(args: &CreateArgs) -> Option<PerfConfig> {
 }
 
 fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(|p| p.get())
-        .unwrap_or(1)
+    std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1)
 }

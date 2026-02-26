@@ -4,7 +4,6 @@
 //!
 //! Run with: cargo run --example tiered_storage -p trueno-ublk
 
-
 /// Simulated tier statistics
 struct TierStats {
     kernel_zram_pages: u64,
@@ -62,13 +61,13 @@ fn calculate_entropy(data: &[u8]) -> f64 {
 /// Determine routing based on entropy
 fn route_page(entropy: f64) -> &'static str {
     if entropy < 0.1 {
-        "samefill"    // Same-fill detection (zeros, patterns)
+        "samefill" // Same-fill detection (zeros, patterns)
     } else if entropy < 6.0 {
         "kernel_zram" // Low entropy → kernel ZRAM (fast path)
     } else if entropy < 7.5 {
-        "simd"        // Medium entropy → SIMD ZSTD (better ratio)
+        "simd" // Medium entropy → SIMD ZSTD (better ratio)
     } else {
-        "nvme"        // High entropy → skip compression
+        "nvme" // High entropy → skip compression
     }
 }
 
@@ -95,23 +94,41 @@ fn main() {
     let test_cases: Vec<(&str, Vec<u8>, &str)> = vec![
         ("Zero pages", vec![0u8; 4096], "Same-fill detection (∞ ratio)"),
         ("Pattern data", (0..4096).map(|i| (i % 4) as u8).collect(), "Same-fill or kernel ZRAM"),
-        ("Text/code", {
-            let text = b"fn main() { println!(\"Hello, world!\"); } ";
-            let mut data = Vec::with_capacity(4096);
-            while data.len() < 4096 { data.extend_from_slice(text); }
-            data.truncate(4096);
-            data
-        }, "Kernel ZRAM (47x ratio typical)"),
-        ("Mixed data", (0..4096).map(|i| ((i * 17 + 31) % 256) as u8).collect(), "SIMD ZSTD (better ratio)"),
-        ("Random/encrypted", {
-            let mut data = vec![0u8; 4096];
-            let mut x: u64 = 0xDEADBEEF;
-            for chunk in data.chunks_mut(8) {
-                x ^= x << 13; x ^= x >> 7; x ^= x << 17;
-                for (i, b) in chunk.iter_mut().enumerate() { *b = (x >> (i * 8)) as u8; }
-            }
-            data
-        }, "NVMe direct (skip compression)"),
+        (
+            "Text/code",
+            {
+                let text = b"fn main() { println!(\"Hello, world!\"); } ";
+                let mut data = Vec::with_capacity(4096);
+                while data.len() < 4096 {
+                    data.extend_from_slice(text);
+                }
+                data.truncate(4096);
+                data
+            },
+            "Kernel ZRAM (47x ratio typical)",
+        ),
+        (
+            "Mixed data",
+            (0..4096).map(|i| ((i * 17 + 31) % 256) as u8).collect(),
+            "SIMD ZSTD (better ratio)",
+        ),
+        (
+            "Random/encrypted",
+            {
+                let mut data = vec![0u8; 4096];
+                let mut x: u64 = 0xDEADBEEF;
+                for chunk in data.chunks_mut(8) {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    for (i, b) in chunk.iter_mut().enumerate() {
+                        *b = (x >> (i * 8)) as u8;
+                    }
+                }
+                data
+            },
+            "NVMe direct (skip compression)",
+        ),
     ];
 
     let mut stats = TierStats::new();

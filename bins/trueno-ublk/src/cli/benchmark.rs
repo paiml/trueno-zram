@@ -108,23 +108,13 @@ fn run_benchmarks(args: &BenchmarkArgs, size: u64) -> Result<BenchmarkResults> {
             nvme_direct: 0.05,
             same_fill: 0.05,
         },
-        entropy_histogram: EntropyHistogram {
-            p50: 4.2,
-            p75: 5.8,
-            p90: 6.9,
-            p95: 7.3,
-            p99: 7.8,
-        },
+        entropy_histogram: EntropyHistogram { p50: 4.2, p75: 5.8, p90: 6.9, p95: 7.3, p99: 7.8 },
     };
 
     let duration = start.elapsed().as_secs_f64();
 
     let ml_analysis = if args.ml_anomaly {
-        Some(MlAnalysis {
-            anomalies: vec![],
-            clusters: 3,
-            silhouette_score: 0.82,
-        })
+        Some(MlAnalysis { anomalies: vec![], clusters: 3, silhouette_score: 0.82 })
     } else {
         None
     };

@@ -10,10 +10,7 @@ pub fn run(args: ResetArgs) -> Result<()> {
     } else if args.devices.is_empty() {
         anyhow::bail!("No devices specified. Use --all to reset all devices.");
     } else {
-        args.devices
-            .iter()
-            .map(|p| UblkDevice::open(p))
-            .collect::<Result<Vec<_>>>()?
+        args.devices.iter().map(|p| UblkDevice::open(p)).collect::<Result<Vec<_>>>()?
     };
 
     for device in devices {

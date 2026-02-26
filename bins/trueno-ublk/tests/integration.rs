@@ -31,31 +31,14 @@ mod roundtrip {
         let patterns: Vec<(&str, Vec<u8>)> = vec![
             ("zeros", vec![0u8; PAGE_SIZE]),
             ("ones", vec![0xFF; PAGE_SIZE]),
-            (
-                "alternating",
-                (0..PAGE_SIZE)
-                    .map(|i| if i % 2 == 0 { 0xAA } else { 0x55 })
-                    .collect(),
-            ),
-            (
-                "sequential",
-                (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect(),
-            ),
-            (
-                "short_pattern",
-                (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect(),
-            ),
-            (
-                "pseudo_random",
-                (0..PAGE_SIZE)
-                    .map(|i| ((i * 17 + 31) % 256) as u8)
-                    .collect(),
-            ),
+            ("alternating", (0..PAGE_SIZE).map(|i| if i % 2 == 0 { 0xAA } else { 0x55 }).collect()),
+            ("sequential", (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect()),
+            ("short_pattern", (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect()),
+            ("pseudo_random", (0..PAGE_SIZE).map(|i| ((i * 17 + 31) % 256) as u8).collect()),
             (
                 "text_like",
-                "The quick brown fox jumps over the lazy dog. "
-                    .repeat(100)
-                    .into_bytes()[..PAGE_SIZE]
+                "The quick brown fox jumps over the lazy dog. ".repeat(100).into_bytes()
+                    [..PAGE_SIZE]
                     .to_vec(),
             ),
         ];
@@ -65,9 +48,8 @@ mod roundtrip {
             let page: &[u8; PAGE_SIZE] = data.as_slice().try_into().unwrap();
 
             // Compress
-            let compressed = compressor
-                .compress(page)
-                .expect(&format!("Compress failed for {}", name));
+            let compressed =
+                compressor.compress(page).expect(&format!("Compress failed for {}", name));
 
             // Decompress
             let decompressed = compressor
@@ -75,12 +57,7 @@ mod roundtrip {
                 .expect(&format!("Decompress failed for {}", name));
 
             // Verify
-            assert_eq!(
-                data,
-                decompressed.as_slice(),
-                "Roundtrip failed for pattern: {}",
-                name
-            );
+            assert_eq!(data, decompressed.as_slice(), "Roundtrip failed for pattern: {}", name);
         }
     }
 }
@@ -167,10 +144,7 @@ mod compression_ratio {
             overall_ratio
         );
 
-        println!(
-            "Overall compression ratio for typical workload: {:.2}:1",
-            overall_ratio
-        );
+        println!("Overall compression ratio for typical workload: {:.2}:1", overall_ratio);
     }
 }
 
@@ -304,9 +278,7 @@ mod edge_cases {
         let mut data = vec![0u8; PAGE_SIZE];
         let mut state: u64 = 0xDEADBEEF;
         for byte in data.iter_mut() {
-            state = state
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             *byte = (state >> 33) as u8;
         }
 
@@ -314,11 +286,7 @@ mod edge_cases {
         let compressed = compressor.compress(page).unwrap();
         let decompressed = compressor.decompress(&compressed).unwrap();
 
-        assert_eq!(
-            data,
-            decompressed.as_slice(),
-            "Random data roundtrip failed"
-        );
+        assert_eq!(data, decompressed.as_slice(), "Random data roundtrip failed");
 
         // High entropy data may actually expand
         println!(
@@ -340,12 +308,7 @@ mod edge_cases {
             let compressed = compressor.compress(page).unwrap();
             let decompressed = compressor.decompress(&compressed).unwrap();
 
-            assert_eq!(
-                data,
-                decompressed.as_slice(),
-                "Single byte {} roundtrip failed",
-                byte_val
-            );
+            assert_eq!(data, decompressed.as_slice(), "Single byte {} roundtrip failed", byte_val);
         }
     }
 }

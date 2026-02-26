@@ -92,16 +92,12 @@ fn bench_lz4_compression(c: &mut Criterion) {
         let page = workload.generate_page();
 
         group.throughput(Throughput::Bytes(PAGE_SIZE as u64));
-        group.bench_with_input(
-            BenchmarkId::new(workload.name(), PAGE_SIZE),
-            &page,
-            |b, page| {
-                b.iter(|| {
-                    let result = compressor.compress(black_box(page));
-                    black_box(result)
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new(workload.name(), PAGE_SIZE), &page, |b, page| {
+            b.iter(|| {
+                let result = compressor.compress(black_box(page));
+                black_box(result)
+            })
+        });
     }
 
     group.finish();
@@ -153,16 +149,12 @@ fn bench_zstd_compression(c: &mut Criterion) {
         let page = workload.generate_page();
 
         group.throughput(Throughput::Bytes(PAGE_SIZE as u64));
-        group.bench_with_input(
-            BenchmarkId::new(workload.name(), PAGE_SIZE),
-            &page,
-            |b, page| {
-                b.iter(|| {
-                    let result = compressor.compress(black_box(page));
-                    black_box(result)
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new(workload.name(), PAGE_SIZE), &page, |b, page| {
+            b.iter(|| {
+                let result = compressor.compress(black_box(page));
+                black_box(result)
+            })
+        });
     }
 
     group.finish();
@@ -181,9 +173,8 @@ fn bench_batch_throughput(c: &mut Criterion) {
 
     // Batch sizes corresponding to P6-BATCH (iodepth=128)
     for batch_size in [32, 64, 128, 256] {
-        let pages: Vec<[u8; PAGE_SIZE]> = (0..batch_size)
-            .map(|_| Workload::Text.generate_page())
-            .collect();
+        let pages: Vec<[u8; PAGE_SIZE]> =
+            (0..batch_size).map(|_| Workload::Text.generate_page()).collect();
 
         group.throughput(Throughput::Bytes((batch_size * PAGE_SIZE) as u64));
         group.bench_with_input(
@@ -226,16 +217,12 @@ fn bench_compression_ratio(c: &mut Criterion) {
             compressed.data.len()
         );
 
-        group.bench_with_input(
-            BenchmarkId::new(workload.name(), "ratio"),
-            &page,
-            |b, page| {
-                b.iter(|| {
-                    let compressed = compressor.compress(black_box(page)).expect("fail");
-                    black_box(compressed.data.len())
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new(workload.name(), "ratio"), &page, |b, page| {
+            b.iter(|| {
+                let compressed = compressor.compress(black_box(page)).expect("fail");
+                black_box(compressed.data.len())
+            })
+        });
     }
 
     group.finish();

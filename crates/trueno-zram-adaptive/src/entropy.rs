@@ -11,9 +11,7 @@ pub struct EntropyCalculator {
 
 impl Default for EntropyCalculator {
     fn default() -> Self {
-        Self {
-            histogram: [0u64; 256],
-        }
+        Self { histogram: [0u64; 256] }
     }
 }
 
@@ -109,10 +107,7 @@ mod tests {
         let entropy = calc.calculate(&page);
         // With 4096 bytes and 256 values, each appears 16 times
         // Expected entropy = log2(256) = 8.0 for truly uniform
-        assert!(
-            entropy > 7.9,
-            "Uniform distribution should have high entropy: {entropy}"
-        );
+        assert!(entropy > 7.9, "Uniform distribution should have high entropy: {entropy}");
     }
 
     #[test]

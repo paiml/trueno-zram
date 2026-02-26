@@ -312,11 +312,7 @@ impl SysfsInterface {
 /// List of supported compression algorithms.
 #[must_use]
 pub fn supported_algorithms() -> Vec<ZramAlgorithm> {
-    vec![
-        ZramAlgorithm::Lz4,
-        ZramAlgorithm::Lz4hc,
-        ZramAlgorithm::Zstd,
-    ]
+    vec![ZramAlgorithm::Lz4, ZramAlgorithm::Lz4hc, ZramAlgorithm::Zstd]
 }
 
 /// Format supported algorithms as sysfs output (bracketed current).
@@ -330,13 +326,7 @@ pub fn format_algorithms(current: ZramAlgorithm) -> String {
         ZramAlgorithm::LzoRle,
     ]
     .iter()
-    .map(|a| {
-        if *a == current {
-            format!("[{}]", a.as_str())
-        } else {
-            a.as_str().to_string()
-        }
-    })
+    .map(|a| if *a == current { format!("[{}]", a.as_str()) } else { a.as_str().to_string() })
     .collect();
 
     algos.join(" ")
@@ -373,10 +363,7 @@ mod tests {
         for i in 0..8 {
             let iface = SysfsInterface::new(i);
             assert_eq!(iface.device_num, i);
-            assert_eq!(
-                iface.sysfs_path(),
-                PathBuf::from(format!("/sys/block/zram{i}"))
-            );
+            assert_eq!(iface.sysfs_path(), PathBuf::from(format!("/sys/block/zram{i}")));
         }
     }
 
@@ -432,12 +419,7 @@ mod tests {
 
     #[test]
     fn test_io_stat_sysfs_format() {
-        let stat = IoStat {
-            failed_reads: 0,
-            failed_writes: 5,
-            invalid_io: 1,
-            notify_free: 100,
-        };
+        let stat = IoStat { failed_reads: 0, failed_writes: 5, invalid_io: 1, notify_free: 100 };
 
         let s = stat.to_sysfs_string();
         let parsed = IoStat::from_sysfs_string(&s).unwrap();
@@ -552,10 +534,7 @@ mod tests {
         let mut iface = SysfsInterface::new(0);
 
         iface.write_attr("custom_attr", "custom_value").unwrap();
-        assert_eq!(
-            iface.read_attr("custom_attr"),
-            Some("custom_value".to_string())
-        );
+        assert_eq!(iface.read_attr("custom_attr"), Some("custom_value".to_string()));
     }
 
     #[test]
@@ -712,21 +691,14 @@ mod tests {
 
     #[test]
     fn test_mm_stat_clone() {
-        let stat = MmStat {
-            orig_data_size: 100,
-            compr_data_size: 50,
-            ..Default::default()
-        };
+        let stat = MmStat { orig_data_size: 100, compr_data_size: 50, ..Default::default() };
         let cloned = stat.clone();
         assert_eq!(stat.orig_data_size, cloned.orig_data_size);
     }
 
     #[test]
     fn test_io_stat_clone() {
-        let stat = IoStat {
-            failed_reads: 5,
-            ..Default::default()
-        };
+        let stat = IoStat { failed_reads: 5, ..Default::default() };
         let cloned = stat.clone();
         assert_eq!(stat.failed_reads, cloned.failed_reads);
     }

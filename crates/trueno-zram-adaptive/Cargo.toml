@@ -15,5 +15,9 @@ thiserror.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 
+[features]
+default = ["std"]
+std = []
+
 [lints]
 workspace = true
