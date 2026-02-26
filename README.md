@@ -1,6 +1,8 @@
-<div align="center">
-
+<p align="center">
 <img src="assets/hero-banner.svg" alt="trueno-zram" width="800"/>
+</p>
+
+<h1 align="center">trueno-zram</h1>
 
 ## Table of Contents
 
@@ -20,9 +22,14 @@
 
 **19x faster than kernel zram on AVX-512 systems**
 
-</div>
-
 ---
+
+## Features
+
+- **19x faster decompression** than kernel zram via AVX-512 ZSTD
+- **Adaptive compression** with entropy-based algorithm selection (LZ4/ZSTD)
+- **Userspace block device** via Linux ublk for zero-copy I/O
+- **SIMD-accelerated** compression on x86_64 (AVX2/AVX-512) and AArch64 (NEON)
 
 ## Why trueno-zram?
 
@@ -226,9 +233,11 @@ trueno-ublk benchmark --size 4G --format html -o report.html
 
 ## Contributing
 
-Contributions welcome:
-- Performance optimizations
-- New compression algorithms
+Contributions are welcome! Please see the [CONTRIBUTING.md](CONTRIBUTING.md) guide for details.
+
+Areas of interest:
+- Performance optimizations (SIMD, compression algorithms)
+- New compression algorithm support
 - Documentation improvements
 - Bug fixes
 
