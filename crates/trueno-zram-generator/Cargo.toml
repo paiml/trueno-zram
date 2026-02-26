@@ -13,3 +13,6 @@ trueno-zram-core.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 toml.workspace = true
+
+[lints]
+workspace = true

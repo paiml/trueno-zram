@@ -76,35 +76,49 @@ impl App {
     }
 }
 
-/// Run the TUI
-pub fn run(args: TopArgs) -> Result<()> {
-    // Setup terminal
+/// Initialize terminal for TUI rendering
+fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    Terminal::new(backend).map_err(Into::into)
+}
 
-    // Create app state
+/// Restore terminal to normal state
+fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    terminal.show_cursor()?;
+    Ok(())
+}
+
+/// Handle a single key event
+fn handle_key_event(app: &mut App) -> Result<()> {
+    if let Event::Key(key) = event::read()? {
+        if key.kind == KeyEventKind::Press {
+            app.on_key(key.code);
+        }
+    }
+    Ok(())
+}
+
+/// Run the TUI
+pub fn run(args: TopArgs) -> Result<()> {
+    let mut terminal = setup_terminal()?;
     let mut app = App::new(&args)?;
 
-    // Main loop
     let tick_rate = Duration::from_millis(250);
     let mut last_tick = Instant::now();
 
     loop {
         terminal.draw(|f| ui(f, &app))?;
 
-        let timeout = tick_rate
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
+        let timeout =
+            tick_rate.checked_sub(last_tick.elapsed()).unwrap_or_else(|| Duration::from_secs(0));
 
         if crossterm::event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.on_key(key.code);
-                }
-            }
+            handle_key_event(&mut app)?;
         }
 
         if last_tick.elapsed() >= tick_rate {
@@ -117,16 +131,7 @@ pub fn run(args: TopArgs) -> Result<()> {
         }
     }
 
-    // Restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    Ok(())
+    restore_terminal(&mut terminal)
 }
 
 fn ui(f: &mut Frame, app: &App) {
@@ -153,10 +158,7 @@ fn render_header(f: &mut Frame, area: Rect) {
     let header = Paragraph::new(vec![Line::from(vec![
         Span::styled(
             " trueno-ublk ",
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
         ),
         Span::raw(" GPU-accelerated ZRAM replacement"),
     ])])
@@ -199,30 +201,16 @@ fn render_overview(f: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    let ratio = if total_compr > 0 {
-        total_orig as f64 / total_compr as f64
-    } else {
-        1.0
-    };
+    let ratio = if total_compr > 0 { total_orig as f64 / total_compr as f64 } else { 1.0 };
 
     // Data stored
     let data_block = Block::default().title(" Data ").borders(Borders::ALL);
-    let data_text = format!(
-        "{}\nRatio: {:.2}:1",
-        crate::cli::format_size(total_orig),
-        ratio
-    );
-    let data = Paragraph::new(data_text)
-        .block(data_block)
-        .style(Style::default().fg(Color::Green));
+    let data_text = format!("{}\nRatio: {:.2}:1", crate::cli::format_size(total_orig), ratio);
+    let data = Paragraph::new(data_text).block(data_block).style(Style::default().fg(Color::Green));
     f.render_widget(data, chunks[0]);
 
     // Compression ratio gauge
-    let savings = if ratio > 1.0 {
-        ((1.0 - 1.0 / ratio) * 100.0) as u16
-    } else {
-        0
-    };
+    let savings = if ratio > 1.0 { ((1.0 - 1.0 / ratio) * 100.0) as u16 } else { 0 };
     let ratio_gauge = Gauge::default()
         .block(Block::default().title(" Savings ").borders(Borders::ALL))
         .gauge_style(Style::default().fg(Color::Cyan))
@@ -240,27 +228,18 @@ fn render_overview(f: &mut Frame, area: Rect, app: &App) {
 
     // GPU status
     let gpu_block = Block::default().title(" GPU ").borders(Borders::ALL);
-    let gpu_text = if gpu_count > 0 {
-        format!("{} active", gpu_count)
-    } else {
-        "disabled".to_string()
-    };
+    let gpu_text =
+        if gpu_count > 0 { format!("{} active", gpu_count) } else { "disabled".to_string() };
     let gpu = Paragraph::new(gpu_text)
         .block(gpu_block)
-        .style(Style::default().fg(if gpu_count > 0 {
-            Color::Magenta
-        } else {
-            Color::DarkGray
-        }));
+        .style(Style::default().fg(if gpu_count > 0 { Color::Magenta } else { Color::DarkGray }));
     f.render_widget(gpu, chunks[3]);
 }
 
 fn render_device_list(f: &mut Frame, area: Rect, app: &App) {
-    let header = Row::new(vec![
-        "NAME", "SIZE", "DATA", "COMPR", "RATIO", "ALGO", "GPU", "BACKEND",
-    ])
-    .style(Style::default().add_modifier(Modifier::BOLD))
-    .height(1);
+    let header = Row::new(vec!["NAME", "SIZE", "DATA", "COMPR", "RATIO", "ALGO", "GPU", "BACKEND"])
+        .style(Style::default().add_modifier(Modifier::BOLD))
+        .height(1);
 
     let rows: Vec<Row> = if app.demo_mode {
         vec![
@@ -336,9 +315,7 @@ fn render_device_details(f: &mut Frame, area: Rect, app: &App) {
         .split(area);
 
     // Entropy distribution
-    let entropy_block = Block::default()
-        .title(" Entropy Distribution ")
-        .borders(Borders::ALL);
+    let entropy_block = Block::default().title(" Entropy Distribution ").borders(Borders::ALL);
 
     let (gpu_pct, simd_pct, scalar_pct) = if app.demo_mode {
         let offset = app.demo_counter % 20;
@@ -393,20 +370,13 @@ fn render_device_details(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(entropy, chunks[0]);
 
     // I/O stats
-    let io_block = Block::default()
-        .title(" I/O Statistics ")
-        .borders(Borders::ALL);
+    let io_block = Block::default().title(" I/O Statistics ").borders(Borders::ALL);
 
     let (failed_r, failed_w, invalid, zero_pages) = if app.demo_mode {
         (0, 0, 0, 50000 + app.demo_counter)
     } else if let Some(device) = app.devices.get(app.selected_device) {
         let stats = device.stats();
-        (
-            stats.failed_reads,
-            stats.failed_writes,
-            stats.invalid_io,
-            stats.same_pages,
-        )
+        (stats.failed_reads, stats.failed_writes, stats.invalid_io, stats.same_pages)
     } else {
         (0, 0, 0, 0)
     };

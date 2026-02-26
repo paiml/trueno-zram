@@ -41,6 +41,21 @@ criterion = { version = "0.5", features = ["html_reports"] }
 # Async (for CLI)
 tokio = { version = "1.44", features = ["full"] }
 
+[workspace.lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
 [profile.release]
 lto = true
 codegen-units = 1
@@ -49,3 +64,6 @@ panic = "abort"
 [profile.bench]
 lto = true
 codegen-units = 1
+
+[profile.dev]
+panic = "abort"

@@ -373,11 +373,7 @@ mod tests {
 
     #[test]
     fn test_polling_stats_hit_rate() {
-        let stats = PollingStats {
-            poll_count: 100,
-            successful_polls: 75,
-            ..Default::default()
-        };
+        let stats = PollingStats { poll_count: 100, successful_polls: 75, ..Default::default() };
         assert!((stats.hit_rate() - 0.75).abs() < 0.001);
     }
 
@@ -389,11 +385,7 @@ mod tests {
 
     #[test]
     fn test_polling_stats_avg_batch_size() {
-        let stats = PollingStats {
-            successful_polls: 10,
-            completions: 50,
-            ..Default::default()
-        };
+        let stats = PollingStats { successful_polls: 10, completions: 50, ..Default::default() };
         assert!((stats.avg_batch_size() - 5.0).abs() < 0.001);
     }
 
@@ -637,9 +629,7 @@ mod tests {
 
         // Simulate mixed workload: some completions, some empty
         // Pattern: 6 true (completions), 4 false (empty)
-        let pattern = [
-            true, true, false, true, false, false, true, true, true, false,
-        ];
+        let pattern = [true, true, false, true, false, false, true, true, true, false];
         let counts = [5, 3, 0, 7, 0, 0, 2, 4, 1, 0];
 
         for (has_completion, count) in pattern.iter().zip(counts.iter()) {
@@ -667,11 +657,7 @@ mod tests {
 
     #[test]
     fn test_polling_stats_clone() {
-        let stats = PollingStats {
-            poll_count: 100,
-            completions: 500,
-            ..Default::default()
-        };
+        let stats = PollingStats { poll_count: 100, completions: 500, ..Default::default() };
         let cloned = stats.clone();
         assert_eq!(stats.poll_count, cloned.poll_count);
         assert_eq!(stats.completions, cloned.completions);

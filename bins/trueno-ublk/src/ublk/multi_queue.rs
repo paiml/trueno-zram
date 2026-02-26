@@ -28,11 +28,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
+use libc::{mmap, munmap, MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE};
 use nix::libc;
-use libc::{mmap, munmap, MAP_SHARED, PROT_READ, MAP_ANONYMOUS, MAP_PRIVATE, PROT_WRITE};
 use std::ptr::null_mut;
 
-use crate::perf::tenx::{FixedFileRegistry, RegisteredBufferConfig, RegisteredBufferPool, SqpollConfig};
+use crate::perf::tenx::{
+    FixedFileRegistry, RegisteredBufferConfig, RegisteredBufferPool, SqpollConfig,
+};
 
 /// UBLK kernel constants for IOD buffer calculation
 const UBLK_MAX_QUEUE_DEPTH: u32 = 4096;
@@ -161,11 +163,7 @@ pub struct MultiQueueStats {
 
 impl MultiQueueStats {
     pub fn new(nr_queues: usize) -> Self {
-        Self {
-            queues: (0..nr_queues)
-                .map(|_| Arc::new(QueueStats::new()))
-                .collect(),
-        }
+        Self { queues: (0..nr_queues).map(|_| Arc::new(QueueStats::new())).collect() }
     }
 
     pub fn total_ios(&self) -> u64 {
@@ -173,24 +171,15 @@ impl MultiQueueStats {
     }
 
     pub fn total_reads(&self) -> u64 {
-        self.queues
-            .iter()
-            .map(|q| q.reads.load(Ordering::Relaxed))
-            .sum()
+        self.queues.iter().map(|q| q.reads.load(Ordering::Relaxed)).sum()
     }
 
     pub fn total_writes(&self) -> u64 {
-        self.queues
-            .iter()
-            .map(|q| q.writes.load(Ordering::Relaxed))
-            .sum()
+        self.queues.iter().map(|q| q.writes.load(Ordering::Relaxed)).sum()
     }
 
     pub fn total_errors(&self) -> u64 {
-        self.queues
-            .iter()
-            .map(|q| q.errors.load(Ordering::Relaxed))
-            .sum()
+        self.queues.iter().map(|q| q.errors.load(Ordering::Relaxed)).sum()
     }
 }
 
@@ -236,9 +225,7 @@ impl MultiQueueDaemon {
     /// Get optimal number of queues based on system
     pub fn optimal_queue_count() -> u16 {
         // Use number of CPUs, capped at 8
-        let cpus = std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(1);
+        let cpus = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1);
         (cpus as u16).clamp(1, 8)
     }
 }
@@ -373,12 +360,12 @@ impl QueueIoWorker {
         queue_depth: u16,
         max_io_size: u32,
         char_fd: i32,
-        _iod_buf: *mut u8,  // Ignored - we mmap our own
+        _iod_buf: *mut u8, // Ignored - we mmap our own
         data_buf: *mut u8,
         stop: Arc<AtomicBool>,
         use_ioctl_encode: bool,
         sqpoll_config: Option<&SqpollConfig>,
-        zero_copy: bool,  // PERF-006: Enable ZERO_COPY mode
+        zero_copy: bool, // PERF-006: Enable ZERO_COPY mode
     ) -> Result<Self, super::daemon::DaemonError> {
         // PERF-003 FIX: Each queue must mmap its own IOD buffer with correct offset
         // The kernel expects: offset = UBLKSRV_CMD_BUF_OFFSET + queue_id * max_cmd_buf_sz
@@ -387,21 +374,9 @@ impl QueueIoWorker {
         let iod_buf_size = cmd_buf_sz(queue_depth as u32);
         let offset = UBLKSRV_CMD_BUF_OFFSET + (queue_id as i64) * max_cmd_buf_sz;
 
-        tracing::debug!(
-            queue_id,
-            iod_buf_size,
-            offset,
-            "PERF-003: mmap'ing IOD buffer for queue"
-        );
+        tracing::debug!(queue_id, iod_buf_size, offset, "PERF-003: mmap'ing IOD buffer for queue");
 
-        let iod_buf = mmap(
-            null_mut(),
-            iod_buf_size,
-            PROT_READ,
-            MAP_SHARED,
-            char_fd,
-            offset,
-        );
+        let iod_buf = mmap(null_mut(), iod_buf_size, PROT_READ, MAP_SHARED, char_fd, offset);
 
         if iod_buf == libc::MAP_FAILED {
             let err = std::io::Error::last_os_error();
@@ -465,8 +440,8 @@ impl QueueIoWorker {
             let buf_size = (queue_depth as usize) * (max_io_size as usize);
             // IO buffer offset for this queue
             // UBLKSRV_IO_BUF_OFFSET is the base, then each queue gets a slice
-            let io_offset =
-                crate::ublk::sys::UBLKSRV_IO_BUF_OFFSET as i64 + (queue_id as i64) * (buf_size as i64);
+            let io_offset = crate::ublk::sys::UBLKSRV_IO_BUF_OFFSET as i64
+                + (queue_id as i64) * (buf_size as i64);
 
             tracing::info!(
                 queue_id,
@@ -558,10 +533,7 @@ impl QueueIoWorker {
         // SAFETY: IoSliceMut has the same layout as iovec
         let iovecs: Vec<libc::iovec> = io_slices
             .iter()
-            .map(|s| libc::iovec {
-                iov_base: s.as_ptr() as *mut libc::c_void,
-                iov_len: s.len(),
-            })
+            .map(|s| libc::iovec { iov_base: s.as_ptr() as *mut libc::c_void, iov_len: s.len() })
             .collect();
 
         // Register with io_uring
@@ -633,10 +605,7 @@ impl QueueIoWorker {
         // Register each fd
         for &fd in fds {
             if registry.register(fd).is_err() {
-                tracing::warn!(
-                    queue_id = self.queue_id,
-                    "PERF-008: Fixed file registry full"
-                );
+                tracing::warn!(queue_id = self.queue_id, "PERF-008: Fixed file registry full");
                 break;
             }
         }
@@ -724,11 +693,7 @@ impl QueueIoWorker {
             addr: 0,    // USER_COPY mode: kernel uses pread/pwrite for data
         };
 
-        let cmd_op = if self.use_ioctl_encode {
-            UBLK_U_IO_FETCH_REQ
-        } else {
-            UBLK_IO_FETCH_REQ
-        };
+        let cmd_op = if self.use_ioctl_encode { UBLK_U_IO_FETCH_REQ } else { UBLK_IO_FETCH_REQ };
 
         // Use UringCmd16 like the daemon - 16-byte cmd field for UblkIoCmd
         // SAFETY: UblkIoCmd is a repr(C) struct that fits in 16 bytes
@@ -741,10 +706,7 @@ impl QueueIoWorker {
         // SAFETY: The submission queue is properly initialized via IoUring::new().
         // The sqe contains valid data and the ring has capacity (checked by map_err).
         unsafe {
-            self.ring
-                .submission()
-                .push(&sqe)
-                .map_err(|_| super::daemon::DaemonError::QueueFull)?;
+            self.ring.submission().push(&sqe).map_err(|_| super::daemon::DaemonError::QueueFull)?;
         }
         Ok(())
     }
@@ -783,10 +745,7 @@ impl QueueIoWorker {
         // SAFETY: The submission queue is properly initialized via IoUring::new().
         // The sqe contains valid data and the ring has capacity (checked by map_err).
         unsafe {
-            self.ring
-                .submission()
-                .push(&sqe)
-                .map_err(|_| super::daemon::DaemonError::QueueFull)?;
+            self.ring.submission().push(&sqe).map_err(|_| super::daemon::DaemonError::QueueFull)?;
         }
         Ok(())
     }
@@ -808,17 +767,12 @@ impl QueueIoWorker {
             self.submit_fetch(tag)?;
         }
         self.ring.submission().sync();
-        self.ring
-            .submit()
-            .map_err(super::daemon::DaemonError::Submit)?;
+        self.ring.submit().map_err(super::daemon::DaemonError::Submit)?;
 
         // PERF-007 FIX: With SQPOLL, wait until kernel has consumed all FETCH entries
         // This fixes the race where START_DEV is called before SQPOLL thread processes FETCHes
         if self.sqpoll_enabled {
-            self.ring
-                .submitter()
-                .squeue_wait()
-                .map_err(super::daemon::DaemonError::Submit)?;
+            self.ring.submitter().squeue_wait().map_err(super::daemon::DaemonError::Submit)?;
             tracing::debug!(
                 queue_id = self.queue_id,
                 "PERF-007: SQPOLL sync complete - all FETCHes consumed by kernel"
@@ -843,8 +797,7 @@ impl QueueIoWorker {
             // Process completions
             let tags: Vec<(u16, i32)> = {
                 let cq = self.ring.completion();
-                cq.map(|cqe| (cqe.user_data() as u16, cqe.result()))
-                    .collect()
+                cq.map(|cqe| (cqe.user_data() as u16, cqe.result())).collect()
             };
 
             for (tag, result) in tags {
@@ -876,16 +829,19 @@ impl QueueIoWorker {
                     UBLK_IO_OP_WRITE => {
                         self.stats.record_write();
                         if self.zero_copy {
-                            self.handle_write_zerocopy(tag, start_sector, nr_sectors, io_addr, store)
+                            self.handle_write_zerocopy(
+                                tag,
+                                start_sector,
+                                nr_sectors,
+                                io_addr,
+                                store,
+                            )
                         } else {
                             self.handle_write(tag, start_sector, nr_sectors, store)
                         }
                     }
                     _ => {
-                        debug!(
-                            queue_id = self.queue_id,
-                            tag, op, "Unknown op, returning success"
-                        );
+                        debug!(queue_id = self.queue_id, tag, op, "Unknown op, returning success");
                         0
                     }
                 };
@@ -896,9 +852,7 @@ impl QueueIoWorker {
 
             // Submit any pending commands
             if !self.ring.submission().is_empty() {
-                self.ring
-                    .submit()
-                    .map_err(super::daemon::DaemonError::Submit)?;
+                self.ring.submit().map_err(super::daemon::DaemonError::Submit)?;
             }
         }
     }
@@ -1194,7 +1148,11 @@ pub unsafe fn spawn_queue_workers_with_tenx(
                             match worker.register_buffers(config) {
                                 Ok(true) => info!(queue_id = q, "PERF-005: Registered buffers"),
                                 Ok(false) => {} // Skipped
-                                Err(e) => tracing::warn!(queue_id = q, "PERF-005: Buffer registration failed: {}", e),
+                                Err(e) => tracing::warn!(
+                                    queue_id = q,
+                                    "PERF-005: Buffer registration failed: {}",
+                                    e
+                                ),
                             }
                         }
                     }
@@ -1210,11 +1168,7 @@ pub unsafe fn spawn_queue_workers_with_tenx(
             }
         });
 
-        handles.push(QueueWorkerHandle {
-            queue_id: q,
-            thread,
-            stats,
-        });
+        handles.push(QueueWorkerHandle { queue_id: q, thread, stats });
 
         info!(queue_id = q, "Spawned queue worker thread");
     }
@@ -1248,18 +1202,8 @@ mod tests {
             assert_eq!(cfg.queue_id, i as u16);
             assert_eq!(cfg.cpu_core, Some(i));
             // PERF-003 fix: offsets are into SEPARATE buffers
-            assert_eq!(
-                cfg.iod_offset,
-                i * iod_per_queue,
-                "IOD offset for queue {}",
-                i
-            );
-            assert_eq!(
-                cfg.data_offset,
-                i * data_per_queue,
-                "Data offset for queue {}",
-                i
-            );
+            assert_eq!(cfg.iod_offset, i * iod_per_queue, "IOD offset for queue {}", i);
+            assert_eq!(cfg.data_offset, i * data_per_queue, "Data offset for queue {}", i);
 
             // Verify no overlap with next queue in each SEPARATE buffer
             if i < 3 {

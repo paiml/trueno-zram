@@ -41,3 +41,6 @@ std = []
 nightly = []
 # Enable CUDA GPU acceleration
 cuda = ["dep:cudarc", "dep:rayon", "dep:trueno-gpu"]
+
+[lints]
+workspace = true

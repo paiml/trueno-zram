@@ -146,10 +146,7 @@ impl CtrlShim for RealKernelShim {
         let mut ring: IoUring128 = IoUring128::builder().build(4)?;
 
         // Wrap command in extended struct for 128-byte SQE
-        let cmd_ext = UblkCtrlCmdExt {
-            cmd: *cmd,
-            padding: [0; 48],
-        };
+        let cmd_ext = UblkCtrlCmdExt { cmd: *cmd, padding: [0; 48] };
         let cmd_bytes: [u8; 80] = unsafe { std::mem::transmute(cmd_ext) };
 
         let sqe = opcode::UringCmd80::new(types::Fd(ctrl_fd.as_raw_fd()), cmd_op)
@@ -158,17 +155,12 @@ impl CtrlShim for RealKernelShim {
             .user_data(0x100);
 
         unsafe {
-            ring.submission()
-                .push(&sqe)
-                .map_err(|_| io::Error::other("SQ full"))?;
+            ring.submission().push(&sqe).map_err(|_| io::Error::other("SQ full"))?;
         }
 
         ring.submit_and_wait(1)?;
 
-        let cqe = ring
-            .completion()
-            .next()
-            .ok_or_else(|| io::Error::other("No CQE"))?;
+        let cqe = ring.completion().next().ok_or_else(|| io::Error::other("No CQE"))?;
 
         let result = cqe.result();
         if result < 0 {
@@ -182,10 +174,7 @@ impl CtrlShim for RealKernelShim {
             None
         };
 
-        Ok(CtrlCmdResult {
-            retval: result,
-            dev_info,
-        })
+        Ok(CtrlCmdResult { retval: result, dev_info })
     }
 
     fn open_char_device(&self, dev_id: i32) -> io::Result<OwnedFd> {
@@ -221,10 +210,7 @@ impl DaemonShim for RealKernelShim {
         if ptr == libc::MAP_FAILED {
             return Err(io::Error::last_os_error());
         }
-        Ok(MmapResult {
-            ptr: ptr as *mut u8,
-            len: size,
-        })
+        Ok(MmapResult { ptr: ptr as *mut u8, len: size })
     }
 
     fn mmap_anonymous(&self, size: usize) -> io::Result<MmapResult> {
@@ -241,10 +227,7 @@ impl DaemonShim for RealKernelShim {
         if ptr == libc::MAP_FAILED {
             return Err(io::Error::last_os_error());
         }
-        Ok(MmapResult {
-            ptr: ptr as *mut u8,
-            len: size,
-        })
+        Ok(MmapResult { ptr: ptr as *mut u8, len: size })
     }
 
     fn munmap(&self, ptr: *mut u8, len: usize) -> io::Result<()> {
@@ -257,12 +240,7 @@ impl DaemonShim for RealKernelShim {
 
     fn pread(&self, fd: &OwnedFd, buf: &mut [u8], offset: i64) -> io::Result<usize> {
         let result = unsafe {
-            libc::pread(
-                fd.as_raw_fd(),
-                buf.as_mut_ptr() as *mut libc::c_void,
-                buf.len(),
-                offset,
-            )
+            libc::pread(fd.as_raw_fd(), buf.as_mut_ptr() as *mut libc::c_void, buf.len(), offset)
         };
         if result < 0 {
             return Err(io::Error::last_os_error());
@@ -272,12 +250,7 @@ impl DaemonShim for RealKernelShim {
 
     fn pwrite(&self, fd: &OwnedFd, buf: &[u8], offset: i64) -> io::Result<usize> {
         let result = unsafe {
-            libc::pwrite(
-                fd.as_raw_fd(),
-                buf.as_ptr() as *const libc::c_void,
-                buf.len(),
-                offset,
-            )
+            libc::pwrite(fd.as_raw_fd(), buf.as_ptr() as *const libc::c_void, buf.len(), offset)
         };
         if result < 0 {
             return Err(io::Error::last_os_error());
@@ -305,12 +278,7 @@ impl IoUringOps for RealIoUring {
     fn submit_fetch(&mut self, char_fd: i32, tag: u16, queue_id: u16) -> io::Result<()> {
         use io_uring::{opcode, types};
 
-        let io_cmd = UblkIoCmd {
-            q_id: queue_id,
-            tag,
-            result: 0,
-            addr: 0,
-        };
+        let io_cmd = UblkIoCmd { q_id: queue_id, tag, result: 0, addr: 0 };
         let cmd_bytes: [u8; 16] = unsafe { std::mem::transmute(io_cmd) };
 
         let sqe = opcode::UringCmd16::new(types::Fd(char_fd), UBLK_U_IO_FETCH_REQ)
@@ -319,10 +287,7 @@ impl IoUringOps for RealIoUring {
             .user_data((tag as u64) | ((queue_id as u64) << 16));
 
         unsafe {
-            self.ring
-                .submission()
-                .push(&sqe)
-                .map_err(|_| io::Error::other("SQ full"))?;
+            self.ring.submission().push(&sqe).map_err(|_| io::Error::other("SQ full"))?;
         }
         Ok(())
     }
@@ -336,12 +301,7 @@ impl IoUringOps for RealIoUring {
     ) -> io::Result<()> {
         use io_uring::{opcode, types};
 
-        let io_cmd = UblkIoCmd {
-            q_id: queue_id,
-            tag,
-            result,
-            addr: 0,
-        };
+        let io_cmd = UblkIoCmd { q_id: queue_id, tag, result, addr: 0 };
         let cmd_bytes: [u8; 16] = unsafe { std::mem::transmute(io_cmd) };
 
         let sqe = opcode::UringCmd16::new(types::Fd(char_fd), UBLK_U_IO_COMMIT_AND_FETCH_REQ)
@@ -350,27 +310,19 @@ impl IoUringOps for RealIoUring {
             .user_data((tag as u64) | ((queue_id as u64) << 16));
 
         unsafe {
-            self.ring
-                .submission()
-                .push(&sqe)
-                .map_err(|_| io::Error::other("SQ full"))?;
+            self.ring.submission().push(&sqe).map_err(|_| io::Error::other("SQ full"))?;
         }
         Ok(())
     }
 
     fn submit_and_wait(&mut self, wait_nr: u32) -> io::Result<u32> {
-        self.ring
-            .submit_and_wait(wait_nr as usize)
-            .map(|n| n as u32)
+        self.ring.submit_and_wait(wait_nr as usize).map(|n| n as u32)
     }
 
     fn get_completions(&mut self) -> Vec<IoCompletion> {
         self.ring
             .completion()
-            .map(|cqe| IoCompletion {
-                user_data: cqe.user_data(),
-                result: cqe.result(),
-            })
+            .map(|cqe| IoCompletion { user_data: cqe.user_data(), result: cqe.result() })
             .collect()
     }
 }
@@ -400,13 +352,11 @@ impl MockKernelShim {
     }
 
     pub fn set_fail_open_ctrl(&self, fail: bool) {
-        self.fail_open_ctrl
-            .store(fail, std::sync::atomic::Ordering::SeqCst);
+        self.fail_open_ctrl.store(fail, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn set_fail_add_dev(&self, fail: bool) {
-        self.fail_add_dev
-            .store(fail, std::sync::atomic::Ordering::SeqCst);
+        self.fail_add_dev.store(fail, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn get_commands(&self) -> Vec<(u32, UblkCtrlCmd)> {
@@ -424,10 +374,7 @@ impl Default for MockKernelShim {
 #[cfg(test)]
 impl CtrlShim for MockKernelShim {
     fn open_ctrl_device(&self) -> io::Result<OwnedFd> {
-        if self
-            .fail_open_ctrl
-            .load(std::sync::atomic::Ordering::SeqCst)
-        {
+        if self.fail_open_ctrl.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(io::Error::from_raw_os_error(libc::ENOENT));
         }
         // Return a dummy fd (we won't actually use it)
@@ -454,27 +401,19 @@ impl CtrlShim for MockKernelShim {
                 if self.fail_add_dev.load(std::sync::atomic::Ordering::SeqCst) {
                     return Err(io::Error::from_raw_os_error(libc::EBUSY));
                 }
-                let dev_id = self
-                    .next_dev_id
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let dev_id = self.next_dev_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let mut dev_info = if cmd.addr != 0 {
                     unsafe { *(cmd.addr as *const UblkCtrlDevInfo) }
                 } else {
                     UblkCtrlDevInfo::default()
                 };
                 dev_info.dev_id = dev_id as u32;
-                Ok(CtrlCmdResult {
-                    retval: 0,
-                    dev_info: Some(dev_info),
-                })
+                Ok(CtrlCmdResult { retval: 0, dev_info: Some(dev_info) })
             }
             UBLK_U_CMD_SET_PARAMS
             | UBLK_U_CMD_START_DEV
             | UBLK_U_CMD_STOP_DEV
-            | UBLK_U_CMD_DEL_DEV => Ok(CtrlCmdResult {
-                retval: 0,
-                dev_info: None,
-            }),
+            | UBLK_U_CMD_DEL_DEV => Ok(CtrlCmdResult { retval: 0, dev_info: None }),
             _ => Err(io::Error::from_raw_os_error(libc::EINVAL)),
         }
     }
@@ -586,24 +525,17 @@ impl MockIoUring {
     }
 
     pub fn add_completion(&self, user_data: u64, result: i32) {
-        self.pending_completions
-            .lock()
-            .unwrap()
-            .push(IoCompletion { user_data, result });
+        self.pending_completions.lock().unwrap().push(IoCompletion { user_data, result });
     }
 }
 
 #[cfg(test)]
 impl IoUringOps for MockIoUring {
     fn submit_fetch(&mut self, _char_fd: i32, tag: u16, queue_id: u16) -> io::Result<()> {
-        self.fetch_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.fetch_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // Add a mock completion
         let user_data = (tag as u64) | ((queue_id as u64) << 16);
-        self.pending_completions.lock().unwrap().push(IoCompletion {
-            user_data,
-            result: 0,
-        });
+        self.pending_completions.lock().unwrap().push(IoCompletion { user_data, result: 0 });
         Ok(())
     }
 
@@ -614,13 +546,9 @@ impl IoUringOps for MockIoUring {
         queue_id: u16,
         _result: i32,
     ) -> io::Result<()> {
-        self.commit_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.commit_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let user_data = (tag as u64) | ((queue_id as u64) << 16);
-        self.pending_completions.lock().unwrap().push(IoCompletion {
-            user_data,
-            result: 0,
-        });
+        self.pending_completions.lock().unwrap().push(IoCompletion { user_data, result: 0 });
         Ok(())
     }
 
@@ -667,11 +595,8 @@ mod tests {
         let shim = MockKernelShim::new();
         let ctrl_fd = shim.open_ctrl_device().unwrap();
 
-        let mut dev_info = UblkCtrlDevInfo {
-            nr_hw_queues: 1,
-            queue_depth: 128,
-            ..Default::default()
-        };
+        let mut dev_info =
+            UblkCtrlDevInfo { nr_hw_queues: 1, queue_depth: 128, ..Default::default() };
 
         let cmd = UblkCtrlCmd {
             dev_id: u32::MAX,
@@ -763,19 +688,11 @@ mod tests {
         let shim = MockKernelShim::new();
         let ctrl_fd = shim.open_ctrl_device().unwrap();
 
-        let cmd1 = UblkCtrlCmd {
-            dev_id: 1,
-            ..Default::default()
-        };
-        let cmd2 = UblkCtrlCmd {
-            dev_id: 2,
-            ..Default::default()
-        };
+        let cmd1 = UblkCtrlCmd { dev_id: 1, ..Default::default() };
+        let cmd2 = UblkCtrlCmd { dev_id: 2, ..Default::default() };
 
-        shim.submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_START_DEV, &cmd1)
-            .unwrap();
-        shim.submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_STOP_DEV, &cmd2)
-            .unwrap();
+        shim.submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_START_DEV, &cmd1).unwrap();
+        shim.submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_STOP_DEV, &cmd2).unwrap();
 
         let commands = shim.get_commands();
         assert_eq!(commands.len(), 2);
@@ -792,15 +709,9 @@ mod tests {
 
         let cmd = UblkCtrlCmd::default();
 
-        let r1 = shim
-            .submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_ADD_DEV, &cmd)
-            .unwrap();
-        let r2 = shim
-            .submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_ADD_DEV, &cmd)
-            .unwrap();
-        let r3 = shim
-            .submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_ADD_DEV, &cmd)
-            .unwrap();
+        let r1 = shim.submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_ADD_DEV, &cmd).unwrap();
+        let r2 = shim.submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_ADD_DEV, &cmd).unwrap();
+        let r3 = shim.submit_ctrl_cmd(&ctrl_fd, UBLK_U_CMD_ADD_DEV, &cmd).unwrap();
 
         assert_eq!(r1.dev_info.unwrap().dev_id, 0);
         assert_eq!(r2.dev_info.unwrap().dev_id, 1);
@@ -837,8 +748,7 @@ mod tests {
     #[test]
     fn test_mock_daemon_shim_mmap_fail() {
         let shim = MockDaemonShim::new();
-        shim.fail_mmap
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        shim.fail_mmap.store(true, std::sync::atomic::Ordering::SeqCst);
 
         let ctrl_shim = MockKernelShim::new();
         let char_fd = ctrl_shim.open_char_device(0).unwrap();
@@ -899,10 +809,7 @@ mod tests {
         let mut ring = MockIoUring::new(128);
         let result = ring.submit_fetch(3, 5, 0);
         assert!(result.is_ok());
-        assert_eq!(
-            ring.fetch_count.load(std::sync::atomic::Ordering::SeqCst),
-            1
-        );
+        assert_eq!(ring.fetch_count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -910,10 +817,7 @@ mod tests {
         let mut ring = MockIoUring::new(128);
         let result = ring.submit_commit_fetch(3, 7, 0, 4096);
         assert!(result.is_ok());
-        assert_eq!(
-            ring.commit_count.load(std::sync::atomic::Ordering::SeqCst),
-            1
-        );
+        assert_eq!(ring.commit_count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -951,10 +855,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_cmd_result_debug() {
-        let result = CtrlCmdResult {
-            retval: 0,
-            dev_info: None,
-        };
+        let result = CtrlCmdResult { retval: 0, dev_info: None };
         let debug = format!("{:?}", result);
         assert!(debug.contains("retval"));
     }
@@ -963,10 +864,7 @@ mod tests {
     fn test_ctrl_cmd_result_clone() {
         let result = CtrlCmdResult {
             retval: 42,
-            dev_info: Some(UblkCtrlDevInfo {
-                dev_id: 5,
-                ..Default::default()
-            }),
+            dev_info: Some(UblkCtrlDevInfo { dev_id: 5, ..Default::default() }),
         };
         let cloned = result.clone();
         assert_eq!(cloned.retval, 42);
@@ -979,10 +877,7 @@ mod tests {
 
     #[test]
     fn test_mmap_result_debug() {
-        let result = MmapResult {
-            ptr: std::ptr::null_mut(),
-            len: 4096,
-        };
+        let result = MmapResult { ptr: std::ptr::null_mut(), len: 4096 };
         let debug = format!("{:?}", result);
         assert!(debug.contains("len"));
     }
@@ -993,10 +888,7 @@ mod tests {
 
     #[test]
     fn test_io_completion_debug() {
-        let completion = IoCompletion {
-            user_data: 0x12345678,
-            result: -5,
-        };
+        let completion = IoCompletion { user_data: 0x12345678, result: -5 };
         let debug = format!("{:?}", completion);
         assert!(debug.contains("user_data"));
         assert!(debug.contains("result"));
@@ -1004,10 +896,7 @@ mod tests {
 
     #[test]
     fn test_io_completion_clone() {
-        let completion = IoCompletion {
-            user_data: 0xABCD,
-            result: 4096,
-        };
+        let completion = IoCompletion { user_data: 0xABCD, result: 4096 };
         let cloned = completion.clone();
         assert_eq!(cloned.user_data, 0xABCD);
         assert_eq!(cloned.result, 4096);
@@ -1020,10 +909,7 @@ mod tests {
     #[test]
     fn test_mock_kernel_shim_default() {
         let shim = MockKernelShim::default();
-        assert_eq!(
-            shim.next_dev_id.load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
+        assert_eq!(shim.next_dev_id.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     #[test]

@@ -58,10 +58,7 @@ impl CtrlError {
             | Self::StartDev { source, .. }
             | Self::StopDev { source, .. }
             | Self::DelDev { source, .. } => {
-                matches!(
-                    source.raw_os_error(),
-                    Some(libc::EAGAIN) | Some(libc::EBUSY)
-                )
+                matches!(source.raw_os_error(), Some(libc::EAGAIN) | Some(libc::EBUSY))
             }
             _ => false,
         }
@@ -167,11 +164,7 @@ impl UblkCtrl {
             nr_hw_queues: config.nr_hw_queues,
             queue_depth: config.queue_depth,
             max_io_buf_bytes: UBLK_MAX_IO_BUF_BYTES,
-            dev_id: if config.dev_id < 0 {
-                u32::MAX
-            } else {
-                config.dev_id as u32
-            },
+            dev_id: if config.dev_id < 0 { u32::MAX } else { config.dev_id as u32 },
             ublksrv_pid: std::process::id() as i32,
             flags: config.flags,
             ..Default::default()
@@ -197,10 +190,7 @@ impl UblkCtrl {
         };
 
         ctrl.submit_ctrl_cmd(UBLK_U_CMD_ADD_DEV, cmd)
-            .map_err(|e| CtrlError::AddDev {
-                dev_id: config.dev_id,
-                source: e,
-            })?;
+            .map_err(|e| CtrlError::AddDev { dev_id: config.dev_id, source: e })?;
 
         ctrl.dev_id = ctrl.dev_info.dev_id as i32;
 
@@ -236,10 +226,7 @@ impl UblkCtrl {
     /// Submit a control command via io_uring URING_CMD
     fn submit_ctrl_cmd(&mut self, cmd_op: u32, cmd: UblkCtrlCmd) -> Result<i32, std::io::Error> {
         // Wrap in UblkCtrlCmdExt (80 bytes) for io_uring SQE cmd field
-        let cmd_ext = UblkCtrlCmdExt {
-            cmd,
-            padding: [0; 48],
-        };
+        let cmd_ext = UblkCtrlCmdExt { cmd, padding: [0; 48] };
         let cmd_bytes: [u8; 80] = unsafe { std::mem::transmute(cmd_ext) };
 
         let sqe = opcode::UringCmd80::new(types::Fd(self.ctrl_fd.as_raw_fd()), cmd_op)
@@ -248,24 +235,14 @@ impl UblkCtrl {
             .user_data(0x100);
 
         unsafe {
-            self.ring
-                .submission()
-                .push(&sqe)
-                .map_err(|_| std::io::Error::other("SQ full"))?;
+            self.ring.submission().push(&sqe).map_err(|_| std::io::Error::other("SQ full"))?;
         }
 
-        tracing::info!(
-            cmd_op,
-            "Submitting control command, waiting for completion..."
-        );
+        tracing::info!(cmd_op, "Submitting control command, waiting for completion...");
         self.ring.submit_and_wait(1)?;
         tracing::info!(cmd_op, "Control command completed");
 
-        let cqe = self
-            .ring
-            .completion()
-            .next()
-            .ok_or_else(|| std::io::Error::other("No CQE"))?;
+        let cqe = self.ring.completion().next().ok_or_else(|| std::io::Error::other("No CQE"))?;
 
         let result = cqe.result();
         if result < 0 {
@@ -301,56 +278,35 @@ impl UblkCtrl {
         };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_SET_PARAMS, cmd)
-            .map_err(|e| CtrlError::SetParams {
-                dev_id: self.dev_id,
-                source: e,
-            })?;
+            .map_err(|e| CtrlError::SetParams { dev_id: self.dev_id, source: e })?;
 
         Ok(())
     }
 
     pub fn start(&mut self) -> Result<(), CtrlError> {
-        let mut cmd = UblkCtrlCmd {
-            dev_id: self.dev_id as u32,
-            ..Default::default()
-        };
+        let mut cmd = UblkCtrlCmd { dev_id: self.dev_id as u32, ..Default::default() };
         cmd.data[0] = self.dev_info.ublksrv_pid as u64;
 
         self.submit_ctrl_cmd(UBLK_U_CMD_START_DEV, cmd)
-            .map_err(|e| CtrlError::StartDev {
-                dev_id: self.dev_id,
-                source: e,
-            })?;
+            .map_err(|e| CtrlError::StartDev { dev_id: self.dev_id, source: e })?;
 
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<(), CtrlError> {
-        let cmd = UblkCtrlCmd {
-            dev_id: self.dev_id as u32,
-            ..Default::default()
-        };
+        let cmd = UblkCtrlCmd { dev_id: self.dev_id as u32, ..Default::default() };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_STOP_DEV, cmd)
-            .map_err(|e| CtrlError::StopDev {
-                dev_id: self.dev_id,
-                source: e,
-            })?;
+            .map_err(|e| CtrlError::StopDev { dev_id: self.dev_id, source: e })?;
 
         Ok(())
     }
 
     fn delete(&mut self) -> Result<(), CtrlError> {
-        let cmd = UblkCtrlCmd {
-            dev_id: self.dev_id as u32,
-            ..Default::default()
-        };
+        let cmd = UblkCtrlCmd { dev_id: self.dev_id as u32, ..Default::default() };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_DEL_DEV, cmd)
-            .map_err(|e| CtrlError::DelDev {
-                dev_id: self.dev_id,
-                source: e,
-            })?;
+            .map_err(|e| CtrlError::DelDev { dev_id: self.dev_id, source: e })?;
 
         Ok(())
     }
@@ -506,56 +462,35 @@ impl MockUblkCtrl {
         };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_SET_PARAMS, cmd)
-            .map_err(|e| CtrlError::SetParams {
-                dev_id: self.dev_id,
-                source: e,
-            })?;
+            .map_err(|e| CtrlError::SetParams { dev_id: self.dev_id, source: e })?;
 
         Ok(())
     }
 
     pub fn start(&mut self) -> Result<(), CtrlError> {
-        let mut cmd = UblkCtrlCmd {
-            dev_id: self.dev_id as u32,
-            ..Default::default()
-        };
+        let mut cmd = UblkCtrlCmd { dev_id: self.dev_id as u32, ..Default::default() };
         cmd.data[0] = self.dev_info.ublksrv_pid as u64;
 
         self.submit_ctrl_cmd(UBLK_U_CMD_START_DEV, cmd)
-            .map_err(|e| CtrlError::StartDev {
-                dev_id: self.dev_id,
-                source: e,
-            })?;
+            .map_err(|e| CtrlError::StartDev { dev_id: self.dev_id, source: e })?;
 
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<(), CtrlError> {
-        let cmd = UblkCtrlCmd {
-            dev_id: self.dev_id as u32,
-            ..Default::default()
-        };
+        let cmd = UblkCtrlCmd { dev_id: self.dev_id as u32, ..Default::default() };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_STOP_DEV, cmd)
-            .map_err(|e| CtrlError::StopDev {
-                dev_id: self.dev_id,
-                source: e,
-            })?;
+            .map_err(|e| CtrlError::StopDev { dev_id: self.dev_id, source: e })?;
 
         Ok(())
     }
 
     pub fn delete(&mut self) -> Result<(), CtrlError> {
-        let cmd = UblkCtrlCmd {
-            dev_id: self.dev_id as u32,
-            ..Default::default()
-        };
+        let cmd = UblkCtrlCmd { dev_id: self.dev_id as u32, ..Default::default() };
 
         self.submit_ctrl_cmd(UBLK_U_CMD_DEL_DEV, cmd)
-            .map_err(|e| CtrlError::DelDev {
-                dev_id: self.dev_id,
-                source: e,
-            })?;
+            .map_err(|e| CtrlError::DelDev { dev_id: self.dev_id, source: e })?;
 
         Ok(())
     }
@@ -608,10 +543,7 @@ mod tests {
 
     #[test]
     fn test_mock_ctrl_new() {
-        let config = DeviceConfig {
-            dev_size: 1 << 30,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_size: 1 << 30, ..Default::default() };
         let ctrl = MockUblkCtrl::new(config).unwrap();
         assert_eq!(ctrl.dev_id(), 0);
         assert_eq!(ctrl.queue_depth(), UBLK_DEF_QUEUE_DEPTH);
@@ -619,21 +551,14 @@ mod tests {
 
     #[test]
     fn test_mock_ctrl_with_specific_dev_id() {
-        let config = DeviceConfig {
-            dev_id: 5,
-            dev_size: 1 << 30,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_id: 5, dev_size: 1 << 30, ..Default::default() };
         let ctrl = MockUblkCtrl::new(config).unwrap();
         assert_eq!(ctrl.dev_id(), 5);
     }
 
     #[test]
     fn test_mock_ctrl_start_stop() {
-        let config = DeviceConfig {
-            dev_size: 1 << 30,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_size: 1 << 30, ..Default::default() };
         let mut ctrl = MockUblkCtrl::new(config).unwrap();
 
         assert!(!ctrl.started);
@@ -647,10 +572,7 @@ mod tests {
 
     #[test]
     fn test_mock_ctrl_delete() {
-        let config = DeviceConfig {
-            dev_size: 1 << 30,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_size: 1 << 30, ..Default::default() };
         let mut ctrl = MockUblkCtrl::new(config).unwrap();
 
         assert!(!ctrl.deleted);
@@ -660,27 +582,17 @@ mod tests {
 
     #[test]
     fn test_mock_ctrl_set_params() {
-        let config = DeviceConfig {
-            dev_size: 1 << 30,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_size: 1 << 30, ..Default::default() };
         let mut ctrl = MockUblkCtrl::new(config).unwrap();
         ctrl.set_params().unwrap();
 
         // Verify SET_PARAMS command was issued
-        assert!(ctrl
-            .commands_issued
-            .iter()
-            .any(|(op, _)| *op == UBLK_U_CMD_SET_PARAMS));
+        assert!(ctrl.commands_issued.iter().any(|(op, _)| *op == UBLK_U_CMD_SET_PARAMS));
     }
 
     #[test]
     fn test_mock_ctrl_block_dev_path() {
-        let config = DeviceConfig {
-            dev_id: 42,
-            dev_size: 1 << 30,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_id: 42, dev_size: 1 << 30, ..Default::default() };
         let ctrl = MockUblkCtrl::new(config).unwrap();
         assert_eq!(ctrl.block_dev_path(), "/dev/ublkb42");
     }
@@ -713,10 +625,7 @@ mod tests {
     #[test]
     fn test_mock_ctrl_params_dev_sectors() {
         let dev_size = 1 << 30; // 1GB
-        let config = DeviceConfig {
-            dev_size,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_size, ..Default::default() };
         let ctrl = MockUblkCtrl::new(config).unwrap();
 
         let expected_sectors = dev_size / SECTOR_SIZE;
@@ -760,11 +669,7 @@ mod tests {
 
     #[test]
     fn test_mock_ctrl_command_dev_id_consistency() {
-        let config = DeviceConfig {
-            dev_id: 7,
-            dev_size: 1 << 30,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_id: 7, dev_size: 1 << 30, ..Default::default() };
         let mut ctrl = MockUblkCtrl::new(config).unwrap();
 
         ctrl.start().unwrap();
@@ -797,10 +702,7 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
-        assert!(ctrl
-            .commands_issued
-            .iter()
-            .any(|(op, _)| *op == UBLK_U_CMD_ADD_DEV));
+        assert!(ctrl.commands_issued.iter().any(|(op, _)| *op == UBLK_U_CMD_ADD_DEV));
     }
 
     // ========================================================================
@@ -836,11 +738,7 @@ mod tests {
 
     #[test]
     fn test_device_config_clone() {
-        let config = DeviceConfig {
-            dev_id: 10,
-            dev_size: 1 << 20,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_id: 10, dev_size: 1 << 20, ..Default::default() };
         let cloned = config.clone();
         assert_eq!(cloned.dev_id, 10);
         assert_eq!(cloned.dev_size, 1 << 20);
@@ -958,70 +856,49 @@ mod tests {
 
     #[test]
     fn test_ctrl_error_display_add_dev() {
-        let err = CtrlError::AddDev {
-            dev_id: 5,
-            source: std::io::Error::from_raw_os_error(1),
-        };
+        let err = CtrlError::AddDev { dev_id: 5, source: std::io::Error::from_raw_os_error(1) };
         let msg = format!("{}", err);
         assert!(msg.contains("Failed to add device 5"));
     }
 
     #[test]
     fn test_ctrl_error_display_set_params() {
-        let err = CtrlError::SetParams {
-            dev_id: 3,
-            source: std::io::Error::from_raw_os_error(22),
-        };
+        let err = CtrlError::SetParams { dev_id: 3, source: std::io::Error::from_raw_os_error(22) };
         let msg = format!("{}", err);
         assert!(msg.contains("Failed to set params for device 3"));
     }
 
     #[test]
     fn test_ctrl_error_display_start_dev() {
-        let err = CtrlError::StartDev {
-            dev_id: 7,
-            source: std::io::Error::from_raw_os_error(16),
-        };
+        let err = CtrlError::StartDev { dev_id: 7, source: std::io::Error::from_raw_os_error(16) };
         let msg = format!("{}", err);
         assert!(msg.contains("Failed to start device 7"));
     }
 
     #[test]
     fn test_ctrl_error_display_stop_dev() {
-        let err = CtrlError::StopDev {
-            dev_id: 2,
-            source: std::io::Error::from_raw_os_error(19),
-        };
+        let err = CtrlError::StopDev { dev_id: 2, source: std::io::Error::from_raw_os_error(19) };
         let msg = format!("{}", err);
         assert!(msg.contains("Failed to stop device 2"));
     }
 
     #[test]
     fn test_ctrl_error_display_del_dev() {
-        let err = CtrlError::DelDev {
-            dev_id: 9,
-            source: std::io::Error::from_raw_os_error(6),
-        };
+        let err = CtrlError::DelDev { dev_id: 9, source: std::io::Error::from_raw_os_error(6) };
         let msg = format!("{}", err);
         assert!(msg.contains("Failed to delete device 9"));
     }
 
     #[test]
     fn test_ctrl_error_display_open_char() {
-        let err = CtrlError::OpenChar {
-            dev_id: 1,
-            source: std::io::Error::from_raw_os_error(13),
-        };
+        let err = CtrlError::OpenChar { dev_id: 1, source: std::io::Error::from_raw_os_error(13) };
         let msg = format!("{}", err);
         assert!(msg.contains("Failed to open char device /dev/ublkc1"));
     }
 
     #[test]
     fn test_ctrl_error_debug() {
-        let err = CtrlError::AddDev {
-            dev_id: 0,
-            source: std::io::Error::from_raw_os_error(1),
-        };
+        let err = CtrlError::AddDev { dev_id: 0, source: std::io::Error::from_raw_os_error(1) };
         let debug = format!("{:?}", err);
         assert!(debug.contains("AddDev"));
     }
@@ -1076,10 +953,7 @@ mod tests {
             data: [0x11223344],
             ..Default::default()
         };
-        let cmd_ext = UblkCtrlCmdExt {
-            cmd,
-            padding: [0; 48],
-        };
+        let cmd_ext = UblkCtrlCmdExt { cmd, padding: [0; 48] };
         let bytes: [u8; 80] = unsafe { std::mem::transmute(cmd_ext) };
         let recovered: UblkCtrlCmdExt = unsafe { std::mem::transmute(bytes) };
         assert_eq!(recovered.cmd.dev_id, 123);
@@ -1147,10 +1021,7 @@ mod tests {
         let dev_id = 3i32;
         let pid = std::process::id() as i32;
 
-        let mut cmd = UblkCtrlCmd {
-            dev_id: dev_id as u32,
-            ..Default::default()
-        };
+        let mut cmd = UblkCtrlCmd { dev_id: dev_id as u32, ..Default::default() };
         cmd.data[0] = pid as u64;
 
         assert_eq!(cmd.dev_id, 3);
@@ -1161,10 +1032,7 @@ mod tests {
     fn test_stop_cmd_building() {
         let dev_id = 7i32;
 
-        let cmd = UblkCtrlCmd {
-            dev_id: dev_id as u32,
-            ..Default::default()
-        };
+        let cmd = UblkCtrlCmd { dev_id: dev_id as u32, ..Default::default() };
 
         assert_eq!(cmd.dev_id, 7);
     }
@@ -1183,11 +1051,7 @@ mod tests {
             nr_hw_queues: config.nr_hw_queues,
             queue_depth: config.queue_depth,
             max_io_buf_bytes: UBLK_MAX_IO_BUF_BYTES,
-            dev_id: if config.dev_id < 0 {
-                u32::MAX
-            } else {
-                config.dev_id as u32
-            },
+            dev_id: if config.dev_id < 0 { u32::MAX } else { config.dev_id as u32 },
             ublksrv_pid: std::process::id() as i32,
             flags: config.flags,
             ..Default::default()
@@ -1235,10 +1099,7 @@ mod tests {
             data: [0x12345678],
             ..Default::default()
         };
-        let cmd_ext = UblkCtrlCmdExt {
-            cmd,
-            padding: [0; 48],
-        };
+        let cmd_ext = UblkCtrlCmdExt { cmd, padding: [0; 48] };
         let cmd_bytes: [u8; 80] = unsafe { std::mem::transmute(cmd_ext) };
 
         // Verify first 4 bytes are dev_id (little-endian)
@@ -1333,10 +1194,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_error_dev_id_some() {
-        let err = CtrlError::StartDev {
-            dev_id: 42,
-            source: std::io::Error::from_raw_os_error(1),
-        };
+        let err = CtrlError::StartDev { dev_id: 42, source: std::io::Error::from_raw_os_error(1) };
         assert_eq!(err.dev_id(), Some(42));
     }
 
@@ -1352,30 +1210,12 @@ mod tests {
         let errors = vec![
             CtrlError::OpenCtrl(std::io::Error::from_raw_os_error(1)),
             CtrlError::IoUring(std::io::Error::from_raw_os_error(2)),
-            CtrlError::AddDev {
-                dev_id: 0,
-                source: std::io::Error::from_raw_os_error(3),
-            },
-            CtrlError::SetParams {
-                dev_id: 0,
-                source: std::io::Error::from_raw_os_error(4),
-            },
-            CtrlError::StartDev {
-                dev_id: 0,
-                source: std::io::Error::from_raw_os_error(5),
-            },
-            CtrlError::StopDev {
-                dev_id: 0,
-                source: std::io::Error::from_raw_os_error(6),
-            },
-            CtrlError::DelDev {
-                dev_id: 0,
-                source: std::io::Error::from_raw_os_error(7),
-            },
-            CtrlError::OpenChar {
-                dev_id: 0,
-                source: std::io::Error::from_raw_os_error(8),
-            },
+            CtrlError::AddDev { dev_id: 0, source: std::io::Error::from_raw_os_error(3) },
+            CtrlError::SetParams { dev_id: 0, source: std::io::Error::from_raw_os_error(4) },
+            CtrlError::StartDev { dev_id: 0, source: std::io::Error::from_raw_os_error(5) },
+            CtrlError::StopDev { dev_id: 0, source: std::io::Error::from_raw_os_error(6) },
+            CtrlError::DelDev { dev_id: 0, source: std::io::Error::from_raw_os_error(7) },
+            CtrlError::OpenChar { dev_id: 0, source: std::io::Error::from_raw_os_error(8) },
         ];
 
         for err in errors {
@@ -1400,10 +1240,8 @@ mod tests {
 
     #[test]
     fn test_is_retriable_add_dev_ebusy() {
-        let err = CtrlError::AddDev {
-            dev_id: 1,
-            source: std::io::Error::from_raw_os_error(libc::EBUSY),
-        };
+        let err =
+            CtrlError::AddDev { dev_id: 1, source: std::io::Error::from_raw_os_error(libc::EBUSY) };
         assert!(err.is_retriable());
     }
 
@@ -1418,10 +1256,8 @@ mod tests {
 
     #[test]
     fn test_is_retriable_del_dev_ebusy() {
-        let err = CtrlError::DelDev {
-            dev_id: 3,
-            source: std::io::Error::from_raw_os_error(libc::EBUSY),
-        };
+        let err =
+            CtrlError::DelDev { dev_id: 3, source: std::io::Error::from_raw_os_error(libc::EBUSY) };
         assert!(err.is_retriable());
     }
 
@@ -1441,46 +1277,31 @@ mod tests {
 
     #[test]
     fn test_dev_id_add_dev() {
-        let err = CtrlError::AddDev {
-            dev_id: 10,
-            source: std::io::Error::from_raw_os_error(1),
-        };
+        let err = CtrlError::AddDev { dev_id: 10, source: std::io::Error::from_raw_os_error(1) };
         assert_eq!(err.dev_id(), Some(10));
     }
 
     #[test]
     fn test_dev_id_set_params() {
-        let err = CtrlError::SetParams {
-            dev_id: 20,
-            source: std::io::Error::from_raw_os_error(1),
-        };
+        let err = CtrlError::SetParams { dev_id: 20, source: std::io::Error::from_raw_os_error(1) };
         assert_eq!(err.dev_id(), Some(20));
     }
 
     #[test]
     fn test_dev_id_stop_dev() {
-        let err = CtrlError::StopDev {
-            dev_id: 30,
-            source: std::io::Error::from_raw_os_error(1),
-        };
+        let err = CtrlError::StopDev { dev_id: 30, source: std::io::Error::from_raw_os_error(1) };
         assert_eq!(err.dev_id(), Some(30));
     }
 
     #[test]
     fn test_dev_id_del_dev() {
-        let err = CtrlError::DelDev {
-            dev_id: 40,
-            source: std::io::Error::from_raw_os_error(1),
-        };
+        let err = CtrlError::DelDev { dev_id: 40, source: std::io::Error::from_raw_os_error(1) };
         assert_eq!(err.dev_id(), Some(40));
     }
 
     #[test]
     fn test_dev_id_open_char() {
-        let err = CtrlError::OpenChar {
-            dev_id: 50,
-            source: std::io::Error::from_raw_os_error(1),
-        };
+        let err = CtrlError::OpenChar { dev_id: 50, source: std::io::Error::from_raw_os_error(1) };
         assert_eq!(err.dev_id(), Some(50));
     }
 
@@ -1508,10 +1329,8 @@ mod tests {
 
     #[test]
     fn test_to_errno_start_dev() {
-        let err = CtrlError::StartDev {
-            dev_id: 1,
-            source: std::io::Error::from_raw_os_error(libc::EIO),
-        };
+        let err =
+            CtrlError::StartDev { dev_id: 1, source: std::io::Error::from_raw_os_error(libc::EIO) };
         assert_eq!(err.to_errno(), -libc::EIO);
     }
 
@@ -1526,10 +1345,8 @@ mod tests {
 
     #[test]
     fn test_to_errno_del_dev() {
-        let err = CtrlError::DelDev {
-            dev_id: 1,
-            source: std::io::Error::from_raw_os_error(libc::EPERM),
-        };
+        let err =
+            CtrlError::DelDev { dev_id: 1, source: std::io::Error::from_raw_os_error(libc::EPERM) };
         assert_eq!(err.to_errno(), -libc::EPERM);
     }
 

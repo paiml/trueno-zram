@@ -2,6 +2,17 @@
 
 <img src="assets/hero-banner.svg" alt="trueno-zram" width="800"/>
 
+## Table of Contents
+
+- [Installation](#quick-start)
+- [Usage](#library-usage)
+- [Architecture](#architecture)
+- [API Reference](#cli-commands)
+- [Examples](#examples)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
+
 [![Crates.io](https://img.shields.io/crates/v/trueno-zram-core.svg)](https://crates.io/crates/trueno-zram-core)
 [![Documentation](https://docs.rs/trueno-zram-core/badge.svg)](https://docs.rs/trueno-zram-core)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)]()
@@ -144,6 +155,41 @@ sudo trueno-ublk create --size 8G --algorithm zstd1 --max-perf --queues 4
 sudo trueno-ublk create --size 8G --backend tiered --entropy-routing
 ```
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│            trueno-ublk CLI                   │
+│  (create, list, stat, top, benchmark)        │
+├─────────────────────────────────────────────┤
+│         Userspace Block Device               │
+│  (io_uring, ublk protocol, queue mgmt)       │
+├──────────┬──────────────────────────────────┤
+│ Adaptive │  trueno-zram-core                 │
+│ (entropy │  (SIMD compression engine)        │
+│  routing)│                                   │
+├──────────┴──────────┬───────────────────────┤
+│  ZSTD (AVX-512)     │  LZ4 (SIMD)           │
+│  25 GB/s decompress │  5.8 GB/s compress     │
+└─────────────────────┴───────────────────────┘
+```
+
+- **Core**: SIMD-accelerated page compression/decompression (4KB pages)
+- **Adaptive**: Entropy-based algorithm selection routes pages to optimal compressor
+- **Ublk**: Linux userspace block device using io_uring for zero-copy I/O
+- **Tiered**: Entropy routing to kernel zram for incompressible data
+
+## Testing
+
+```bash
+cargo test -p trueno-zram-core    # Core compression tests
+cargo test                        # All workspace tests
+cargo bench -p trueno-zram-core   # Compression benchmarks
+make quality-gate                 # Full quality gate: lint + test + coverage
+```
+
+Property-based tests verify compression roundtrip invariants across page patterns (zeros, random, mixed).
+
 ## Project Structure
 
 | Crate | Description |
@@ -185,6 +231,11 @@ Contributions welcome:
 - New compression algorithms
 - Documentation improvements
 - Bug fixes
+
+
+## MSRV
+
+Minimum Supported Rust Version: **1.82**
 
 ## License
 

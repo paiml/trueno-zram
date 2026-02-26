@@ -298,3 +298,7 @@ docker-clean:
 	$(DOCKER_COMPOSE) down -v --remove-orphans
 	docker rmi $(DOCKER_IMAGE) 2>/dev/null || true
 	@echo "✓ Docker artifacts cleaned"
+
+# Mutation testing
+mutants:
+	cargo mutants --no-times --timeout 300

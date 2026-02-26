@@ -45,11 +45,8 @@ const UBLK_CMD_SET_PARAMS: u32 = 0x08;
 const UBLK_CMD_GET_PARAMS: u32 = 0x09;
 
 // ioctl-encoded commands (UBLK_U_CMD_*)
-pub const UBLK_U_CMD_GET_QUEUE_AFFINITY: u32 = _ior(
-    UBLK_MAGIC,
-    UBLK_CMD_GET_QUEUE_AFFINITY,
-    size_of::<UblkCtrlCmd>(),
-);
+pub const UBLK_U_CMD_GET_QUEUE_AFFINITY: u32 =
+    _ior(UBLK_MAGIC, UBLK_CMD_GET_QUEUE_AFFINITY, size_of::<UblkCtrlCmd>());
 pub const UBLK_U_CMD_GET_DEV_INFO: u32 =
     _ior(UBLK_MAGIC, UBLK_CMD_GET_DEV_INFO, size_of::<UblkCtrlCmd>());
 pub const UBLK_U_CMD_ADD_DEV: u32 = _iowr(UBLK_MAGIC, UBLK_CMD_ADD_DEV, size_of::<UblkCtrlCmd>());
@@ -69,11 +66,8 @@ pub const UBLK_IO_COMMIT_AND_FETCH_REQ: u32 = 0x21;
 
 // I/O commands (ioctl-encoded for io_uring on /dev/ublkcN)
 pub const UBLK_U_IO_FETCH_REQ: u32 = _iowr(UBLK_MAGIC, UBLK_IO_FETCH_REQ, size_of::<UblkIoCmd>());
-pub const UBLK_U_IO_COMMIT_AND_FETCH_REQ: u32 = _iowr(
-    UBLK_MAGIC,
-    UBLK_IO_COMMIT_AND_FETCH_REQ,
-    size_of::<UblkIoCmd>(),
-);
+pub const UBLK_U_IO_COMMIT_AND_FETCH_REQ: u32 =
+    _iowr(UBLK_MAGIC, UBLK_IO_COMMIT_AND_FETCH_REQ, size_of::<UblkIoCmd>());
 
 // I/O operation types (match kernel ublk_cmd.h exactly)
 pub const UBLK_IO_OP_READ: u8 = 0;
@@ -146,10 +140,7 @@ pub struct UblkCtrlCmdExt {
 
 impl Default for UblkCtrlCmdExt {
     fn default() -> Self {
-        Self {
-            cmd: UblkCtrlCmd::default(),
-            padding: [0; 48],
-        }
+        Self { cmd: UblkCtrlCmd::default(), padding: [0; 48] }
     }
 }
 
@@ -174,10 +165,7 @@ pub struct UblkIoCmdExt {
 
 impl Default for UblkIoCmdExt {
     fn default() -> Self {
-        Self {
-            cmd: UblkIoCmd::default(),
-            padding: [0; 64],
-        }
+        Self { cmd: UblkIoCmd::default(), padding: [0; 64] }
     }
 }
 
@@ -422,10 +410,7 @@ mod tests {
         // UBLK_U_IO_FETCH_REQ = _IOWR('u', 0x20, struct ublksrv_io_cmd)
         let io_cmd_size = 16u32;
         let expected = (3u32 << 30) | (io_cmd_size << 16) | (0x75u32 << 8) | 0x20;
-        assert_eq!(
-            UBLK_U_IO_FETCH_REQ, expected,
-            "UBLK_U_IO_FETCH_REQ mismatch"
-        );
+        assert_eq!(UBLK_U_IO_FETCH_REQ, expected, "UBLK_U_IO_FETCH_REQ mismatch");
     }
 
     /// A.5: Verify UBLK_IO_COMMIT_AND_FETCH_REQ opcode matches kernel
@@ -546,17 +531,11 @@ mod tests {
 
         // Tag 1, queue 0, offset 0
         let offset = ublk_user_copy_offset(0, 1, 0);
-        assert_eq!(
-            offset as u64,
-            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF)
-        );
+        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF));
 
         // Tag 0, queue 1, offset 0
         let offset = ublk_user_copy_offset(1, 0, 0);
-        assert_eq!(
-            offset as u64,
-            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF)
-        );
+        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF));
 
         // With buffer offset
         let offset = ublk_user_copy_offset(0, 0, 512);

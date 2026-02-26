@@ -48,7 +48,6 @@ use lock_free::{LockFreePageTable, LockFreeQueue};
 use sqpoll::SqpollRing;
 use zero_copy::ZeroCopyConfig;
 
-
 /// 10X Performance Configuration
 ///
 /// Combines all optimizations into a single configuration structure.
@@ -223,11 +222,8 @@ impl TenXContext {
             None
         };
 
-        let sqpoll = if config.sqpoll.enabled {
-            SqpollRing::new(config.sqpoll.clone()).ok()
-        } else {
-            None
-        };
+        let sqpoll =
+            if config.sqpoll.enabled { SqpollRing::new(config.sqpoll.clone()).ok() } else { None };
 
         let fixed_files = if config.fixed_files_enabled {
             Some(FixedFileRegistry::new(256)) // Default capacity
@@ -324,10 +320,7 @@ impl TenXContext {
 
     /// Get current batch size (respects adaptive batching)
     pub fn current_batch_size(&self) -> usize {
-        self.batcher
-            .as_ref()
-            .map(|b| b.current_size() as usize)
-            .unwrap_or(64) // Default batch size
+        self.batcher.as_ref().map(|b| b.current_size() as usize).unwrap_or(64) // Default batch size
     }
 
     /// Record I/O latency for adaptive batching

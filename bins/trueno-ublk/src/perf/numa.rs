@@ -68,10 +68,7 @@ pub struct NumaAllocator {
 impl NumaAllocator {
     /// Create allocator for specific NUMA node
     pub fn new(node: i32) -> Self {
-        Self {
-            node,
-            strict: false,
-        }
+        Self { node, strict: false }
     }
 
     /// Create allocator with strict binding
@@ -82,10 +79,7 @@ impl NumaAllocator {
     /// Create allocator for current CPU's NUMA node
     pub fn for_current_cpu() -> Result<Self, NumaError> {
         let node = Self::get_current_node()?;
-        Ok(Self {
-            node,
-            strict: false,
-        })
+        Ok(Self { node, strict: false })
     }
 
     /// Get the NUMA node
@@ -137,11 +131,7 @@ impl NumaAllocator {
 
         // Create nodemask for the target node
         let nodemask: u64 = 1 << self.node;
-        let flags = if self.strict {
-            MPOL_MF_STRICT | MPOL_MF_MOVE
-        } else {
-            MPOL_MF_MOVE
-        };
+        let flags = if self.strict { MPOL_MF_STRICT | MPOL_MF_MOVE } else { MPOL_MF_MOVE };
 
         // Use syscall directly since mbind isn't in libc
         let ret = unsafe {
@@ -316,12 +306,7 @@ impl NumaBufferPool {
             buffers.push(allocator.alloc(buffer_size)?);
         }
 
-        Ok(Self {
-            allocator,
-            buffer_size,
-            buffers,
-            available,
-        })
+        Ok(Self { allocator, buffer_size, buffers, available })
     }
 
     /// Try to acquire a buffer index from the pool

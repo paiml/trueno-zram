@@ -114,6 +114,5 @@ default = []
 # cuda feature disabled - trueno-gpu API mismatch in trueno-zram-core 0.2
 # cuda = ["trueno-zram-core/cuda"]
 
-[lints.rust]
-# Allow cuda cfg checks even when feature is disabled (for future re-enablement)
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(feature, values(\"cuda\"))"] }
+[lints]
+workspace = true

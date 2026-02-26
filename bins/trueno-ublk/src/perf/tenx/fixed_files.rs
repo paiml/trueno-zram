@@ -218,18 +218,12 @@ pub struct FixedFileSqeBuilder {
 impl FixedFileSqeBuilder {
     /// Create a new builder
     pub fn new(fixed_index: u32) -> Self {
-        Self {
-            fixed_index,
-            use_fixed: true,
-        }
+        Self { fixed_index, use_fixed: true }
     }
 
     /// Create a builder for non-fixed file
     pub fn regular(fd: RawFd) -> Self {
-        Self {
-            fixed_index: fd as u32,
-            use_fixed: false,
-        }
+        Self { fixed_index: fd as u32, use_fixed: false }
     }
 
     /// Get the fd value for SQE
@@ -439,11 +433,7 @@ mod tests {
     fn test_falsify_e52_fixed_index_used() {
         let builder = FixedFileSqeBuilder::new(3);
         assert!(builder.is_fixed(), "E.52: Fixed index must be used");
-        assert_ne!(
-            builder.get_flags() & 1,
-            0,
-            "E.52: IOSQE_FIXED_FILE must be set"
-        );
+        assert_ne!(builder.get_flags() & 1, 0, "E.52: IOSQE_FIXED_FILE must be set");
     }
 
     /// E.57: Error on bad index
@@ -464,10 +454,7 @@ mod tests {
         let idx = registry.register(5).unwrap();
         let result = registry.unregister(idx);
         assert!(result.is_ok(), "E.58: Unregister must succeed");
-        assert!(
-            !registry.is_registered(idx),
-            "E.58: Index must be free after unregister"
-        );
+        assert!(!registry.is_registered(idx), "E.58: Index must be free after unregister");
     }
 
     /// E.59: Re-register works

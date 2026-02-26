@@ -471,11 +471,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: Docker Stress Testing for Heavy Workloads
-  status: blocked
+  status: inprogress
   priority: critical
   assigned_to: null
   created: 2026-01-06T10:50:00Z
-  updated: 2026-01-06T12:30:00Z
+  updated: 2026-01-13T11:33:06.863146306+00:00
   spec: docs/specifications/testing-debugging-troubleshooting.md
   acceptance_criteria:
   - Docker container with memory limits for stress testing

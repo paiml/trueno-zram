@@ -20,11 +20,7 @@ impl EntropyBar {
     pub fn new(gpu: u64, simd: u64, scalar: u64) -> Self {
         let total = gpu + simd + scalar;
         if total == 0 {
-            return Self {
-                gpu_pct: 0,
-                simd_pct: 0,
-                scalar_pct: 0,
-            };
+            return Self { gpu_pct: 0, simd_pct: 0, scalar_pct: 0 };
         }
 
         Self {
@@ -47,9 +43,7 @@ impl Widget for EntropyBar {
         // GPU portion (magenta)
         for _ in 0..gpu_width {
             if x < area.x + area.width {
-                buf[(x, area.y)]
-                    .set_char('█')
-                    .set_style(Style::default().fg(Color::Magenta));
+                buf[(x, area.y)].set_char('█').set_style(Style::default().fg(Color::Magenta));
                 x += 1;
             }
         }
@@ -57,9 +51,7 @@ impl Widget for EntropyBar {
         // SIMD portion (cyan)
         for _ in 0..simd_width {
             if x < area.x + area.width {
-                buf[(x, area.y)]
-                    .set_char('█')
-                    .set_style(Style::default().fg(Color::Cyan));
+                buf[(x, area.y)].set_char('█').set_style(Style::default().fg(Color::Cyan));
                 x += 1;
             }
         }
@@ -67,9 +59,7 @@ impl Widget for EntropyBar {
         // Scalar portion (yellow)
         for _ in 0..scalar_width {
             if x < area.x + area.width {
-                buf[(x, area.y)]
-                    .set_char('█')
-                    .set_style(Style::default().fg(Color::Yellow));
+                buf[(x, area.y)].set_char('█').set_style(Style::default().fg(Color::Yellow));
                 x += 1;
             }
         }
@@ -85,10 +75,7 @@ pub struct ThroughputSparkline<'a> {
 impl<'a> ThroughputSparkline<'a> {
     pub fn new(data: &'a [f64]) -> Self {
         let max = data.iter().cloned().fold(0.0f64, f64::max);
-        Self {
-            data,
-            max: max.max(1.0),
-        }
+        Self { data, max: max.max(1.0) }
     }
 }
 
@@ -108,9 +95,7 @@ impl Widget for ThroughputSparkline<'_> {
             let normalized = (value / self.max * 7.0).round() as usize;
             let bar_char = BARS[normalized.min(7)];
 
-            buf[(x, area.y)]
-                .set_char(bar_char)
-                .set_style(Style::default().fg(Color::Green));
+            buf[(x, area.y)].set_char(bar_char).set_style(Style::default().fg(Color::Green));
         }
     }
 }
@@ -142,9 +127,7 @@ impl Widget for RatioIndicator {
         let x = area.x;
         for (i, ch) in text.chars().enumerate() {
             if x + (i as u16) < area.x + area.width {
-                buf[(x + (i as u16), area.y)]
-                    .set_char(ch)
-                    .set_style(Style::default().fg(color));
+                buf[(x + (i as u16), area.y)].set_char(ch).set_style(Style::default().fg(color));
             }
         }
     }
@@ -178,13 +161,9 @@ mod tests {
         sparkline.render(area, &mut buf);
 
         // Verify that characters are rendered (sparkline bars)
-        let chars: String = (0..10)
-            .map(|x| buf[(x, 0)].symbol().chars().next().unwrap_or(' '))
-            .collect();
-        assert!(
-            !chars.trim().is_empty(),
-            "Sparkline should render characters"
-        );
+        let chars: String =
+            (0..10).map(|x| buf[(x, 0)].symbol().chars().next().unwrap_or(' ')).collect();
+        assert!(!chars.trim().is_empty(), "Sparkline should render characters");
     }
 
     #[test]
@@ -248,11 +227,7 @@ mod tests {
 
         // Check color is yellow for ratio >= 2.0 and < 3.0
         let style = buf[(0, 0)].style();
-        assert_eq!(
-            style.fg,
-            Some(Color::Yellow),
-            "Ratio 2.0-3.0 should be yellow"
-        );
+        assert_eq!(style.fg, Some(Color::Yellow), "Ratio 2.0-3.0 should be yellow");
     }
 
     #[test]
@@ -263,11 +238,7 @@ mod tests {
 
         // Check color is light yellow for ratio >= 1.5 and < 2.0
         let style = buf[(0, 0)].style();
-        assert_eq!(
-            style.fg,
-            Some(Color::LightYellow),
-            "Ratio 1.5-2.0 should be light yellow"
-        );
+        assert_eq!(style.fg, Some(Color::LightYellow), "Ratio 1.5-2.0 should be light yellow");
     }
 
     #[test]
@@ -288,15 +259,10 @@ mod tests {
         indicator.render(area, &mut buf);
 
         // Collect rendered text
-        let text: String = (0..area.width)
-            .map(|x| buf[(x, 0)].symbol().chars().next().unwrap_or(' '))
-            .collect();
+        let text: String =
+            (0..area.width).map(|x| buf[(x, 0)].symbol().chars().next().unwrap_or(' ')).collect();
 
-        assert!(
-            text.starts_with("2.45:1"),
-            "Should render as '2.45:1', got '{}'",
-            text
-        );
+        assert!(text.starts_with("2.45:1"), "Should render as '2.45:1', got '{}'", text);
     }
 
     // E.53: Entropy distribution bar chart matches data input
@@ -331,16 +297,8 @@ mod tests {
         }
 
         // Allow ±2 tolerance due to rounding
-        assert!(
-            (gpu_count as i32 - 50).abs() <= 2,
-            "GPU should be ~50%, got {}",
-            gpu_count
-        );
-        assert!(
-            (simd_count as i32 - 30).abs() <= 2,
-            "SIMD should be ~30%, got {}",
-            simd_count
-        );
+        assert!((gpu_count as i32 - 50).abs() <= 2, "GPU should be ~50%, got {}", gpu_count);
+        assert!((simd_count as i32 - 30).abs() <= 2, "SIMD should be ~30%, got {}", simd_count);
         assert!(
             (scalar_count as i32 - 20).abs() <= 2,
             "Scalar should be ~20%, got {}",

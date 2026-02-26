@@ -34,17 +34,9 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone)]
 pub enum FalsificationResult {
     /// Claim verified with measured speedup
-    Verified {
-        speedup: f64,
-        p_value: f64,
-        samples: usize,
-    },
+    Verified { speedup: f64, p_value: f64, samples: usize },
     /// Claim falsified with reason
-    Falsified {
-        reason: String,
-        speedup: f64,
-        p_value: f64,
-    },
+    Falsified { reason: String, speedup: f64, p_value: f64 },
     /// Test could not be run
     Skipped { reason: String },
 }
@@ -98,28 +90,18 @@ impl FalsificationTest {
             claim: claim.into(),
             method: method.into(),
             pass_threshold: pass_threshold.into(),
-            status: FalsificationResult::Skipped {
-                reason: "Not yet run".into(),
-            },
+            status: FalsificationResult::Skipped { reason: "Not yet run".into() },
         }
     }
 
     /// Mark as verified
     pub fn verify(&mut self, speedup: f64, p_value: f64, samples: usize) {
-        self.status = FalsificationResult::Verified {
-            speedup,
-            p_value,
-            samples,
-        };
+        self.status = FalsificationResult::Verified { speedup, p_value, samples };
     }
 
     /// Mark as falsified
     pub fn falsify(&mut self, reason: impl Into<String>, speedup: f64, p_value: f64) {
-        self.status = FalsificationResult::Falsified {
-            reason: reason.into(),
-            speedup,
-            p_value,
-        };
+        self.status = FalsificationResult::Falsified { reason: reason.into(), speedup, p_value };
     }
 }
 
@@ -154,12 +136,7 @@ impl Falsifier {
         min_speedup: f64,
         max_regression: f64,
     ) -> Self {
-        Self {
-            min_iterations,
-            max_p_value,
-            min_speedup,
-            max_regression,
-        }
+        Self { min_iterations, max_p_value, min_speedup, max_regression }
     }
 
     /// Run a falsification test comparing baseline to optimized
@@ -212,20 +189,13 @@ impl Falsifier {
 
         if speedup < self.min_speedup {
             return FalsificationResult::Falsified {
-                reason: format!(
-                    "Speedup {:.2}x < {:.2}x threshold",
-                    speedup, self.min_speedup
-                ),
+                reason: format!("Speedup {:.2}x < {:.2}x threshold", speedup, self.min_speedup),
                 speedup,
                 p_value,
             };
         }
 
-        FalsificationResult::Verified {
-            speedup,
-            p_value,
-            samples: self.min_iterations,
-        }
+        FalsificationResult::Verified { speedup, p_value, samples: self.min_iterations }
     }
 
     /// Calculate median of durations
@@ -381,12 +351,7 @@ impl FalsificationMatrix {
             ),
             FalsificationTest::new("A.10", "NUMA locality verified", "numastat", "Documented"),
             FalsificationTest::new("A.11", "CPU utilization profiled", "perf top", "Documented"),
-            FalsificationTest::new(
-                "A.12",
-                "Lock contention profiled",
-                "perf lock",
-                "Documented",
-            ),
+            FalsificationTest::new("A.12", "Lock contention profiled", "perf lock", "Documented"),
             FalsificationTest::new("A.13", "io_uring submission rate", "bpftrace", "Documented"),
             FalsificationTest::new("A.14", "io_uring completion rate", "bpftrace", "Documented"),
             FalsificationTest::new(
@@ -406,12 +371,7 @@ impl FalsificationMatrix {
             FalsificationTest::new("A.19", "Kernel CPU time", "/proc/stat", "Documented"),
             FalsificationTest::new("A.20", "Userspace CPU time", "/proc/stat", "Documented"),
             // Section B: PERF-005 Registered Buffers (Points 21-30)
-            FalsificationTest::new(
-                "B.21",
-                "Buffer registration succeeds",
-                "Unit test",
-                "No error",
-            ),
+            FalsificationTest::new("B.21", "Buffer registration succeeds", "Unit test", "No error"),
             FalsificationTest::new(
                 "B.22",
                 "Registered buffer used in SQE",
@@ -438,12 +398,7 @@ impl FalsificationMatrix {
                 "/proc/meminfo",
                 "<1.1x baseline",
             ),
-            FalsificationTest::new(
-                "B.28",
-                "Buffer reuse verified",
-                "Custom tracing",
-                "100% reuse",
-            ),
+            FalsificationTest::new("B.28", "Buffer reuse verified", "Custom tracing", "100% reuse"),
             FalsificationTest::new("B.29", "No buffer leaks", "Valgrind", "0 leaks"),
             FalsificationTest::new(
                 "B.30",
@@ -476,12 +431,7 @@ impl FalsificationMatrix {
                 "Unit test",
                 "Correct output",
             ),
-            FalsificationTest::new(
-                "C.35",
-                "Throughput improved",
-                "fio benchmark",
-                ">2x baseline",
-            ),
+            FalsificationTest::new("C.35", "Throughput improved", "fio benchmark", ">2x baseline"),
             FalsificationTest::new("C.36", "CPU usage reduced", "top", ">30% reduction"),
             FalsificationTest::new(
                 "C.37",
@@ -567,12 +517,7 @@ impl FalsificationMatrix {
             ),
             FalsificationTest::new("E.57", "Error on bad index", "Fault test", "Graceful error"),
             FalsificationTest::new("E.58", "Unregister works", "Cleanup test", "No leaks"),
-            FalsificationTest::new(
-                "E.59",
-                "Re-register works",
-                "Restart test",
-                "Correct behavior",
-            ),
+            FalsificationTest::new("E.59", "Re-register works", "Restart test", "Correct behavior"),
             FalsificationTest::new("E.60", "Concurrent safe", "Stress test", "No races"),
             // Section F: PERF-009 Huge Pages (Points 61-70)
             FalsificationTest::new(
@@ -596,24 +541,14 @@ impl FalsificationMatrix {
                 "RSS measurement",
                 "<1.1x",
             ),
-            FalsificationTest::new(
-                "F.67",
-                "Fallback to 4KB works",
-                "Low-memory test",
-                "Graceful",
-            ),
+            FalsificationTest::new("F.67", "Fallback to 4KB works", "Low-memory test", "Graceful"),
             FalsificationTest::new(
                 "F.68",
                 "Fragmentation handled",
                 "Long-running test",
                 "Stable performance",
             ),
-            FalsificationTest::new(
-                "F.69",
-                "NUMA-aware allocation",
-                "numastat",
-                "Local allocation",
-            ),
+            FalsificationTest::new("F.69", "NUMA-aware allocation", "numastat", "Local allocation"),
             FalsificationTest::new(
                 "F.70",
                 "Transparent HP disabled",
@@ -621,12 +556,7 @@ impl FalsificationMatrix {
                 "Explicit control",
             ),
             // Section G: PERF-010 NUMA Optimization (Points 71-80)
-            FalsificationTest::new(
-                "G.71",
-                "NUMA topology detected",
-                "numactl -H",
-                "Correct nodes",
-            ),
+            FalsificationTest::new("G.71", "NUMA topology detected", "numactl -H", "Correct nodes"),
             FalsificationTest::new("G.72", "Memory bound to node", "numastat -p", ">99% local"),
             FalsificationTest::new("G.73", "Thread pinned to CPU", "taskset -p", "Correct mask"),
             FalsificationTest::new(
@@ -635,12 +565,7 @@ impl FalsificationMatrix {
                 "perf stat numa",
                 "0 remote access",
             ),
-            FalsificationTest::new(
-                "G.75",
-                "Latency improved",
-                "fio benchmark",
-                ">20% reduction",
-            ),
+            FalsificationTest::new("G.75", "Latency improved", "fio benchmark", ">20% reduction"),
             FalsificationTest::new(
                 "G.76",
                 "Multi-socket scaling",
@@ -674,12 +599,7 @@ impl FalsificationMatrix {
                 "Assembly inspection",
                 "lock cmpxchg",
             ),
-            FalsificationTest::new(
-                "H.83",
-                "ABA problem handled",
-                "Stress test",
-                "No corruption",
-            ),
+            FalsificationTest::new("H.83", "ABA problem handled", "Stress test", "No corruption"),
             FalsificationTest::new(
                 "H.84",
                 "Memory ordering correct",
@@ -694,12 +614,7 @@ impl FalsificationMatrix {
             ),
             FalsificationTest::new("H.86", "IOPS @ 8 queues", "fio benchmark", ">2M"),
             FalsificationTest::new("H.87", "Contention eliminated", "perf lock", "0 contended"),
-            FalsificationTest::new(
-                "H.88",
-                "Cache line padding",
-                "sizeof check",
-                "64-byte aligned",
-            ),
+            FalsificationTest::new("H.88", "Cache line padding", "sizeof check", "64-byte aligned"),
             FalsificationTest::new(
                 "H.89",
                 "False sharing eliminated",
@@ -790,10 +705,7 @@ impl FalsificationMatrix {
 
     /// Count falsified tests
     pub fn falsified_count(&self) -> usize {
-        self.tests
-            .iter()
-            .filter(|t| t.status.is_falsified())
-            .count()
+        self.tests.iter().filter(|t| t.status.is_falsified()).count()
     }
 
     /// Get percentage complete
@@ -808,10 +720,7 @@ impl FalsificationMatrix {
         println!("=== 100-Point Falsification Matrix ===");
         println!("Verified: {}/100", self.verified_count());
         println!("Falsified: {}/100", self.falsified_count());
-        println!(
-            "Pending: {}/100",
-            100 - self.verified_count() - self.falsified_count()
-        );
+        println!("Pending: {}/100", 100 - self.verified_count() - self.falsified_count());
         println!("Completion: {:.1}%", self.completion_percentage());
     }
 }
@@ -828,11 +737,7 @@ mod tests {
 
     #[test]
     fn test_falsification_result_verified() {
-        let result = FalsificationResult::Verified {
-            speedup: 2.5,
-            p_value: 0.001,
-            samples: 1000,
-        };
+        let result = FalsificationResult::Verified { speedup: 2.5, p_value: 0.001, samples: 1000 };
         assert!(result.is_verified());
         assert!(!result.is_falsified());
         assert_eq!(result.speedup(), Some(2.5));
@@ -852,9 +757,7 @@ mod tests {
 
     #[test]
     fn test_falsification_result_skipped() {
-        let result = FalsificationResult::Skipped {
-            reason: "Not yet run".into(),
-        };
+        let result = FalsificationResult::Skipped { reason: "Not yet run".into() };
         assert!(!result.is_verified());
         assert!(!result.is_falsified());
         assert_eq!(result.speedup(), None);
@@ -871,11 +774,8 @@ mod tests {
 
     #[test]
     fn test_falsifier_median_odd() {
-        let samples = vec![
-            Duration::from_nanos(100),
-            Duration::from_nanos(200),
-            Duration::from_nanos(300),
-        ];
+        let samples =
+            vec![Duration::from_nanos(100), Duration::from_nanos(200), Duration::from_nanos(300)];
         let median = Falsifier::median(&samples);
         assert_eq!(median, Duration::from_nanos(200));
     }

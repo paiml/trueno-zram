@@ -162,17 +162,13 @@ impl HugePageAllocator {
                     self.allocated_size = aligned_size;
                     self.actual_page_size = self.config.page_size;
                     self.stats.huge_allocations.fetch_add(1, Ordering::Relaxed);
-                    self.stats
-                        .huge_bytes
-                        .fetch_add(aligned_size as u64, Ordering::Relaxed);
+                    self.stats.huge_bytes.fetch_add(aligned_size as u64, Ordering::Relaxed);
                     return Ok(ptr.as_ptr());
                 }
                 Err(e) => {
                     if self.config.allow_fallback {
                         // Fall back to regular pages
-                        self.stats
-                            .fallback_allocations
-                            .fetch_add(1, Ordering::Relaxed);
+                        self.stats.fallback_allocations.fetch_add(1, Ordering::Relaxed);
                     } else {
                         return Err(e);
                     }
@@ -185,12 +181,8 @@ impl HugePageAllocator {
         self.memory = Some(ptr);
         self.allocated_size = aligned_size;
         self.actual_page_size = PAGE_SIZE_4K;
-        self.stats
-            .regular_allocations
-            .fetch_add(1, Ordering::Relaxed);
-        self.stats
-            .regular_bytes
-            .fetch_add(aligned_size as u64, Ordering::Relaxed);
+        self.stats.regular_allocations.fetch_add(1, Ordering::Relaxed);
+        self.stats.regular_bytes.fetch_add(aligned_size as u64, Ordering::Relaxed);
         Ok(ptr.as_ptr())
     }
 
@@ -247,11 +239,7 @@ impl HugePageAllocator {
 
     /// Align size to page boundary
     fn align_to_page_size(&self, size: usize) -> usize {
-        let page_size = if self.config.enabled {
-            self.config.page_size
-        } else {
-            PAGE_SIZE_4K
-        };
+        let page_size = if self.config.enabled { self.config.page_size } else { PAGE_SIZE_4K };
         (size + page_size - 1) & !(page_size - 1)
     }
 
@@ -365,30 +353,35 @@ impl std::error::Error for HugePageError {
     }
 }
 
+/// Parse a numeric value from a /proc/meminfo line
+fn parse_meminfo_value(line: &str) -> u64 {
+    line.split_whitespace()
+        .nth(1)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Populate huge page support from /proc/meminfo contents
+fn parse_meminfo_huge_pages(meminfo: &str, support: &mut HugePageSupport) {
+    for line in meminfo.lines() {
+        if line.starts_with("HugePages_Total:") {
+            support.total_2m = parse_meminfo_value(line);
+        } else if line.starts_with("HugePages_Free:") {
+            support.free_2m = parse_meminfo_value(line);
+        } else if line.starts_with("Hugepagesize:") {
+            support.default_size_kb = parse_meminfo_value(line);
+        }
+    }
+}
+
 /// Check system huge page availability
 pub fn check_huge_page_support() -> HugePageSupport {
     let mut support = HugePageSupport::default();
 
-    // Check /proc/meminfo for huge pages
     if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-        for line in meminfo.lines() {
-            if line.starts_with("HugePages_Total:") {
-                if let Some(val) = line.split_whitespace().nth(1) {
-                    support.total_2m = val.parse().unwrap_or(0);
-                }
-            } else if line.starts_with("HugePages_Free:") {
-                if let Some(val) = line.split_whitespace().nth(1) {
-                    support.free_2m = val.parse().unwrap_or(0);
-                }
-            } else if line.starts_with("Hugepagesize:") {
-                if let Some(val) = line.split_whitespace().nth(1) {
-                    support.default_size_kb = val.parse().unwrap_or(0);
-                }
-            }
-        }
+        parse_meminfo_huge_pages(&meminfo, &mut support);
     }
 
-    // Check for 1GB page support via /sys
     if std::path::Path::new("/sys/kernel/mm/hugepages/hugepages-1048576kB").exists() {
         support.supports_1g = true;
     }
@@ -546,9 +539,7 @@ mod tests {
     fn test_stats_huge_percentage() {
         let stats = HugePageStats::default();
         stats.huge_bytes.store(8 * 1024 * 1024, Ordering::Relaxed);
-        stats
-            .regular_bytes
-            .store(2 * 1024 * 1024, Ordering::Relaxed);
+        stats.regular_bytes.store(2 * 1024 * 1024, Ordering::Relaxed);
         // 8MB huge / 10MB total = 80%
         assert!((stats.huge_percentage() - 80.0).abs() < 0.1);
     }
@@ -588,11 +579,7 @@ mod tests {
         // Overhead should be <1.1x for regular pages
         let actual = allocator.allocated_size();
         let overhead = actual as f64 / requested as f64;
-        assert!(
-            overhead < 1.1,
-            "F.66: Memory overhead {:.2}x must be < 1.1x",
-            overhead
-        );
+        assert!(overhead < 1.1, "F.66: Memory overhead {:.2}x must be < 1.1x", overhead);
     }
 
     /// F.67: Fallback to 4KB works

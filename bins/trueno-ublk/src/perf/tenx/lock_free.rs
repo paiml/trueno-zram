@@ -45,9 +45,7 @@ const EMPTY_ENTRY: u64 = 0;
 impl PageTableEntry {
     /// Create a new empty entry
     pub const fn new() -> Self {
-        Self {
-            data: AtomicU64::new(EMPTY_ENTRY),
-        }
+        Self { data: AtomicU64::new(EMPTY_ENTRY) }
     }
 
     /// Pack offset and size into a single u64
@@ -90,9 +88,7 @@ impl PageTableEntry {
     #[inline]
     pub fn store(&self, offset: u64, size: u16) -> bool {
         let packed = Self::pack(offset, size);
-        self.data
-            .compare_exchange(EMPTY_ENTRY, packed, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
+        self.data.compare_exchange(EMPTY_ENTRY, packed, Ordering::AcqRel, Ordering::Acquire).is_ok()
     }
 
     /// Update an existing entry using CAS
@@ -144,11 +140,7 @@ impl LockFreePageTable {
     pub fn new(capacity: usize) -> Self {
         let entries: Vec<PageTableEntry> = (0..capacity).map(|_| PageTableEntry::new()).collect();
 
-        Self {
-            entries: entries.into_boxed_slice(),
-            capacity,
-            stats: LockFreeStats::default(),
-        }
+        Self { entries: entries.into_boxed_slice(), capacity, stats: LockFreeStats::default() }
     }
 
     /// Insert a page (CAS-based)
@@ -243,9 +235,8 @@ impl<T> LockFreeQueue<T> {
     pub fn new(capacity: usize) -> Self {
         // Round up to power of 2
         let capacity = capacity.next_power_of_two();
-        let buffer: Vec<std::cell::UnsafeCell<Option<T>>> = (0..capacity)
-            .map(|_| std::cell::UnsafeCell::new(None))
-            .collect();
+        let buffer: Vec<std::cell::UnsafeCell<Option<T>>> =
+            (0..capacity).map(|_| std::cell::UnsafeCell::new(None)).collect();
 
         Self {
             buffer: buffer.into_boxed_slice(),
@@ -754,11 +745,7 @@ mod tests {
         // Verify CAS statistics show successful operations
         let stats = table.stats();
         let success_rate = stats.success_rate();
-        assert!(
-            success_rate > 50.0,
-            "H.85: CAS success rate {:.1}% must be > 50%",
-            success_rate
-        );
+        assert!(success_rate > 50.0, "H.85: CAS success rate {:.1}% must be > 50%", success_rate);
     }
 
     /// H.88: Cache line padding

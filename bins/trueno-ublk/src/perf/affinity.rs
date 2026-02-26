@@ -136,9 +136,7 @@ impl CpuAffinity {
 
         let mut cpu_set = CpuSet::new();
         for &core in &self.cores {
-            cpu_set
-                .set(core)
-                .map_err(|_| AffinityError::InvalidCore(core))?;
+            cpu_set.set(core).map_err(|_| AffinityError::InvalidCore(core))?;
         }
 
         sched_setaffinity(Pid::from_raw(0), &cpu_set)
@@ -166,9 +164,7 @@ impl CpuAffinity {
 
         let mut cpu_set = CpuSet::new();
         for &core in &self.cores {
-            cpu_set
-                .set(core)
-                .map_err(|_| AffinityError::InvalidCore(core))?;
+            cpu_set.set(core).map_err(|_| AffinityError::InvalidCore(core))?;
         }
 
         sched_setaffinity(Pid::from_raw(tid), &cpu_set)
@@ -211,18 +207,15 @@ impl CpuAffinity {
 
     /// Get number of available CPUs
     pub fn get_num_cpus() -> usize {
-        std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(1)
+        std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1)
     }
 
     /// Check if a core is online
     #[cfg(target_os = "linux")]
     pub fn is_core_online(core: usize) -> bool {
         let path = format!("/sys/devices/system/cpu/cpu{}/online", core);
-        std::fs::read_to_string(&path)
-            .map(|s| s.trim() == "1")
-            .unwrap_or(core == 0) // Core 0 is always online
+        std::fs::read_to_string(&path).map(|s| s.trim() == "1").unwrap_or(core == 0)
+        // Core 0 is always online
     }
 
     /// Check if a core is online (non-Linux stub)

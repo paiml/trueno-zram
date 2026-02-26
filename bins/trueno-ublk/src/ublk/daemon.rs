@@ -87,10 +87,7 @@ impl DaemonError {
     /// Returns true if this is a resource exhaustion error.
     #[inline]
     pub const fn is_resource_error(&self) -> bool {
-        matches!(
-            self,
-            Self::QueueFull | Self::Mmap(_) | Self::IoUringCreate(_)
-        )
+        matches!(self, Self::QueueFull | Self::Mmap(_) | Self::IoUringCreate(_))
     }
 
     /// Convert to negative errno for POSIX compatibility.
@@ -263,17 +260,11 @@ impl UblkDaemon {
     /// 4. START_DEV thread waits to ensure main thread is blocked, then calls START_DEV
     /// 5. Kernel sees io_uring waiting → START_DEV completes → block device appears
     pub fn run(&mut self, store: &mut PageStore) -> Result<(), DaemonError> {
-        info!(
-            queue_depth = self.queue_depth,
-            "Starting ublk daemon (FIX B+F applied)"
-        );
+        info!(queue_depth = self.queue_depth, "Starting ublk daemon (FIX B+F applied)");
         debug!(char_fd = self.char_fd, "Daemon initialized");
 
         // Step 1: Submit all FETCH commands
-        info!(
-            queue_depth = self.queue_depth,
-            "Submitting initial FETCH commands"
-        );
+        info!(queue_depth = self.queue_depth, "Submitting initial FETCH commands");
         for tag in 0..self.queue_depth {
             self.submit_fetch(tag)?;
         }
@@ -334,8 +325,7 @@ impl UblkDaemon {
             // Process completions
             let tags: Vec<(u16, i32)> = {
                 let cq = self.ring.completion();
-                cq.map(|cqe| (cqe.user_data() as u16, cqe.result()))
-                    .collect()
+                cq.map(|cqe| (cqe.user_data() as u16, cqe.result())).collect()
             };
 
             for (tag, result) in tags {
@@ -358,10 +348,8 @@ impl UblkDaemon {
 
                 let len = (nr_sectors as usize) * SECTOR_SIZE as usize;
                 let char_fd = self.char_fd;
-                let data_buf_ptr = unsafe {
-                    self.data_buf
-                        .add((tag as usize) * (self.max_io_size as usize))
-                };
+                let data_buf_ptr =
+                    unsafe { self.data_buf.add((tag as usize) * (self.max_io_size as usize)) };
 
                 let io_result = match op {
                     UBLK_IO_OP_READ => {
@@ -499,8 +487,7 @@ impl UblkDaemon {
             // Collect completions
             let tags: Vec<(u16, i32)> = {
                 let cq = self.ring.completion();
-                cq.map(|cqe| (cqe.user_data() as u16, cqe.result()))
-                    .collect()
+                cq.map(|cqe| (cqe.user_data() as u16, cqe.result())).collect()
             };
 
             for (tag, result) in tags {
@@ -523,10 +510,8 @@ impl UblkDaemon {
 
                 let len = (nr_sectors as usize) * SECTOR_SIZE as usize;
                 let char_fd = self.char_fd;
-                let data_buf_ptr = unsafe {
-                    self.data_buf
-                        .add((tag as usize) * (self.max_io_size as usize))
-                };
+                let data_buf_ptr =
+                    unsafe { self.data_buf.add((tag as usize) * (self.max_io_size as usize)) };
 
                 // Process I/O using BatchedPageStore
                 let io_result = match op {
@@ -657,8 +642,7 @@ impl UblkDaemon {
             // Collect completions
             let tags: Vec<(u16, i32)> = {
                 let cq = self.ring.completion();
-                cq.map(|cqe| (cqe.user_data() as u16, cqe.result()))
-                    .collect()
+                cq.map(|cqe| (cqe.user_data() as u16, cqe.result())).collect()
             };
 
             for (tag, result) in tags {
@@ -678,10 +662,8 @@ impl UblkDaemon {
                 let nr_sectors = iod.nr_sectors;
                 let len = (nr_sectors as usize) * SECTOR_SIZE as usize;
                 let char_fd = self.char_fd;
-                let data_buf_ptr = unsafe {
-                    self.data_buf
-                        .add((tag as usize) * (self.max_io_size as usize))
-                };
+                let data_buf_ptr =
+                    unsafe { self.data_buf.add((tag as usize) * (self.max_io_size as usize)) };
 
                 // Process I/O using generic PageStoreTrait
                 let io_result = match op {
@@ -741,11 +723,7 @@ impl UblkDaemon {
         };
 
         // Use ioctl-encoded opcode if kernel supports it, otherwise raw opcode
-        let cmd_op = if self.use_ioctl_encode {
-            UBLK_U_IO_FETCH_REQ
-        } else {
-            UBLK_IO_FETCH_REQ
-        };
+        let cmd_op = if self.use_ioctl_encode { UBLK_U_IO_FETCH_REQ } else { UBLK_IO_FETCH_REQ };
 
         eprintln!(
             "[TRACE] submit_fetch: tag={}, fd={}, cmd_op=0x{:08X}, ioctl_encode={}",
@@ -771,12 +749,7 @@ impl UblkDaemon {
 
     fn submit_commit_and_fetch(&mut self, tag: u16, result: i32) -> Result<(), DaemonError> {
         // With UBLK_F_USER_COPY, addr must be 0
-        let io_cmd = UblkIoCmd {
-            q_id: 0,
-            tag,
-            result,
-            addr: 0,
-        };
+        let io_cmd = UblkIoCmd { q_id: 0, tag, result, addr: 0 };
 
         // Use ioctl-encoded opcode if kernel supports it, otherwise raw opcode
         let cmd_op = if self.use_ioctl_encode {
@@ -804,9 +777,7 @@ impl UblkDaemon {
     #[inline]
     fn get_iod(&self, tag: u16) -> &UblkIoDesc {
         unsafe {
-            let ptr = self
-                .iod_buf
-                .add((tag as usize) * std::mem::size_of::<UblkIoDesc>())
+            let ptr = self.iod_buf.add((tag as usize) * std::mem::size_of::<UblkIoDesc>())
                 as *const UblkIoDesc;
             &*ptr
         }
@@ -816,9 +787,7 @@ impl UblkDaemon {
     #[allow(dead_code)]
     fn get_data_buf(&mut self, tag: u16) -> &mut [u8] {
         unsafe {
-            let ptr = self
-                .data_buf
-                .add((tag as usize) * (self.max_io_size as usize));
+            let ptr = self.data_buf.add((tag as usize) * (self.max_io_size as usize));
             std::slice::from_raw_parts_mut(ptr, self.max_io_size as usize)
         }
     }
@@ -924,11 +893,7 @@ pub fn run_daemon(
     stop: Arc<AtomicBool>,
     ready_fd: Option<i32>,
 ) -> Result<(), DaemonError> {
-    let config = DeviceConfig {
-        dev_id,
-        dev_size,
-        ..Default::default()
-    };
+    let config = DeviceConfig { dev_id, dev_size, ..Default::default() };
 
     let mut daemon = UblkDaemon::new(config, stop, ready_fd)?;
     let mut store = PageStore::new(dev_size, algorithm);
@@ -983,8 +948,8 @@ impl Default for BatchedDaemonConfig {
             batch_threshold: 1000,
             flush_timeout_ms: 10,
             gpu_batch_size: 4000,
-            perf: None,      // Disabled by default
-            nr_hw_queues: 1, // PERF-003: Default single queue
+            perf: None,       // Disabled by default
+            nr_hw_queues: 1,  // PERF-003: Default single queue
             zero_copy: false, // PERF-006: Disabled by default
             // KERN-001/002/003: Kernel-Cooperative defaults
             backend: crate::backend::BackendType::Memory,
@@ -1044,10 +1009,7 @@ fn run_multi_queue_batched_internal(
     use std::ptr::null_mut;
 
     let nr_hw_queues = batch_config.nr_hw_queues;
-    info!(
-        "PERF-003: Starting multi-queue daemon with {} queues",
-        nr_hw_queues
-    );
+    info!("PERF-003: Starting multi-queue daemon with {} queues", nr_hw_queues);
 
     // Create the ublk control device with multi-queue support
     let ctrl = UblkCtrl::new(device_config)?;
@@ -1113,11 +1075,7 @@ fn run_multi_queue_batched_internal(
     let data_buf = data_buf as *mut u8;
 
     // PERF-001: Apply NUMA binding if configured
-    let numa_node = batch_config
-        .perf
-        .as_ref()
-        .map(|p| p.numa_node)
-        .unwrap_or(-1);
+    let numa_node = batch_config.perf.as_ref().map(|p| p.numa_node).unwrap_or(-1);
     if numa_node >= 0 {
         use crate::perf::numa::NumaAllocator;
         let numa = NumaAllocator::new(numa_node);
@@ -1145,26 +1103,19 @@ fn run_multi_queue_batched_internal(
         flush_timeout: Duration::from_millis(batch_config.flush_timeout_ms),
         gpu_batch_size: batch_config.gpu_batch_size,
     };
-    let store = Arc::new(BatchedPageStore::with_config(
-        batch_config.algorithm,
-        store_config,
-    ));
+    let store = Arc::new(BatchedPageStore::with_config(batch_config.algorithm, store_config));
 
     // Spawn background flush thread
     let flush_handle = spawn_flush_thread(Arc::clone(&store));
 
     // Get CPU cores for affinity
-    let cpu_cores: Vec<usize> = batch_config
-        .perf
-        .as_ref()
-        .map(|p| p.cpu_cores.clone())
-        .unwrap_or_default();
+    let cpu_cores: Vec<usize> =
+        batch_config.perf.as_ref().map(|p| p.cpu_cores.clone()).unwrap_or_default();
 
     // Spawn queue worker threads
     info!(
         "PERF-003: Spawning {} queue worker threads (ZERO_COPY={})",
-        nr_hw_queues,
-        batch_config.zero_copy
+        nr_hw_queues, batch_config.zero_copy
     );
     // SAFETY: iod_buf and data_buf are valid mmap'd pointers for all queues
     let worker_handles = unsafe {
@@ -1217,17 +1168,11 @@ fn run_multi_queue_batched_internal(
     let mut total_ios = 0u64;
     for handle in worker_handles {
         let queue_ios = handle.stats.total_ios();
-        info!(
-            "PERF-003: Queue {} processed {} IOs",
-            handle.queue_id, queue_ios
-        );
+        info!("PERF-003: Queue {} processed {} IOs", handle.queue_id, queue_ios);
         total_ios += queue_ios;
 
         if let Err(e) = handle.thread.join() {
-            warn!(
-                "PERF-003: Queue {} worker thread panicked: {:?}",
-                handle.queue_id, e
-            );
+            warn!("PERF-003: Queue {} worker thread panicked: {:?}", handle.queue_id, e);
         }
     }
 
@@ -1341,14 +1286,12 @@ pub fn run_daemon_batched(
         flush_timeout: Duration::from_millis(batch_config.flush_timeout_ms),
         gpu_batch_size: batch_config.gpu_batch_size,
     };
-    let batched_store = Arc::new(BatchedPageStore::with_config(
-        batch_config.algorithm,
-        store_config,
-    ));
+    let batched_store =
+        Arc::new(BatchedPageStore::with_config(batch_config.algorithm, store_config));
 
     // KERN-001/002: Check if tiered storage is enabled
-    let use_tiered = !matches!(batch_config.backend, BackendType::Memory)
-        && batch_config.zram_device.is_some();
+    let use_tiered =
+        !matches!(batch_config.backend, BackendType::Memory) && batch_config.zram_device.is_some();
 
     if use_tiered {
         // KERN-001/002/003: Create tiered page store wrapping batched store
@@ -1366,9 +1309,7 @@ pub fn run_daemon_batched(
             Err(e) => {
                 warn!("Failed to create tiered store, falling back to batched: {}", e);
                 // Fall through to non-tiered path
-                return run_batched_non_tiered(
-                    daemon, batched_store, batch_config, hiperf,
-                );
+                return run_batched_non_tiered(daemon, batched_store, batch_config, hiperf);
             }
         };
 
@@ -1513,9 +1454,7 @@ impl MockUblkDaemon {
 
     pub fn submit_fetch(&mut self, tag: u16) -> Result<(), DaemonError> {
         if tag >= self.queue_depth {
-            return Err(DaemonError::Submit(std::io::Error::from_raw_os_error(
-                libc::EINVAL,
-            )));
+            return Err(DaemonError::Submit(std::io::Error::from_raw_os_error(libc::EINVAL)));
         }
         self.fetch_count += 1;
         Ok(())
@@ -1523,9 +1462,7 @@ impl MockUblkDaemon {
 
     pub fn submit_commit_and_fetch(&mut self, tag: u16, result: i32) -> Result<(), DaemonError> {
         if tag >= self.queue_depth {
-            return Err(DaemonError::Submit(std::io::Error::from_raw_os_error(
-                libc::EINVAL,
-            )));
+            return Err(DaemonError::Submit(std::io::Error::from_raw_os_error(libc::EINVAL)));
         }
         self.completed_ios.push((tag, result));
         self.commit_count += 1;
@@ -1630,11 +1567,7 @@ mod tests {
         store.write(0, &data).unwrap();
 
         // Process a read
-        let io = MockIoDesc {
-            op: UBLK_IO_OP_READ,
-            nr_sectors: 8,
-            start_sector: 0,
-        };
+        let io = MockIoDesc { op: UBLK_IO_OP_READ, nr_sectors: 8, start_sector: 0 };
         let result = daemon.process_io(io, &mut store);
         assert!(result > 0);
     }
@@ -1644,11 +1577,7 @@ mod tests {
         let mut daemon = MockUblkDaemon::new(0, 128);
         let mut store = crate::daemon::PageStore::new(1 << 30, Algorithm::Lz4);
 
-        let io = MockIoDesc {
-            op: UBLK_IO_OP_WRITE,
-            nr_sectors: 8,
-            start_sector: 0,
-        };
+        let io = MockIoDesc { op: UBLK_IO_OP_WRITE, nr_sectors: 8, start_sector: 0 };
         let result = daemon.process_io(io, &mut store);
         assert!(result > 0);
     }
@@ -1658,11 +1587,7 @@ mod tests {
         let mut daemon = MockUblkDaemon::new(0, 128);
         let mut store = crate::daemon::PageStore::new(1 << 30, Algorithm::Lz4);
 
-        let io = MockIoDesc {
-            op: UBLK_IO_OP_FLUSH,
-            nr_sectors: 0,
-            start_sector: 0,
-        };
+        let io = MockIoDesc { op: UBLK_IO_OP_FLUSH, nr_sectors: 0, start_sector: 0 };
         let result = daemon.process_io(io, &mut store);
         assert_eq!(result, 0);
     }
@@ -1676,11 +1601,7 @@ mod tests {
         let data = vec![0xABu8; 4096];
         store.write(0, &data).unwrap();
 
-        let io = MockIoDesc {
-            op: UBLK_IO_OP_DISCARD,
-            nr_sectors: 8,
-            start_sector: 0,
-        };
+        let io = MockIoDesc { op: UBLK_IO_OP_DISCARD, nr_sectors: 8, start_sector: 0 };
         let result = daemon.process_io(io, &mut store);
         assert!(result >= 0);
     }
@@ -1690,11 +1611,7 @@ mod tests {
         let mut daemon = MockUblkDaemon::new(0, 128);
         let mut store = crate::daemon::PageStore::new(1 << 30, Algorithm::Lz4);
 
-        let io = MockIoDesc {
-            op: UBLK_IO_OP_WRITE_ZEROES,
-            nr_sectors: 8,
-            start_sector: 0,
-        };
+        let io = MockIoDesc { op: UBLK_IO_OP_WRITE_ZEROES, nr_sectors: 8, start_sector: 0 };
         let result = daemon.process_io(io, &mut store);
         assert!(result >= 0);
     }
@@ -1732,26 +1649,10 @@ mod tests {
 
         // Simulate I/O completions
         let ios = vec![
-            MockIoDesc {
-                op: UBLK_IO_OP_WRITE,
-                nr_sectors: 8,
-                start_sector: 0,
-            },
-            MockIoDesc {
-                op: UBLK_IO_OP_READ,
-                nr_sectors: 8,
-                start_sector: 0,
-            },
-            MockIoDesc {
-                op: UBLK_IO_OP_DISCARD,
-                nr_sectors: 8,
-                start_sector: 8,
-            },
-            MockIoDesc {
-                op: UBLK_IO_OP_FLUSH,
-                nr_sectors: 0,
-                start_sector: 0,
-            },
+            MockIoDesc { op: UBLK_IO_OP_WRITE, nr_sectors: 8, start_sector: 0 },
+            MockIoDesc { op: UBLK_IO_OP_READ, nr_sectors: 8, start_sector: 0 },
+            MockIoDesc { op: UBLK_IO_OP_DISCARD, nr_sectors: 8, start_sector: 8 },
+            MockIoDesc { op: UBLK_IO_OP_FLUSH, nr_sectors: 0, start_sector: 0 },
         ];
 
         for (tag, io) in ios.into_iter().enumerate() {
@@ -1787,12 +1688,7 @@ mod tests {
     fn test_iod_buf_size_various_depths() {
         for depth in [1, 8, 16, 32, 64, 128, 256, 512] {
             let size = iod_buf_size(depth);
-            assert_eq!(
-                size % 4096,
-                0,
-                "Buffer must be page-aligned for depth {}",
-                depth
-            );
+            assert_eq!(size % 4096, 0, "Buffer must be page-aligned for depth {}", depth);
             assert!(
                 size >= (depth as usize) * std::mem::size_of::<UblkIoDesc>(),
                 "Buffer too small for depth {}",
@@ -1832,20 +1728,14 @@ mod tests {
 
         // Tag 1, queue 0, offset 0
         let offset = ublk_user_copy_offset(0, 1, 0);
-        assert_eq!(
-            offset as u64,
-            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF)
-        );
+        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF));
     }
 
     #[test]
     fn test_user_copy_offset_queue_id() {
         // Queue 1, tag 0, offset 0
         let offset = ublk_user_copy_offset(1, 0, 0);
-        assert_eq!(
-            offset as u64,
-            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF)
-        );
+        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF));
     }
 
     #[test]
@@ -2000,18 +1890,8 @@ mod tests {
 
         for err in errors {
             let errno = err.to_errno();
-            assert!(
-                errno < 0,
-                "errno should be negative: {} for {:?}",
-                errno,
-                err
-            );
-            assert!(
-                errno >= -4095,
-                "errno out of range: {} for {:?}",
-                errno,
-                err
-            );
+            assert!(errno < 0, "errno should be negative: {} for {:?}", errno, err);
+            assert!(errno >= -4095, "errno out of range: {} for {:?}", errno, err);
         }
     }
 
@@ -2021,12 +1901,7 @@ mod tests {
 
     #[test]
     fn test_io_cmd_layout() {
-        let io_cmd = UblkIoCmd {
-            q_id: 0,
-            tag: 5,
-            result: 4096,
-            addr: 0,
-        };
+        let io_cmd = UblkIoCmd { q_id: 0, tag: 5, result: 4096, addr: 0 };
         let bytes: [u8; 16] = unsafe { std::mem::transmute(io_cmd) };
         // Verify size is exactly 16 bytes for io_uring cmd field
         assert_eq!(bytes.len(), 16);
@@ -2034,12 +1909,7 @@ mod tests {
 
     #[test]
     fn test_io_cmd_transmute_roundtrip() {
-        let io_cmd = UblkIoCmd {
-            q_id: 3,
-            tag: 127,
-            result: -5,
-            addr: 0x12345678ABCD,
-        };
+        let io_cmd = UblkIoCmd { q_id: 3, tag: 127, result: -5, addr: 0x12345678ABCD };
         let bytes: [u8; 16] = unsafe { std::mem::transmute(io_cmd) };
         let recovered: UblkIoCmd = unsafe { std::mem::transmute(bytes) };
         assert_eq!(recovered.q_id, 3);
@@ -2093,11 +1963,7 @@ mod tests {
 
     #[test]
     fn test_device_config_for_daemon() {
-        let config = DeviceConfig {
-            dev_id: -1,
-            dev_size: 1 << 30,
-            ..Default::default()
-        };
+        let config = DeviceConfig { dev_id: -1, dev_size: 1 << 30, ..Default::default() };
         assert_eq!(config.dev_id, -1); // -1 means auto-assign
         assert_eq!(config.dev_size, 1 << 30);
         assert!(config.flags & UBLK_F_USER_COPY != 0);
@@ -2329,11 +2195,7 @@ mod tests {
 
         let custom = PerfConfig {
             polling_enabled: true,
-            polling: PollingConfig {
-                spin_cycles: 25000,
-                adaptive: true,
-                ..Default::default()
-            },
+            polling: PollingConfig { spin_cycles: 25000, adaptive: true, ..Default::default() },
             batch_size: 192,
             batch_timeout_us: 75,
             cpu_cores: vec![1, 2, 3],
@@ -2365,17 +2227,11 @@ mod tests {
         assert_eq!(default.nr_hw_queues, 1, "Default should be 1 queue");
 
         // Multi-queue config
-        let multi = DeviceConfig {
-            nr_hw_queues: 4,
-            ..Default::default()
-        };
+        let multi = DeviceConfig { nr_hw_queues: 4, ..Default::default() };
         assert_eq!(multi.nr_hw_queues, 4, "Should support 4 queues");
 
         // Maximum queues (8 is typical kernel limit)
-        let max = DeviceConfig {
-            nr_hw_queues: 8,
-            ..Default::default()
-        };
+        let max = DeviceConfig { nr_hw_queues: 8, ..Default::default() };
         assert_eq!(max.nr_hw_queues, 8, "Should support 8 queues");
 
         println!("PERF-003.1 VERIFIED: DeviceConfig supports multi-queue");
@@ -2437,23 +2293,11 @@ mod tests {
         // (This is the formula we'll use for mmap sizing)
         let nr_queues = 4;
         let multi_size = nr_queues * single_size;
-        assert_eq!(
-            multi_size,
-            4 * single_size,
-            "4 queues should need 4x buffer space"
-        );
+        assert_eq!(multi_size, 4 * single_size, "4 queues should need 4x buffer space");
 
         println!("PERF-003.3 VERIFIED: Multi-queue buffer sizing correct");
-        println!(
-            "  Single queue: {} bytes ({} MB)",
-            single_size,
-            single_size / (1024 * 1024)
-        );
-        println!(
-            "  4 queues: {} bytes ({} MB)",
-            multi_size,
-            multi_size / (1024 * 1024)
-        );
+        println!("  Single queue: {} bytes ({} MB)", single_size, single_size / (1024 * 1024));
+        println!("  4 queues: {} bytes ({} MB)", multi_size, multi_size / (1024 * 1024));
     }
 
     /// PERF-003.4: QueueWorkerConfig construction
@@ -2534,10 +2378,7 @@ mod tests {
             expected_4q
         );
 
-        println!(
-            "PERF-003.5 VERIFIED: 4-queue hypothesis {} >= {} target",
-            expected_4q, target_4q
-        );
+        println!("PERF-003.5 VERIFIED: 4-queue hypothesis {} >= {} target", expected_4q, target_4q);
     }
 
     /// PERF-003.6: MockMultiQueueDaemon for testing coordination

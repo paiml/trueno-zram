@@ -60,10 +60,7 @@ pub struct BatchMetrics {
 impl BatchMetrics {
     /// Create new metrics
     pub fn new() -> Self {
-        Self {
-            latency_min_us: AtomicU64::new(u64::MAX),
-            ..Default::default()
-        }
+        Self { latency_min_us: AtomicU64::new(u64::MAX), ..Default::default() }
     }
 
     /// Record a batch completion
@@ -241,10 +238,7 @@ impl AdaptiveBatcher {
 
         // Rate limit adjustments
         {
-            let mut last = self
-                .last_adjustment
-                .lock()
-                .expect("last_adjustment mutex poisoned");
+            let mut last = self.last_adjustment.lock().expect("last_adjustment mutex poisoned");
             if last.elapsed() < self.adjustment_interval {
                 return;
             }
@@ -308,10 +302,7 @@ pub struct BatchOperation {
 impl BatchOperation {
     /// Start a new batch operation
     pub fn start() -> Self {
-        Self {
-            start: Instant::now(),
-            items: 0,
-        }
+        Self { start: Instant::now(), items: 0 }
     }
 
     /// Add items to the batch
@@ -418,10 +409,7 @@ mod tests {
         thread::sleep(Duration::from_millis(15)); // Wait past rate limit
         batcher.adjust(200);
 
-        assert!(
-            batcher.current_size() < 128,
-            "Batch size should decrease on high latency"
-        );
+        assert!(batcher.current_size() < 128, "Batch size should decrease on high latency");
     }
 
     #[test]
@@ -462,10 +450,7 @@ mod tests {
         thread::sleep(Duration::from_millis(15));
         batcher.adjust(1000);
 
-        assert!(
-            batcher.current_size() >= 32,
-            "Batch size must not go below minimum"
-        );
+        assert!(batcher.current_size() >= 32, "Batch size must not go below minimum");
     }
 
     #[test]
@@ -478,10 +463,7 @@ mod tests {
         thread::sleep(Duration::from_millis(15));
         batcher.adjust(1);
 
-        assert!(
-            batcher.current_size() <= 128,
-            "Batch size must not exceed maximum"
-        );
+        assert!(batcher.current_size() <= 128, "Batch size must not exceed maximum");
     }
 
     #[test]
@@ -553,20 +535,12 @@ mod tests {
         // alpha = 0.1
         batcher.update_ema(100);
         // Expected: 0.1 * 100 + 0.9 * 50 = 55
-        assert_eq!(
-            batcher.latency_ema_us(),
-            55,
-            "I.94: EMA calculation must be correct"
-        );
+        assert_eq!(batcher.latency_ema_us(), 55, "I.94: EMA calculation must be correct");
 
         batcher.update_ema(100);
         // Expected: 0.1 * 100 + 0.9 * 55 = 10 + 49.5 = 59.5 ≈ 59
         let ema = batcher.latency_ema_us();
-        assert!(
-            (ema as i64 - 59).abs() <= 1,
-            "I.94: EMA must converge correctly, got {}",
-            ema
-        );
+        assert!((ema as i64 - 59).abs() <= 1, "I.94: EMA must converge correctly, got {}", ema);
     }
 
     /// I.95: Convergence fast

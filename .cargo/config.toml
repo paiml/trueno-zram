@@ -1,3 +1,15 @@
-# Use fast RAID0 for coverage builds
+# Build performance configuration
 [build]
-target-dir = "/mnt/nvme-raid0/zram/coverage/trueno-zram"
+incremental = true
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=native"]
+
+[env]
+RUST_BACKTRACE = "1"
+
+[alias]
+t = "test"
+c = "check"
+b = "build --release"
+cl = "clippy --all-targets -- -D warnings"

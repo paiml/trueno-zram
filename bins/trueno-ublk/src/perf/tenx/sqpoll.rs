@@ -69,12 +69,7 @@ impl Default for SqpollConfig {
 impl SqpollConfig {
     /// Disabled configuration (safe default)
     pub fn disabled() -> Self {
-        Self {
-            enabled: false,
-            idle_timeout_ms: 0,
-            cpu: -1,
-            wakeup_threshold: 0,
-        }
+        Self { enabled: false, idle_timeout_ms: 0, cpu: -1, wakeup_threshold: 0 }
     }
 
     /// Aggressive configuration for maximum IOPS
@@ -134,11 +129,7 @@ impl SqpollRing {
     pub fn new(config: SqpollConfig) -> Result<Self, SqpollError> {
         config.validate()?;
 
-        Ok(Self {
-            config,
-            active: false,
-            kthread_pid: None,
-        })
+        Ok(Self { config, active: false, kthread_pid: None })
     }
 
     /// Build io_uring with SQPOLL configuration
@@ -147,11 +138,7 @@ impl SqpollRing {
     pub fn get_builder_params(&self) -> SqpollBuilderParams {
         SqpollBuilderParams {
             sqpoll_idle: self.config.idle_timeout_ms,
-            sqpoll_cpu: if self.config.cpu >= 0 {
-                Some(self.config.cpu as u32)
-            } else {
-                None
-            },
+            sqpoll_cpu: if self.config.cpu >= 0 { Some(self.config.cpu as u32) } else { None },
             single_issuer: true,
             coop_taskrun: true,
         }
@@ -460,10 +447,7 @@ mod tests {
         // SQPOLL mode aims for 0 syscalls in steady state
         // This tests the configuration enables this
         let config = SqpollConfig::aggressive();
-        assert!(
-            config.enabled,
-            "D.42: SQPOLL must be enabled for syscall elimination"
-        );
+        assert!(config.enabled, "D.42: SQPOLL must be enabled for syscall elimination");
     }
 
     /// D.44: SQPOLL idle timeout works
@@ -495,10 +479,7 @@ mod tests {
         // When SQPOLL is disabled, system should work normally
         let config = SqpollConfig::disabled();
         let ring = SqpollRing::new(config).unwrap();
-        assert!(
-            !ring.is_enabled(),
-            "D.49: Disabled SQPOLL must not affect operation"
-        );
+        assert!(!ring.is_enabled(), "D.49: Disabled SQPOLL must not affect operation");
     }
 
     /// D.50: Shutdown clean

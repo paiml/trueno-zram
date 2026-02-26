@@ -275,12 +275,7 @@ impl StorageBackend for KernelZramBackend {
         let fd = device.as_raw_fd();
 
         let result = unsafe {
-            libc::pwrite(
-                fd,
-                data.as_ptr() as *const libc::c_void,
-                PAGE_SIZE,
-                offset as libc::off_t,
-            )
+            libc::pwrite(fd, data.as_ptr() as *const libc::c_void, PAGE_SIZE, offset as libc::off_t)
         };
 
         if result < 0 {
@@ -300,8 +295,7 @@ impl StorageBackend for KernelZramBackend {
         }
 
         self.pages_stored.fetch_add(1, Ordering::Relaxed);
-        self.bytes_written
-            .fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
+        self.bytes_written.fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
 
         Ok(())
     }
@@ -344,8 +338,7 @@ impl StorageBackend for KernelZramBackend {
         }
 
         self.pages_loaded.fetch_add(1, Ordering::Relaxed);
-        self.bytes_read
-            .fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
+        self.bytes_read.fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
 
         Ok(true)
     }
@@ -413,8 +406,7 @@ impl StorageBackend for MemoryBackend {
         pages.insert(page_idx, data.to_vec());
 
         self.pages_stored.fetch_add(1, Ordering::Relaxed);
-        self.bytes_written
-            .fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
+        self.bytes_written.fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
 
         Ok(())
     }
@@ -426,8 +418,7 @@ impl StorageBackend for MemoryBackend {
             Some(data) => {
                 buffer.copy_from_slice(data);
                 self.pages_loaded.fetch_add(1, Ordering::Relaxed);
-                self.bytes_read
-                    .fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
+                self.bytes_read.fetch_add(PAGE_SIZE as u64, Ordering::Relaxed);
                 Ok(true)
             }
             None => {
@@ -498,8 +489,9 @@ impl NvmeColdBackend {
         let base_path = base_path.as_ref().to_path_buf();
 
         // Ensure directory exists
-        std::fs::create_dir_all(&base_path)
-            .with_context(|| format!("Failed to create cold tier directory: {}", base_path.display()))?;
+        std::fs::create_dir_all(&base_path).with_context(|| {
+            format!("Failed to create cold tier directory: {}", base_path.display())
+        })?;
 
         let file_path = base_path.join("pages.dat");
 
@@ -512,10 +504,7 @@ impl NvmeColdBackend {
             .open(&file_path)
             .with_context(|| format!("Failed to open cold tier file: {}", file_path.display()))?;
 
-        tracing::info!(
-            "KERN-003: NVMe cold tier initialized at {}",
-            file_path.display()
-        );
+        tracing::info!("KERN-003: NVMe cold tier initialized at {}", file_path.display());
 
         Ok(Self {
             file: RwLock::new(file),
@@ -545,12 +534,7 @@ impl StorageBackend for NvmeColdBackend {
 
         // Use pwrite for concurrent writes (sparse file grows automatically)
         let result = unsafe {
-            libc::pwrite(
-                fd,
-                data.as_ptr() as *const libc::c_void,
-                PAGE_SIZE,
-                offset as libc::off_t,
-            )
+            libc::pwrite(fd, data.as_ptr() as *const libc::c_void, PAGE_SIZE, offset as libc::off_t)
         };
 
         if result < 0 {
@@ -670,10 +654,7 @@ pub struct EntropyThresholds {
 
 impl Default for EntropyThresholds {
     fn default() -> Self {
-        Self {
-            kernel_threshold: 6.0,
-            skip_threshold: 7.5,
-        }
+        Self { kernel_threshold: 6.0, skip_threshold: 7.5 }
     }
 }
 
@@ -978,10 +959,7 @@ impl std::str::FromStr for BackendType {
             "memory" | "mem" => Ok(BackendType::Memory),
             "zram" | "kernel-zram" | "kernel" => Ok(BackendType::KernelZram),
             "tiered" | "tier" => Ok(BackendType::Tiered),
-            _ => Err(format!(
-                "Unknown backend type: {}. Valid options: memory, zram, tiered",
-                s
-            )),
+            _ => Err(format!("Unknown backend type: {}. Valid options: memory, zram, tiered", s)),
         }
     }
 }

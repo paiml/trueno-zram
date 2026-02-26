@@ -96,10 +96,7 @@ impl IoOp {
     /// Check if this is a write operation
     #[inline]
     pub fn is_write(&self) -> bool {
-        matches!(
-            self,
-            IoOp::Write | IoOp::WriteZeroes | IoOp::WriteSame | IoOp::Discard
-        )
+        matches!(self, IoOp::Write | IoOp::WriteZeroes | IoOp::WriteSame | IoOp::Discard)
     }
 
     /// Convert to u8 opcode
@@ -121,13 +118,7 @@ impl IoRequest {
     /// Parse from UblkIoDesc
     pub fn from_desc(desc: &UblkIoDesc, tag: u16, queue_id: u16) -> Self {
         let op = IoOp::from((desc.op_flags & 0xff) as u8);
-        Self {
-            op,
-            start_sector: desc.start_sector,
-            nr_sectors: desc.nr_sectors,
-            tag,
-            queue_id,
-        }
+        Self { op, start_sector: desc.start_sector, nr_sectors: desc.nr_sectors, tag, queue_id }
     }
 
     /// Calculate byte length for this request
@@ -296,37 +287,20 @@ mod tests {
 
     #[test]
     fn test_io_request_byte_len() {
-        let req = IoRequest {
-            op: IoOp::Read,
-            start_sector: 0,
-            nr_sectors: 8,
-            tag: 0,
-            queue_id: 0,
-        };
+        let req = IoRequest { op: IoOp::Read, start_sector: 0, nr_sectors: 8, tag: 0, queue_id: 0 };
         assert_eq!(req.byte_len(), 8 * 512); // 4KB
     }
 
     #[test]
     fn test_io_request_byte_offset() {
-        let req = IoRequest {
-            op: IoOp::Read,
-            start_sector: 16,
-            nr_sectors: 8,
-            tag: 0,
-            queue_id: 0,
-        };
+        let req =
+            IoRequest { op: IoOp::Read, start_sector: 16, nr_sectors: 8, tag: 0, queue_id: 0 };
         assert_eq!(req.byte_offset(), 16 * 512); // 8KB
     }
 
     #[test]
     fn test_io_request_validate_success() {
-        let req = IoRequest {
-            op: IoOp::Read,
-            start_sector: 0,
-            nr_sectors: 8,
-            tag: 0,
-            queue_id: 0,
-        };
+        let req = IoRequest { op: IoOp::Read, start_sector: 0, nr_sectors: 8, tag: 0, queue_id: 0 };
         assert!(req.validate(1024).is_ok());
     }
 
@@ -424,19 +398,13 @@ mod tests {
     #[test]
     fn test_user_copy_offset_with_tag() {
         let offset = user_copy_offset(0, 1, 0);
-        assert_eq!(
-            offset as u64,
-            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF)
-        );
+        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_TAG_OFF));
     }
 
     #[test]
     fn test_user_copy_offset_with_queue() {
         let offset = user_copy_offset(1, 0, 0);
-        assert_eq!(
-            offset as u64,
-            UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF)
-        );
+        assert_eq!(offset as u64, UBLKSRV_IO_BUF_OFFSET + (1u64 << UBLK_QID_OFF));
     }
 
     #[test]
@@ -481,13 +449,7 @@ mod tests {
     // A.8: Falsify: nr_sectors=0 handling
     #[test]
     fn test_falsify_zero_sectors() {
-        let req = IoRequest {
-            op: IoOp::Read,
-            start_sector: 0,
-            nr_sectors: 0,
-            tag: 0,
-            queue_id: 0,
-        };
+        let req = IoRequest { op: IoOp::Read, start_sector: 0, nr_sectors: 0, tag: 0, queue_id: 0 };
         // Non-flush with zero sectors should fail
         assert!(req.validate(1024).is_err());
     }

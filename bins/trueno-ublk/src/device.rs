@@ -215,16 +215,10 @@ impl UblkDevice {
         // For foreground mode: called in start_ublk_daemon before run_with_mode
         // For background mode: called in child process after fork()
 
-        let id = if config.dev_id >= 0 {
-            config.dev_id as u32
-        } else {
-            Self::next_free_id()?
-        };
+        let id = if config.dev_id >= 0 { config.dev_id as u32 } else { Self::next_free_id()? };
 
         // Initialize compressor using CompressorBuilder
-        let compressor = CompressorBuilder::new()
-            .algorithm(config.algorithm)
-            .build()?;
+        let compressor = CompressorBuilder::new().algorithm(config.algorithm).build()?;
 
         // Start ublk daemon (needs config before we move it)
         Self::start_ublk_daemon(id, &config)?;
@@ -255,9 +249,7 @@ impl UblkDevice {
         };
 
         // Initialize compressor using CompressorBuilder
-        let compressor = CompressorBuilder::new()
-            .algorithm(config.algorithm)
-            .build()?;
+        let compressor = CompressorBuilder::new().algorithm(config.algorithm).build()?;
 
         let inner = Arc::new(DeviceInner {
             id,
@@ -280,10 +272,8 @@ impl UblkDevice {
         let id = Self::parse_device_id(path)?;
 
         let devices = DEVICES.read().expect("rwlock poisoned");
-        let inner = devices
-            .get(&id)
-            .cloned()
-            .context(format!("Device {} not found", path.display()))?;
+        let inner =
+            devices.get(&id).cloned().context(format!("Device {} not found", path.display()))?;
 
         Ok(Self { inner })
     }
@@ -291,12 +281,7 @@ impl UblkDevice {
     /// List all trueno-ublk devices
     pub fn list_all() -> Result<Vec<Self>> {
         let devices = DEVICES.read().expect("rwlock poisoned");
-        Ok(devices
-            .values()
-            .map(|inner| Self {
-                inner: inner.clone(),
-            })
-            .collect())
+        Ok(devices.values().map(|inner| Self { inner: inner.clone() }).collect())
     }
 
     /// Find the next free device ID
@@ -394,10 +379,7 @@ impl UblkDevice {
     /// Trigger memory compaction
     pub fn compact(&self) -> Result<()> {
         // In a real implementation, this would trigger compaction
-        self.inner
-            .stats
-            .pages_compacted
-            .fetch_add(1, Ordering::Relaxed);
+        self.inner.stats.pages_compacted.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -432,9 +414,7 @@ impl UblkDevice {
         config.gpu_enabled = enabled;
 
         // Reinitialize compressor with new settings
-        let compressor = CompressorBuilder::new()
-            .algorithm(config.algorithm)
-            .build()?;
+        let compressor = CompressorBuilder::new().algorithm(config.algorithm).build()?;
         *self.inner.compressor.write().expect("rwlock poisoned") = Some(compressor);
 
         Ok(())
@@ -466,20 +446,14 @@ impl UblkDevice {
     /// Reset mem_used_max watermark
     pub fn reset_mem_used_max(&self) -> Result<()> {
         let current = self.inner.stats.mem_used_total.load(Ordering::Relaxed);
-        self.inner
-            .stats
-            .mem_used_max
-            .store(current, Ordering::Relaxed);
+        self.inner.stats.mem_used_max.store(current, Ordering::Relaxed);
         Ok(())
     }
 
     // Private helpers
 
     fn parse_device_id(path: &Path) -> Result<u32> {
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .context("Invalid device path")?;
+        let name = path.file_name().and_then(|n| n.to_str()).context("Invalid device path")?;
 
         if let Some(id_str) = name.strip_prefix("ublkb") {
             id_str.parse().context("Invalid device ID in path")
@@ -764,8 +738,7 @@ impl BlockDevice {
             self.store.load(sector, page_buf)?;
         }
 
-        self.bytes_read
-            .fetch_add(buf.len() as u64, Ordering::Relaxed);
+        self.bytes_read.fetch_add(buf.len() as u64, Ordering::Relaxed);
         Ok(())
     }
 
@@ -784,8 +757,7 @@ impl BlockDevice {
             self.store.store(sector, page_data)?;
         }
 
-        self.bytes_written
-            .fetch_add(data.len() as u64, Ordering::Relaxed);
+        self.bytes_written.fetch_add(data.len() as u64, Ordering::Relaxed);
         Ok(())
     }
 
@@ -830,18 +802,10 @@ impl BlockDevice {
 
     fn validate_io(&self, offset: u64, len: usize) -> Result<()> {
         if offset % PAGE_SIZE as u64 != 0 {
-            anyhow::bail!(
-                "Offset {} is not page-aligned (PAGE_SIZE={})",
-                offset,
-                PAGE_SIZE
-            );
+            anyhow::bail!("Offset {} is not page-aligned (PAGE_SIZE={})", offset, PAGE_SIZE);
         }
         if len % PAGE_SIZE != 0 {
-            anyhow::bail!(
-                "Length {} is not a multiple of PAGE_SIZE ({})",
-                len,
-                PAGE_SIZE
-            );
+            anyhow::bail!("Length {} is not a multiple of PAGE_SIZE ({})", len, PAGE_SIZE);
         }
         if offset + len as u64 > self.size {
             anyhow::bail!(
@@ -867,10 +831,7 @@ mod tests {
 
     // Helper to create a test compressor
     fn test_compressor() -> Box<dyn PageCompressor> {
-        CompressorBuilder::new()
-            .algorithm(Algorithm::Lz4)
-            .build()
-            .unwrap()
+        CompressorBuilder::new().algorithm(Algorithm::Lz4).build().unwrap()
     }
 
     #[test]
@@ -1011,10 +972,7 @@ mod tests {
         device.write(0, &random).unwrap();
 
         let stats = device.stats();
-        assert!(
-            stats.scalar_pages > 0,
-            "High entropy data should use scalar path"
-        );
+        assert!(stats.scalar_pages > 0, "High entropy data should use scalar path");
     }
 
     #[test]
@@ -1028,10 +986,7 @@ mod tests {
 
         let stats = device.stats();
         // Low entropy should NOT go to scalar path
-        assert_eq!(
-            stats.scalar_pages, 0,
-            "Low entropy data should not use scalar path"
-        );
+        assert_eq!(stats.scalar_pages, 0, "Low entropy data should not use scalar path");
     }
 
     #[test]
@@ -1052,10 +1007,7 @@ mod tests {
         // Should now read zeros
         let mut buf = vec![0xFFu8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
-        assert!(
-            buf.iter().all(|&b| b == 0),
-            "Discarded page should read as zeros"
-        );
+        assert!(buf.iter().all(|&b| b == 0), "Discarded page should read as zeros");
     }
 
     #[test]
@@ -1084,10 +1036,7 @@ mod tests {
         let mut buf = vec![0xFFu8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
 
-        assert!(
-            buf.iter().all(|&b| b == 0),
-            "Unwritten page should read as zeros"
-        );
+        assert!(buf.iter().all(|&b| b == 0), "Unwritten page should read as zeros");
     }
 
     #[test]
@@ -1140,11 +1089,7 @@ mod tests {
         device.read(0, &mut buf).unwrap();
 
         let stats = device.stats();
-        assert_eq!(
-            stats.bytes_read,
-            PAGE_SIZE as u64 * 2,
-            "Bytes read should track correctly"
-        );
+        assert_eq!(stats.bytes_read, PAGE_SIZE as u64 * 2, "Bytes read should track correctly");
     }
 
     #[test]
@@ -1156,17 +1101,13 @@ mod tests {
             // All ones
             vec![0xFF; PAGE_SIZE],
             // Alternating bytes
-            (0..PAGE_SIZE)
-                .map(|i| if i % 2 == 0 { 0xAA } else { 0x55 })
-                .collect(),
+            (0..PAGE_SIZE).map(|i| if i % 2 == 0 { 0xAA } else { 0x55 }).collect(),
             // Sequential bytes
             (0..PAGE_SIZE).map(|i| (i % 256) as u8).collect(),
             // Repeating short pattern
             (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect(),
             // Text-like data
-            "The quick brown fox jumps over the lazy dog. "
-                .repeat(100)
-                .into_bytes()[..PAGE_SIZE]
+            "The quick brown fox jumps over the lazy dog. ".repeat(100).into_bytes()[..PAGE_SIZE]
                 .to_vec(),
         ];
 
@@ -1194,19 +1135,13 @@ mod tests {
             scalar_pages: 0,
         };
 
-        assert!(
-            (stats.compression_ratio() - 4.0).abs() < 0.001,
-            "4:1 compression ratio expected"
-        );
+        assert!((stats.compression_ratio() - 4.0).abs() < 0.001, "4:1 compression ratio expected");
     }
 
     #[test]
     fn test_block_device_stats_compression_ratio_no_data() {
         let stats = BlockDeviceStats::default();
-        assert!(
-            (stats.compression_ratio() - 1.0).abs() < 0.001,
-            "Default ratio should be 1.0"
-        );
+        assert!((stats.compression_ratio() - 1.0).abs() < 0.001, "Default ratio should be 1.0");
     }
 
     // ========================================================================
@@ -1257,10 +1192,7 @@ mod tests {
         device.read(0, &mut buf).unwrap();
 
         assert_eq!(zeros, buf, "A3: Zero page roundtrip failed");
-        assert!(
-            device.stats().zero_pages >= 1,
-            "A3: Should track zero pages"
-        );
+        assert!(device.stats().zero_pages >= 1, "A3: Should track zero pages");
     }
 
     /// A4: Write 4KB random high-entropy (uncompressible), Read, Verify.
@@ -1272,9 +1204,7 @@ mod tests {
         let mut state: u64 = 0xDEADBEEF;
         let random_data: Vec<u8> = (0..PAGE_SIZE)
             .map(|_| {
-                state = state
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                 (state >> 33) as u8
             })
             .collect();
@@ -1302,11 +1232,7 @@ mod tests {
             let mut buf = vec![0u8; PAGE_SIZE];
             device.read(offset, &mut buf).unwrap();
 
-            assert_eq!(
-                data, buf,
-                "A5: Repeated byte 0x{:02X} roundtrip failed",
-                byte_val
-            );
+            assert_eq!(data, buf, "A5: Repeated byte 0x{:02X} roundtrip failed", byte_val);
         }
     }
 
@@ -1342,10 +1268,7 @@ mod tests {
         // Read from last sector
         let mut buf = vec![0u8; PAGE_SIZE];
         let result = device.read(last_offset, &mut buf);
-        assert!(
-            result.is_ok(),
-            "A7: Reading from last sector should succeed"
-        );
+        assert!(result.is_ok(), "A7: Reading from last sector should succeed");
         assert_eq!(data, buf, "A7: Last sector read should match written data");
     }
 
@@ -1410,10 +1333,7 @@ mod tests {
         let data = vec![0xAB; 1]; // 1 byte
 
         let result = device.write(0, &data);
-        assert!(
-            result.is_err(),
-            "A11: Partial write (1 byte) should be rejected"
-        );
+        assert!(result.is_err(), "A11: Partial write (1 byte) should be rejected");
     }
 
     /// A12: Read 1 byte (partial read) - tests error handling for non-page-aligned.
@@ -1424,10 +1344,7 @@ mod tests {
         let mut buf = vec![0u8; 1]; // 1 byte
 
         let result = device.read(0, &mut buf);
-        assert!(
-            result.is_err(),
-            "A12: Partial read (1 byte) should be rejected"
-        );
+        assert!(result.is_err(), "A12: Partial read (1 byte) should be rejected");
     }
 
     /// A13: Overwrite scalar compressed page with SIMD compressed page.
@@ -1446,10 +1363,7 @@ mod tests {
 
         device.write(0, &high_entropy).unwrap();
         let stats1 = device.stats();
-        assert!(
-            stats1.scalar_pages > 0,
-            "A13: First write should use scalar path"
-        );
+        assert!(stats1.scalar_pages > 0, "A13: First write should use scalar path");
 
         // Overwrite with low-entropy data (will use SIMD path)
         let low_entropy: Vec<u8> = (0..PAGE_SIZE).map(|i| (i % 16) as u8).collect();
@@ -1458,10 +1372,7 @@ mod tests {
         // Verify correct data is returned
         let mut buf = vec![0u8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
-        assert_eq!(
-            low_entropy, buf,
-            "A13: SIMD data should overwrite scalar data"
-        );
+        assert_eq!(low_entropy, buf, "A13: SIMD data should overwrite scalar data");
     }
 
     /// A14: Overwrite SIMD compressed page with zero page.
@@ -1510,10 +1421,7 @@ mod tests {
         // Verify correct data
         let mut buf = vec![0u8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
-        assert_eq!(
-            high_entropy, buf,
-            "A15: Scalar data should overwrite zero page"
-        );
+        assert_eq!(high_entropy, buf, "A15: Scalar data should overwrite zero page");
     }
 
     /// A16: Persistence test - N/A for in-memory device (skip with documentation).
@@ -1540,18 +1448,11 @@ mod tests {
         let compressed = compressor.compress(page).unwrap();
 
         // Verify compressed data has reasonable structure
-        assert!(
-            !compressed.data.is_empty(),
-            "A17: Compressed data should not be empty"
-        );
+        assert!(!compressed.data.is_empty(), "A17: Compressed data should not be empty");
 
         // Decompress and verify
         let decompressed = compressor.decompress(&compressed).unwrap();
-        assert_eq!(
-            data,
-            decompressed.as_slice(),
-            "A17: Roundtrip should preserve data"
-        );
+        assert_eq!(data, decompressed.as_slice(), "A17: Roundtrip should preserve data");
     }
 
     /// A18: Concurrent Read/Write atomicity.
@@ -1560,17 +1461,10 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let device = Arc::new(std::sync::RwLock::new(BlockDevice::new(
-            1 << 20,
-            test_compressor(),
-        )));
+        let device = Arc::new(std::sync::RwLock::new(BlockDevice::new(1 << 20, test_compressor())));
 
         let data = vec![0xCC; PAGE_SIZE];
-        device
-            .write()
-            .expect("rwlock poisoned")
-            .write(0, &data)
-            .unwrap();
+        device.write().expect("rwlock poisoned").write(0, &data).unwrap();
 
         let mut handles = vec![];
 
@@ -1580,10 +1474,7 @@ mod tests {
             handles.push(thread::spawn(move || {
                 for _ in 0..100 {
                     let mut buf = vec![0u8; PAGE_SIZE];
-                    dev.read()
-                        .expect("rwlock poisoned")
-                        .read(0, &mut buf)
-                        .unwrap();
+                    dev.read().expect("rwlock poisoned").read(0, &mut buf).unwrap();
                     // Data should be either all 0xCC or all 0xDD (not mixed)
                     let first = buf[0];
                     assert!(
@@ -1599,10 +1490,7 @@ mod tests {
         handles.push(thread::spawn(move || {
             let new_data = vec![0xDD; PAGE_SIZE];
             for _ in 0..50 {
-                dev.write()
-                    .expect("rwlock poisoned")
-                    .write(0, &new_data)
-                    .unwrap();
+                dev.write().expect("rwlock poisoned").write(0, &new_data).unwrap();
             }
         }));
 
@@ -1617,10 +1505,7 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let device = Arc::new(std::sync::Mutex::new(BlockDevice::new(
-            1 << 20,
-            test_compressor(),
-        )));
+        let device = Arc::new(std::sync::Mutex::new(BlockDevice::new(1 << 20, test_compressor())));
 
         let mut handles = vec![];
 
@@ -1648,10 +1533,7 @@ mod tests {
             buf.iter().all(|&b| b == first),
             "A19: Final state should be consistent (single writer's data)"
         );
-        assert!(
-            first < 4,
-            "A19: Final byte should be from one of the writers (0-3)"
-        );
+        assert!(first < 4, "A19: Final byte should be from one of the writers (0-3)");
     }
 
     /// A20: Discard (TRIM) zeroes data and frees memory.
@@ -1668,14 +1550,8 @@ mod tests {
         device.write(0, &data).unwrap();
 
         let stats_before = device.stats();
-        assert_eq!(
-            stats_before.pages_stored, 1,
-            "A20: Should have 1 page stored"
-        );
-        assert!(
-            stats_before.bytes_compressed > 0,
-            "A20: Should have compressed bytes"
-        );
+        assert_eq!(stats_before.pages_stored, 1, "A20: Should have 1 page stored");
+        assert!(stats_before.bytes_compressed > 0, "A20: Should have compressed bytes");
 
         // Discard
         device.discard(0, PAGE_SIZE as u64).unwrap();
@@ -1683,10 +1559,7 @@ mod tests {
         // Verify page is freed (reads as zeros, not counted in storage)
         let mut buf = vec![0xFFu8; PAGE_SIZE];
         device.read(0, &mut buf).unwrap();
-        assert!(
-            buf.iter().all(|&b| b == 0),
-            "A20: Discarded page should read as zeros"
-        );
+        assert!(buf.iter().all(|&b| b == 0), "A20: Discarded page should read as zeros");
 
         // Note: Current PageStore::remove decrements page count but may not track freed memory.
         // The spec requirement is that data reads as zeros, which we verify above.
@@ -1763,12 +1636,8 @@ mod tests {
         let text_pattern = "The quick brown fox jumps over the lazy dog. \
             Lorem ipsum dolor sit amet, consectetur adipiscing elit. \
             Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ";
-        let text_page: Vec<u8> = text_pattern
-            .chars()
-            .cycle()
-            .take(PAGE_SIZE)
-            .map(|c| c as u8)
-            .collect();
+        let text_page: Vec<u8> =
+            text_pattern.chars().cycle().take(PAGE_SIZE).map(|c| c as u8).collect();
 
         for i in 0..num_pages {
             device.write((i * PAGE_SIZE) as u64, &text_page).unwrap();
@@ -1778,11 +1647,7 @@ mod tests {
         let ratio = stats.compression_ratio();
 
         // Text should compress at least 2:1 with LZ4
-        assert!(
-            ratio >= 2.0,
-            "B23: Text data should compress >= 2:1, got {:.2}:1",
-            ratio
-        );
+        assert!(ratio >= 2.0, "B23: Text data should compress >= 2:1, got {:.2}:1", ratio);
 
         println!("B23: Text compression ratio: {:.2}:1", ratio);
     }
@@ -1834,10 +1699,7 @@ mod tests {
 
         // Writing beyond capacity should fail gracefully
         let result = device.write(device_size, &data);
-        assert!(
-            result.is_err(),
-            "B25: Write beyond capacity should fail gracefully"
-        );
+        assert!(result.is_err(), "B25: Write beyond capacity should fail gracefully");
     }
 
     /// B26: CPU affinity (simplified test for single-threaded operation).
@@ -1853,10 +1715,7 @@ mod tests {
         device.write(0, &data).unwrap();
 
         let end_thread = std::thread::current().id();
-        assert_eq!(
-            start_thread, end_thread,
-            "B26: Operations should complete on same thread"
-        );
+        assert_eq!(start_thread, end_thread, "B26: Operations should complete on same thread");
     }
 
     /// B27: File descriptor leak check (simplified for in-memory device).
@@ -1956,21 +1815,15 @@ mod tests {
 
         // Write in "random" order
         for &page_idx in &order {
-            let data: Vec<u8> = (0..PAGE_SIZE)
-                .map(|i| ((page_idx + i) % 256) as u8)
-                .collect();
+            let data: Vec<u8> = (0..PAGE_SIZE).map(|i| ((page_idx + i) % 256) as u8).collect();
             device.write((page_idx * PAGE_SIZE) as u64, &data).unwrap();
         }
 
         // Verify all pages in sequential order
         for page_idx in 0..num_pages {
-            let expected: Vec<u8> = (0..PAGE_SIZE)
-                .map(|i| ((page_idx + i) % 256) as u8)
-                .collect();
+            let expected: Vec<u8> = (0..PAGE_SIZE).map(|i| ((page_idx + i) % 256) as u8).collect();
             let mut buf = vec![0u8; PAGE_SIZE];
-            device
-                .read((page_idx * PAGE_SIZE) as u64, &mut buf)
-                .unwrap();
+            device.read((page_idx * PAGE_SIZE) as u64, &mut buf).unwrap();
             assert_eq!(
                 expected, buf,
                 "B30: Page {} verification failed after fragmented writes",
@@ -2097,17 +1950,10 @@ mod tests {
 
         let iops = iterations as f64 / duration.as_secs_f64();
 
-        println!(
-            "C33: Random 4K write: {:.0} IOPS ({} ops in {:?})",
-            iops, iterations, duration
-        );
+        println!("C33: Random 4K write: {:.0} IOPS ({} ops in {:?})", iops, iterations, duration);
 
         // Sanity check: at least 1000 IOPS
-        assert!(
-            iops > 1000.0,
-            "C33: Random write IOPS should be > 1000, got {:.0}",
-            iops
-        );
+        assert!(iops > 1000.0, "C33: Random write IOPS should be > 1000, got {:.0}", iops);
     }
 
     /// C34: Random 4K read IOPS test.
@@ -2140,24 +1986,15 @@ mod tests {
         let start = Instant::now();
         for i in 0..iterations {
             let page_idx = access_order[i % num_pages];
-            device
-                .read((page_idx * PAGE_SIZE) as u64, &mut buf)
-                .unwrap();
+            device.read((page_idx * PAGE_SIZE) as u64, &mut buf).unwrap();
         }
         let duration = start.elapsed();
 
         let iops = iterations as f64 / duration.as_secs_f64();
 
-        println!(
-            "C34: Random 4K read: {:.0} IOPS ({} ops in {:?})",
-            iops, iterations, duration
-        );
+        println!("C34: Random 4K read: {:.0} IOPS ({} ops in {:?})", iops, iterations, duration);
 
-        assert!(
-            iops > 1000.0,
-            "C34: Random read IOPS should be > 1000, got {:.0}",
-            iops
-        );
+        assert!(iops > 1000.0, "C34: Random read IOPS should be > 1000, got {:.0}", iops);
     }
 
     /// C35: Latency test at QD=1.
@@ -2182,10 +2019,7 @@ mod tests {
         let p99 = latencies[latencies.len() * 99 / 100];
         let p999 = latencies[latencies.len() * 999 / 1000];
 
-        println!(
-            "C35: QD=1 latency: p50={:?}, p99={:?}, p99.9={:?}",
-            p50, p99, p999
-        );
+        println!("C35: QD=1 latency: p50={:?}, p99={:?}, p99.9={:?}", p50, p99, p999);
 
         // In-memory device should be very fast
         assert!(
@@ -2202,10 +2036,7 @@ mod tests {
         use std::thread;
         use std::time::Instant;
 
-        let device = Arc::new(std::sync::Mutex::new(BlockDevice::new(
-            1 << 24,
-            test_compressor(),
-        )));
+        let device = Arc::new(std::sync::Mutex::new(BlockDevice::new(1 << 24, test_compressor())));
 
         let num_threads = 8;
         let ops_per_thread = 500;
@@ -2342,10 +2173,7 @@ mod tests {
         let iterations = 1000;
 
         // Test LZ4
-        let lz4_compressor = CompressorBuilder::new()
-            .algorithm(Algorithm::Lz4)
-            .build()
-            .unwrap();
+        let lz4_compressor = CompressorBuilder::new().algorithm(Algorithm::Lz4).build().unwrap();
         let mut lz4_device = BlockDevice::new(1 << 20, lz4_compressor);
 
         let start = Instant::now();
@@ -2355,10 +2183,8 @@ mod tests {
         let lz4_duration = start.elapsed();
 
         // Test Zstd (level 1 for speed)
-        let zstd_compressor = CompressorBuilder::new()
-            .algorithm(Algorithm::Zstd { level: 1 })
-            .build()
-            .unwrap();
+        let zstd_compressor =
+            CompressorBuilder::new().algorithm(Algorithm::Zstd { level: 1 }).build().unwrap();
         let mut zstd_device = BlockDevice::new(1 << 20, zstd_compressor);
 
         let start = Instant::now();
@@ -2409,15 +2235,12 @@ mod tests {
         // Write similar small patterns (would benefit from dictionary)
         let patterns: Vec<Vec<u8>> = (0..10)
             .map(|i| {
-                format!(
-                    "{{\"id\": {}, \"name\": \"user_{}\", \"active\": true}}",
-                    i, i
-                )
-                .into_bytes()
-                .into_iter()
-                .chain(std::iter::repeat(0u8))
-                .take(PAGE_SIZE)
-                .collect()
+                format!("{{\"id\": {}, \"name\": \"user_{}\", \"active\": true}}", i, i)
+                    .into_bytes()
+                    .into_iter()
+                    .chain(std::iter::repeat(0u8))
+                    .take(PAGE_SIZE)
+                    .collect()
             })
             .collect();
 
@@ -2428,15 +2251,9 @@ mod tests {
         let stats = device.stats();
         let ratio = stats.compression_ratio();
 
-        println!(
-            "C40: JSON-like data compression ratio (no dict): {:.2}:1",
-            ratio
-        );
+        println!("C40: JSON-like data compression ratio (no dict): {:.2}:1", ratio);
 
         // Even without dictionary, should compress somewhat
-        assert!(
-            ratio > 1.0,
-            "C40: JSON-like data should compress even without dictionary"
-        );
+        assert!(ratio > 1.0, "C40: JSON-like data should compress even without dictionary");
     }
 }

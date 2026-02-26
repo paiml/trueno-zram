@@ -57,11 +57,7 @@ impl Default for ZeroCopyConfig {
 impl ZeroCopyConfig {
     /// Disabled configuration
     pub fn disabled() -> Self {
-        Self {
-            enabled: false,
-            map_populate: false,
-            max_buffer_size: 0,
-        }
+        Self { enabled: false, map_populate: false, max_buffer_size: 0 }
     }
 
     /// Enabled configuration
@@ -126,12 +122,7 @@ impl ZeroCopyMapping {
         let base = NonNull::new(ptr as *mut u8)
             .ok_or_else(|| ZeroCopyError::MmapFailed(io::Error::other("mmap returned null")))?;
 
-        Ok(Self {
-            base,
-            size,
-            fd: char_fd,
-            active: true,
-        })
+        Ok(Self { base, size, fd: char_fd, active: true })
     }
 
     /// Get a raw pointer to the mapped region
@@ -264,10 +255,7 @@ impl std::fmt::Display for ZeroCopyError {
         match self {
             ZeroCopyError::InvalidSize(s) => write!(f, "Invalid size: {}", s),
             ZeroCopyError::MmapFailed(e) => write!(f, "mmap failed: {}", e),
-            ZeroCopyError::BufferTooSmall {
-                required,
-                available,
-            } => {
+            ZeroCopyError::BufferTooSmall { required, available } => {
                 write!(f, "Buffer too small: need {}, have {}", required, available)
             }
             ZeroCopyError::CompressionFailed(e) => write!(f, "Compression failed: {}", e),
@@ -313,9 +301,7 @@ pub fn check_zero_copy_support() -> Result<bool, ZeroCopyError> {
             }
             Ok(false)
         }
-        None => Err(ZeroCopyError::NotSupported(
-            "Cannot read kernel version".into(),
-        )),
+        None => Err(ZeroCopyError::NotSupported("Cannot read kernel version".into())),
     }
 }
 
@@ -399,10 +385,7 @@ mod tests {
         let e = ZeroCopyError::InvalidSize(0);
         assert!(e.to_string().contains("Invalid size"));
 
-        let e = ZeroCopyError::BufferTooSmall {
-            required: 1000,
-            available: 500,
-        };
+        let e = ZeroCopyError::BufferTooSmall { required: 1000, available: 500 };
         assert!(e.to_string().contains("1000"));
         assert!(e.to_string().contains("500"));
     }
@@ -557,20 +540,11 @@ mod tests {
     #[test]
     fn test_falsify_c40_error_handling() {
         // Test that errors are properly propagated
-        let e = ZeroCopyError::BufferTooSmall {
-            required: 8192,
-            available: 4096,
-        };
+        let e = ZeroCopyError::BufferTooSmall { required: 8192, available: 4096 };
 
         // Error should have meaningful message
         let msg = e.to_string();
-        assert!(
-            msg.contains("8192"),
-            "C.40: Error must include required size"
-        );
-        assert!(
-            msg.contains("4096"),
-            "C.40: Error must include available size"
-        );
+        assert!(msg.contains("8192"), "C.40: Error must include required size");
+        assert!(msg.contains("4096"), "C.40: Error must include available size");
     }
 }

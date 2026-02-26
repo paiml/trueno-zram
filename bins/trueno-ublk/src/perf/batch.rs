@@ -128,14 +128,7 @@ pub struct PageRequest {
 impl PageRequest {
     /// Create a new page request
     pub fn new(sector: u64, nr_sectors: u32, tag: u16, queue_id: u16, is_write: bool) -> Self {
-        Self {
-            sector,
-            nr_sectors,
-            tag,
-            queue_id,
-            is_write,
-            timestamp: Instant::now(),
-        }
+        Self { sector, nr_sectors, tag, queue_id, is_write, timestamp: Instant::now() }
     }
 
     /// End sector (exclusive)
@@ -205,20 +198,14 @@ impl PageBatch {
             return Duration::ZERO;
         }
         let now = Instant::now();
-        let total_wait: Duration = self
-            .requests
-            .iter()
-            .map(|r| now.duration_since(r.timestamp))
-            .sum();
+        let total_wait: Duration =
+            self.requests.iter().map(|r| now.duration_since(r.timestamp)).sum();
         total_wait / self.requests.len() as u32
     }
 
     /// Maximum wait time (oldest request)
     pub fn max_wait_time(&self) -> Duration {
-        self.requests
-            .first()
-            .map(|r| r.timestamp.elapsed())
-            .unwrap_or(Duration::ZERO)
+        self.requests.first().map(|r| r.timestamp.elapsed()).unwrap_or(Duration::ZERO)
     }
 }
 
@@ -313,11 +300,7 @@ impl BatchCoalescer {
     /// Add a page request, returns batch if ready
     pub fn add(&mut self, request: PageRequest) -> Option<PageBatch> {
         let is_write = request.is_write;
-        let pending = if is_write {
-            &mut self.write_pending
-        } else {
-            &mut self.read_pending
-        };
+        let pending = if is_write { &mut self.write_pending } else { &mut self.read_pending };
 
         pending.push_back(request);
 
@@ -371,11 +354,7 @@ impl BatchCoalescer {
 
     /// Flush pending requests of given type
     fn flush_pending(&mut self, is_write: bool, reason: FlushReason) -> PageBatch {
-        let pending = if is_write {
-            &mut self.write_pending
-        } else {
-            &mut self.read_pending
-        };
+        let pending = if is_write { &mut self.write_pending } else { &mut self.read_pending };
 
         let mut batch = PageBatch::new(is_write);
         let mut last_end_sector: Option<u64> = None;
@@ -716,11 +695,7 @@ mod tests {
 
     #[test]
     fn test_batch_stats_avg_batch_size() {
-        let stats = BatchStats {
-            batches_created: 4,
-            pages_batched: 100,
-            ..Default::default()
-        };
+        let stats = BatchStats { batches_created: 4, pages_batched: 100, ..Default::default() };
         assert!((stats.avg_batch_size() - 25.0).abs() < 0.001);
     }
 
@@ -732,11 +707,8 @@ mod tests {
 
     #[test]
     fn test_batch_stats_sequential_rate() {
-        let stats = BatchStats {
-            sequential_batches: 8,
-            non_sequential_batches: 2,
-            ..Default::default()
-        };
+        let stats =
+            BatchStats { sequential_batches: 8, non_sequential_batches: 2, ..Default::default() };
         assert!((stats.sequential_rate() - 0.8).abs() < 0.001);
     }
 

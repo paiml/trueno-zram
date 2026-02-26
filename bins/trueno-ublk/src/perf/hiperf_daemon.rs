@@ -68,15 +68,13 @@ impl HiPerfStats {
     /// Record an interrupted I/O completion (after yield)
     pub fn record_interrupted(&self, count: u32) {
         self.total_ios.fetch_add(count as u64, Ordering::Relaxed);
-        self.interrupted_ios
-            .fetch_add(count as u64, Ordering::Relaxed);
+        self.interrupted_ios.fetch_add(count as u64, Ordering::Relaxed);
     }
 
     /// Record a batch submission
     pub fn record_batch(&self, pages: usize, is_sequential: bool) {
         self.batches_submitted.fetch_add(1, Ordering::Relaxed);
-        self.batched_pages
-            .fetch_add(pages as u64, Ordering::Relaxed);
+        self.batched_pages.fetch_add(pages as u64, Ordering::Relaxed);
         if is_sequential {
             self.sequential_runs.fetch_add(1, Ordering::Relaxed);
         }
@@ -167,13 +165,7 @@ impl HiPerfContext {
         // Initialize 10X context if any optimizations are enabled
         let tenx = TenXContext::new(config.tenx.clone()).ok();
 
-        Self {
-            polling,
-            affinity,
-            config,
-            stats: HiPerfStats::new(),
-            tenx,
-        }
+        Self { polling, affinity, config, stats: HiPerfStats::new(), tenx }
     }
 
     /// Create context from CLI arguments
@@ -228,9 +220,7 @@ impl HiPerfContext {
 
         // Record NUMA node
         if self.config.numa_node >= 0 {
-            self.stats
-                .numa_node
-                .store(self.config.numa_node as u64, Ordering::Relaxed);
+            self.stats.numa_node.store(self.config.numa_node as u64, Ordering::Relaxed);
         }
 
         Ok(())
@@ -312,10 +302,7 @@ impl HiPerfContext {
 
     /// Get current batch size (from 10X adaptive batching or default)
     pub fn adaptive_batch_size(&self) -> usize {
-        self.tenx
-            .as_ref()
-            .map(|t| t.current_batch_size())
-            .unwrap_or(self.config.batch_size)
+        self.tenx.as_ref().map(|t| t.current_batch_size()).unwrap_or(self.config.batch_size)
     }
 
     /// Record I/O latency for adaptive batching
@@ -334,10 +321,7 @@ impl HiPerfContext {
 
     /// Check if currently in interrupt mode
     pub fn in_interrupt_mode(&self) -> bool {
-        self.polling
-            .as_ref()
-            .map(|p| p.in_interrupt_mode())
-            .unwrap_or(true)
+        self.polling.as_ref().map(|p| p.in_interrupt_mode()).unwrap_or(true)
     }
 }
 
@@ -408,10 +392,7 @@ mod tests {
 
     #[test]
     fn test_hiperf_context_with_batching() {
-        let config = PerfConfig {
-            batch_size: 64,
-            ..Default::default()
-        };
+        let config = PerfConfig { batch_size: 64, ..Default::default() };
         let ctx = HiPerfContext::new(config);
 
         assert!(ctx.is_batching_enabled());
@@ -539,18 +520,12 @@ mod tests {
     #[test]
     fn test_hiperf_batching_enabled_check() {
         // batch_size > 1 means batching is enabled (done by BatchedPageStore)
-        let config = PerfConfig {
-            batch_size: 64,
-            ..Default::default()
-        };
+        let config = PerfConfig { batch_size: 64, ..Default::default() };
         let ctx = HiPerfContext::new(config);
         assert!(ctx.is_batching_enabled());
 
         // batch_size <= 1 means batching disabled
-        let config2 = PerfConfig {
-            batch_size: 1,
-            ..Default::default()
-        };
+        let config2 = PerfConfig { batch_size: 1, ..Default::default() };
         let ctx2 = HiPerfContext::new(config2);
         assert!(!ctx2.is_batching_enabled());
     }
@@ -570,10 +545,7 @@ mod tests {
 
     #[test]
     fn test_hiperf_alloc_buffer_with_numa() {
-        let config = PerfConfig {
-            numa_node: 0,
-            ..Default::default()
-        };
+        let config = PerfConfig { numa_node: 0, ..Default::default() };
         let ctx = HiPerfContext::new(config);
 
         let buf = ctx.alloc_buffer(4096);

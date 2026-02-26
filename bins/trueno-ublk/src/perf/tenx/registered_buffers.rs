@@ -117,9 +117,7 @@ impl RegisteredBufferConfig {
     /// Validate configuration
     pub fn validate(&self) -> Result<(), RegisteredBufferError> {
         if self.queue_depth == 0 {
-            return Err(RegisteredBufferError::InvalidConfig(
-                "queue_depth cannot be 0".into(),
-            ));
+            return Err(RegisteredBufferError::InvalidConfig("queue_depth cannot be 0".into()));
         }
         if self.pages_per_buffer == 0 {
             return Err(RegisteredBufferError::InvalidConfig(
@@ -288,9 +286,8 @@ impl RegisteredBufferPool {
         }
 
         // Initialize allocation bitmap
-        let in_use: Vec<AtomicBool> = (0..config.queue_depth)
-            .map(|_| AtomicBool::new(false))
-            .collect();
+        let in_use: Vec<AtomicBool> =
+            (0..config.queue_depth).map(|_| AtomicBool::new(false)).collect();
 
         Ok(Self {
             config,
@@ -324,16 +321,7 @@ impl RegisteredBufferPool {
         }
 
         // SAFETY: mmap is called with valid parameters for anonymous memory
-        let ptr = unsafe {
-            mmap(
-                null_mut(),
-                aligned_size,
-                PROT_READ | PROT_WRITE,
-                flags,
-                -1,
-                0,
-            )
-        };
+        let ptr = unsafe { mmap(null_mut(), aligned_size, PROT_READ | PROT_WRITE, flags, -1, 0) };
 
         // Check for failure
         if ptr == nix::libc::MAP_FAILED {
@@ -345,9 +333,7 @@ impl RegisteredBufferPool {
                 );
                 return Self::allocate_aligned(size, alignment, false);
             }
-            return Err(RegisteredBufferError::AllocationFailed(
-                io::Error::last_os_error(),
-            ));
+            return Err(RegisteredBufferError::AllocationFailed(io::Error::last_os_error()));
         }
 
         if use_huge_pages {
@@ -404,10 +390,7 @@ impl RegisteredBufferPool {
     pub fn allocate(&self) -> Result<usize, RegisteredBufferError> {
         for (index, slot) in self.in_use.iter().enumerate() {
             // Try to atomically acquire this slot
-            if slot
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_ok()
-            {
+            if slot.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
                 self.stats.record_alloc();
                 return Ok(index);
             }
@@ -420,10 +403,7 @@ impl RegisteredBufferPool {
     /// Deallocate a buffer by index
     pub fn deallocate(&self, index: usize) -> Result<(), RegisteredBufferError> {
         if index >= self.in_use.len() {
-            return Err(RegisteredBufferError::IndexOutOfBounds {
-                index,
-                max: self.in_use.len(),
-            });
+            return Err(RegisteredBufferError::IndexOutOfBounds { index, max: self.in_use.len() });
         }
 
         // Release the slot
@@ -460,10 +440,7 @@ impl RegisteredBufferPool {
         index: usize,
     ) -> Result<&mut [u8], RegisteredBufferError> {
         let ptr = self.get_buffer_ptr(index)?;
-        Ok(std::slice::from_raw_parts_mut(
-            ptr,
-            self.config.buffer_size(),
-        ))
+        Ok(std::slice::from_raw_parts_mut(ptr, self.config.buffer_size()))
     }
 
     /// Build IoSliceMut array for io_uring registration
@@ -487,10 +464,7 @@ impl RegisteredBufferPool {
 
     /// Get current usage count
     pub fn current_usage(&self) -> usize {
-        self.in_use
-            .iter()
-            .filter(|slot| slot.load(Ordering::Relaxed))
-            .count()
+        self.in_use.iter().filter(|slot| slot.load(Ordering::Relaxed)).count()
     }
 
     /// Get number of available buffers
@@ -531,18 +505,14 @@ impl<'a> BufferGuard<'a> {
     /// # Safety
     /// Must not be called concurrently with other access to the same buffer.
     pub unsafe fn as_slice_mut(&mut self) -> &mut [u8] {
-        self.pool
-            .get_buffer_slice(self.index)
-            .expect("buffer guard holds valid allocation")
+        self.pool.get_buffer_slice(self.index).expect("buffer guard holds valid allocation")
     }
 
     /// Get a raw pointer to the buffer
     pub fn as_ptr(&self) -> *mut u8 {
         // SAFETY: We hold the allocation
         unsafe {
-            self.pool
-                .get_buffer_ptr(self.index)
-                .expect("buffer guard holds valid allocation")
+            self.pool.get_buffer_ptr(self.index).expect("buffer guard holds valid allocation")
         }
     }
 }
@@ -847,10 +817,7 @@ mod tests {
         // SAFETY: Test error handling
         unsafe {
             let result = pool.get_buffer_ptr(999);
-            assert!(matches!(
-                result,
-                Err(RegisteredBufferError::IndexOutOfBounds { .. })
-            ));
+            assert!(matches!(result, Err(RegisteredBufferError::IndexOutOfBounds { .. })));
         }
     }
 
@@ -965,11 +932,7 @@ mod tests {
             pool.deallocate(idx).unwrap();
         }
 
-        assert_eq!(
-            pool.stats().reuse_percentage(),
-            100.0,
-            "B.28: Must achieve 100% buffer reuse"
-        );
+        assert_eq!(pool.stats().reuse_percentage(), 100.0, "B.28: Must achieve 100% buffer reuse");
     }
 
     /// B.29: No buffer leaks
