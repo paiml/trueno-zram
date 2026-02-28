@@ -365,10 +365,10 @@ mod tests {
         let ops = SysfsOps::new();
         let config =
             ZramConfig { device: 999, size: 1024 * 1024, algorithm: "lz4".to_string(), streams: 1 };
-        // This will fail because device doesn't exist
+        // Should be rejected by device number guard
         let result = ops.create(&config);
-        // Either fails (expected) or somehow succeeds
-        let _ = result;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("exceeds maximum"));
     }
 
     #[test]
