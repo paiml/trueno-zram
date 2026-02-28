@@ -8,8 +8,8 @@ use trueno_zram_core::zram::{format_size, parse_size, SysfsOps, ZramConfig, Zram
 /// Arguments for creating a zram device.
 #[derive(Args)]
 pub struct CreateArgs {
-    /// Device number (0-15).
-    #[arg(short, long, default_value = "0")]
+    /// Device number (0-16).
+    #[arg(short, long, default_value = "0", value_parser = clap::value_parser!(u32).range(0..=16))]
     pub device: u32,
 
     /// Device size (e.g., "4G", "512M", "ram/2").

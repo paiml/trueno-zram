@@ -77,6 +77,16 @@ impl SysfsOps {
 
 impl ZramOps for SysfsOps {
     fn create(&self, config: &ZramConfig) -> Result<()> {
+        // Guard: reject unreasonable device numbers to prevent hot_add loop
+        // from creating thousands of kernel block devices
+        const MAX_ZRAM_DEVICE: u32 = 16;
+        if config.device > MAX_ZRAM_DEVICE {
+            return Err(Error::InvalidInput(format!(
+                "device number {} exceeds maximum ({MAX_ZRAM_DEVICE})",
+                config.device
+            )));
+        }
+
         let dev = ZramDevice::new(config.device);
 
         // If device doesn't exist, try to create it
@@ -237,9 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_nonexistent_no_control() {
-        // This tests the error path when zram-control doesn't exist
-        // On systems without zram, this will fail with an appropriate error
+    fn test_create_rejects_excessive_device_number() {
         let ops = SysfsOps::new();
         let config = ZramConfig {
             device: NONEXISTENT_DEVICE,
@@ -247,10 +255,9 @@ mod tests {
             algorithm: "lz4".to_string(),
             streams: 1,
         };
-        // Either succeeds (zram available with permissions) or fails with error
         let result = ops.create(&config);
-        // We just verify it doesn't panic
-        let _ = result;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("exceeds maximum"));
     }
 
     #[test]
@@ -423,13 +430,14 @@ mod tests {
         let _ = ops.status(0);
         let _ = ops.remove(NONEXISTENT_DEVICE, false);
 
+        // create with excessive device number should be rejected
         let config = ZramConfig {
             device: NONEXISTENT_DEVICE,
             size: 1024,
             algorithm: "lz4".to_string(),
             streams: 1,
         };
-        let _ = ops.create(&config);
+        assert!(ops.create(&config).is_err());
     }
 
     #[test]
@@ -442,7 +450,8 @@ mod tests {
                 algorithm: algo.to_string(),
                 streams: 4,
             };
-            let _ = ops.create(&config);
+            // All should be rejected due to excessive device number
+            assert!(ops.create(&config).is_err());
         }
     }
 
@@ -456,7 +465,7 @@ mod tests {
                 algorithm: "lz4".to_string(),
                 streams: 1,
             };
-            let _ = ops.create(&config);
+            assert!(ops.create(&config).is_err());
         }
     }
 
@@ -470,7 +479,7 @@ mod tests {
                 algorithm: "lz4".to_string(),
                 streams,
             };
-            let _ = ops.create(&config);
+            assert!(ops.create(&config).is_err());
         }
     }
 }
