@@ -56,7 +56,7 @@ jobs:
           echo "Text compression throughput: $TEXT_THROUGHPUT"
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: benchmark-results
@@ -95,7 +95,7 @@ jobs:
           echo "\`\`\`" >> BENCHMARK_REPORT.md
 
       - name: Upload comprehensive results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: comprehensive-benchmark-${{ github.sha }}
           path: |
