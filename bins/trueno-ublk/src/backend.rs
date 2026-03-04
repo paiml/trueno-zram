@@ -482,7 +482,7 @@ impl NvmeColdBackend {
     /// Create a new NVMe cold tier backend.
     ///
     /// # Arguments
-    /// * `base_path` - Directory for cold tier storage (e.g., `/mnt/nvme-raid0/trueno-cold`)
+    /// * `base_path` - Directory for cold tier storage (e.g., `$TRUENO_COLD_TIER_PATH` or `/tmp/trueno-cold`)
     ///
     /// Creates a sparse file `pages.dat` for storing uncompressed pages.
     pub fn new<P: AsRef<Path>>(base_path: P) -> Result<Self> {
@@ -712,7 +712,7 @@ impl TieredStorageManager {
     ///
     /// # Arguments
     /// * `kernel_device` - Optional path to kernel zram device (e.g., `/dev/zram0`)
-    /// * `nvme_cold_path` - Optional path to NVMe cold tier directory (e.g., `/mnt/nvme-raid0/trueno-cold`)
+    /// * `nvme_cold_path` - Optional path to NVMe cold tier directory (e.g., `$TRUENO_COLD_TIER_PATH` or `/tmp/trueno-cold`)
     /// * `routing_enabled` - Enable entropy-based routing
     pub fn new(
         kernel_device: Option<&Path>,
