@@ -7,45 +7,45 @@ use crate::{Error, Result};
 
 /// Read u16 from unaligned pointer.
 #[inline(always)]
-unsafe fn read_u16_le(ptr: *const u8) -> u16 {
+unsafe fn read_u16_le(ptr: *const u8) -> u16 { unsafe {
     std::ptr::read_unaligned(ptr.cast::<u16>())
-}
+}}
 
 /// Read u32 from unaligned pointer.
 #[allow(dead_code)] // Reserved for future optimizations
 #[inline(always)]
-unsafe fn read_u32(ptr: *const u8) -> u32 {
+unsafe fn read_u32(ptr: *const u8) -> u32 { unsafe {
     std::ptr::read_unaligned(ptr.cast::<u32>())
-}
+}}
 
 /// Read u64 from unaligned pointer.
 #[inline(always)]
-unsafe fn read_u64(ptr: *const u8) -> u64 {
+unsafe fn read_u64(ptr: *const u8) -> u64 { unsafe {
     std::ptr::read_unaligned(ptr.cast::<u64>())
-}
+}}
 
 /// Write u64 to unaligned pointer.
 #[inline(always)]
-unsafe fn write_u64(ptr: *mut u8, val: u64) {
+unsafe fn write_u64(ptr: *mut u8, val: u64) { unsafe {
     std::ptr::write_unaligned(ptr.cast::<u64>(), val);
-}
+}}
 
 /// Copy 8 bytes unconditionally (wildcard copy).
 #[inline(always)]
-unsafe fn copy_8(dst: *mut u8, src: *const u8) {
+unsafe fn copy_8(dst: *mut u8, src: *const u8) { unsafe {
     write_u64(dst, read_u64(src));
-}
+}}
 
 /// Copy 16 bytes unconditionally (double wildcard copy).
 #[inline(always)]
-unsafe fn copy_16(dst: *mut u8, src: *const u8) {
+unsafe fn copy_16(dst: *mut u8, src: *const u8) { unsafe {
     write_u64(dst, read_u64(src));
     write_u64(dst.add(8), read_u64(src.add(8)));
-}
+}}
 
 /// Wildcard copy - copies in 8-byte chunks, may overwrite past end.
 #[inline(always)]
-unsafe fn wildcard_copy(mut dst: *mut u8, mut src: *const u8, len: usize) {
+unsafe fn wildcard_copy(mut dst: *mut u8, mut src: *const u8, len: usize) { unsafe {
     let end = dst.add(len);
     loop {
         copy_8(dst, src);
@@ -55,7 +55,7 @@ unsafe fn wildcard_copy(mut dst: *mut u8, mut src: *const u8, len: usize) {
             break;
         }
     }
-}
+}}
 
 /// Decompress LZ4 block format data.
 ///
@@ -100,7 +100,7 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> Result<usize> {
 ///
 /// See: <https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md>
 #[inline(never)]
-unsafe fn decompress_fast(input: &[u8], output: &mut [u8]) -> Result<usize> {
+unsafe fn decompress_fast(input: &[u8], output: &mut [u8]) -> Result<usize> { unsafe {
     let mut ip = input.as_ptr();
     let ip_end = ip.add(input.len());
 
@@ -247,7 +247,7 @@ unsafe fn decompress_fast(input: &[u8], output: &mut [u8]) -> Result<usize> {
     }
 
     Ok(op as usize - op_start as usize)
-}
+}}
 
 #[cfg(test)]
 mod tests {

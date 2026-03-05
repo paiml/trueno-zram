@@ -22,6 +22,7 @@
 
 #![deny(missing_docs)]
 #![deny(clippy::panic)]
+#![allow(unsafe_code)] // SIMD intrinsics require unsafe
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::cast_possible_truncation)]

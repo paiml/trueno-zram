@@ -16,4 +16,5 @@
 //! - `cuda` - GPU-accelerated compression via CUDA
 //! - `adaptive` - ML-driven compression selection
 
+#[allow(clippy::doc_markdown)]
 pub mod verification_specs;

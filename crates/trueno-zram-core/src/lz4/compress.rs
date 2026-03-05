@@ -33,31 +33,31 @@ impl HashTable {
 
 /// Read u32 from unaligned pointer.
 #[inline(always)]
-unsafe fn read_u32(ptr: *const u8) -> u32 {
+unsafe fn read_u32(ptr: *const u8) -> u32 { unsafe {
     std::ptr::read_unaligned(ptr.cast::<u32>())
-}
+}}
 
 /// Read u64 from unaligned pointer.
 #[inline(always)]
-unsafe fn read_u64(ptr: *const u8) -> u64 {
+unsafe fn read_u64(ptr: *const u8) -> u64 { unsafe {
     std::ptr::read_unaligned(ptr.cast::<u64>())
-}
+}}
 
 /// Write u16 to unaligned pointer.
 #[inline(always)]
-unsafe fn write_u16(ptr: *mut u8, val: u16) {
+unsafe fn write_u16(ptr: *mut u8, val: u16) { unsafe {
     std::ptr::write_unaligned(ptr.cast::<u16>(), val);
-}
+}}
 
 /// Copy 8 bytes (wildcard copy).
 #[inline(always)]
-unsafe fn copy_8(dst: *mut u8, src: *const u8) {
+unsafe fn copy_8(dst: *mut u8, src: *const u8) { unsafe {
     std::ptr::write_unaligned(dst.cast::<u64>(), std::ptr::read_unaligned(src.cast::<u64>()));
-}
+}}
 
 /// Count matching bytes using 64-bit comparisons.
 #[inline(always)]
-unsafe fn count_match(mut p1: *const u8, mut p2: *const u8, p2_end: *const u8) -> usize {
+unsafe fn count_match(mut p1: *const u8, mut p2: *const u8, p2_end: *const u8) -> usize { unsafe {
     let start = p2;
 
     // Compare 8 bytes at a time
@@ -78,7 +78,7 @@ unsafe fn count_match(mut p1: *const u8, mut p2: *const u8, p2_end: *const u8) -
     }
 
     p2 as usize - start as usize
-}
+}}
 
 /// Compress input data using LZ4 block format.
 ///
@@ -108,7 +108,7 @@ pub fn compress(input: &[u8]) -> Result<Vec<u8>> {
 ///
 /// Caller must ensure input is valid and output has sufficient capacity.
 #[inline(never)]
-unsafe fn compress_fast(input: &[u8], output: &mut Vec<u8>) {
+unsafe fn compress_fast(input: &[u8], output: &mut Vec<u8>) { unsafe {
     let input_len = input.len();
 
     if input_len < MF_LIMIT {
@@ -238,7 +238,7 @@ unsafe fn compress_fast(input: &[u8], output: &mut Vec<u8>) {
         // Reset acceleration
         acceleration = 1;
     }
-}
+}}
 
 /// Emit variable-length encoding.
 #[inline(always)]
@@ -252,7 +252,7 @@ fn emit_length(output: &mut Vec<u8>, mut len: usize) {
 
 /// Emit final literals (no match follows).
 #[inline(always)]
-unsafe fn emit_last_literals(output: &mut Vec<u8>, src: *const u8, len: usize) {
+unsafe fn emit_last_literals(output: &mut Vec<u8>, src: *const u8, len: usize) { unsafe {
     // Token
     let token = (len.min(15) as u8) << 4;
     output.push(token);
@@ -268,7 +268,7 @@ unsafe fn emit_last_literals(output: &mut Vec<u8>, src: *const u8, len: usize) {
     output.set_len(output.len() + len);
 
     std::ptr::copy_nonoverlapping(src, output.as_mut_ptr().add(start), len);
-}
+}}
 
 // Thread-local hash table for high-throughput batch compression
 // Eliminates the 64KB allocation per compression call overhead
@@ -318,7 +318,7 @@ pub fn compress_tls(input: &[u8]) -> Result<Vec<u8>> {
 ///
 /// Caller must ensure input is valid and output has sufficient capacity.
 #[inline(never)]
-unsafe fn compress_fast_with_table(input: &[u8], output: &mut Vec<u8>, hash_table: &mut HashTable) {
+unsafe fn compress_fast_with_table(input: &[u8], output: &mut Vec<u8>, hash_table: &mut HashTable) { unsafe {
     let input_len = input.len();
 
     if input_len < MF_LIMIT {
@@ -442,7 +442,7 @@ unsafe fn compress_fast_with_table(input: &[u8], output: &mut Vec<u8>, hash_tabl
                 (ip.sub(2) as usize - base as usize) as u32;
         }
     }
-}
+}}
 
 #[cfg(test)]
 mod tests {

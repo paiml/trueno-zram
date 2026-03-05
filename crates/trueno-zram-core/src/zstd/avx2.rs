@@ -38,7 +38,7 @@ pub unsafe fn decode_huffman_avx2(
     input: &[u8],
     output: &mut [u8],
     table: &super::huffman::HuffmanTable,
-) -> Result<usize> {
+) -> Result<usize> { unsafe {
     // For small inputs or tables, fall back to scalar
     if input.len() < 32 || output.len() < 32 || table.entries.len() > 256 {
         return decode_huffman_scalar(input, output, table);
@@ -46,7 +46,7 @@ pub unsafe fn decode_huffman_avx2(
 
     // AVX2 batch decoding for larger inputs
     decode_huffman_avx2_batch(input, output, table)
-}
+}}
 
 /// Scalar Huffman decoding fallback.
 #[cfg(target_arch = "x86_64")]
@@ -98,7 +98,7 @@ unsafe fn decode_huffman_avx2_batch(
     input: &[u8],
     output: &mut [u8],
     table: &super::huffman::HuffmanTable,
-) -> Result<usize> {
+) -> Result<usize> { unsafe {
     // For very short tables, use optimized PSHUFB path
     if table.table_log <= 4 {
         return decode_huffman_avx2_small_table(input, output, table);
@@ -106,7 +106,7 @@ unsafe fn decode_huffman_avx2_batch(
 
     // Otherwise use scalar with AVX2 memory operations
     decode_huffman_scalar(input, output, table)
-}
+}}
 
 /// AVX2 optimized path for small Huffman tables (≤16 entries).
 ///
@@ -117,7 +117,7 @@ unsafe fn decode_huffman_avx2_small_table(
     input: &[u8],
     output: &mut [u8],
     table: &super::huffman::HuffmanTable,
-) -> Result<usize> {
+) -> Result<usize> { unsafe {
     if table.entries.len() > 16 {
         return decode_huffman_scalar(input, output, table);
     }
@@ -188,7 +188,7 @@ unsafe fn decode_huffman_avx2_small_table(
     }
 
     Ok(out_pos)
-}
+}}
 
 /// AVX2-accelerated FSE decoding.
 ///
@@ -213,11 +213,11 @@ pub unsafe fn decode_fse_avx2(
     input: &[u8],
     output: &mut [u8],
     table: &super::fse::FseTable,
-) -> Result<usize> {
+) -> Result<usize> { unsafe {
     // FSE decoding is inherently sequential due to state dependencies
     // AVX2 provides limited benefit here, so we use a hybrid approach
     decode_fse_hybrid(input, output, table)
-}
+}}
 
 /// Hybrid FSE decoding with AVX2 memory operations.
 #[cfg(target_arch = "x86_64")]

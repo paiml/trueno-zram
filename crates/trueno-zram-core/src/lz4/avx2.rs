@@ -24,9 +24,9 @@ pub unsafe fn compress_avx2(input: &[u8; PAGE_SIZE]) -> Result<Vec<u8>> {
 /// Caller must ensure AVX2 is available on the current CPU.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-pub unsafe fn decompress_avx2(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> Result<usize> {
+pub unsafe fn decompress_avx2(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> Result<usize> { unsafe {
     decompress_avx2_impl(input, output)
-}
+}}
 
 /// Fast decompression - just call scalar with `target_feature` for auto-vectorization.
 #[cfg(target_arch = "x86_64")]

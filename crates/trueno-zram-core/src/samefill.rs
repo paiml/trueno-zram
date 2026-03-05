@@ -105,7 +105,7 @@ fn page_same_filled_scalar(page: &[u8; PAGE_SIZE]) -> Option<u64> {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f")]
 #[inline]
-unsafe fn page_same_filled_avx512(page: &[u8; PAGE_SIZE]) -> Option<u64> {
+unsafe fn page_same_filled_avx512(page: &[u8; PAGE_SIZE]) -> Option<u64> { unsafe {
     // Use unaligned reads since page data may not be 8-byte aligned
     let ptr = page.as_ptr().cast::<u64>();
     let val = ptr.read_unaligned();
@@ -134,7 +134,7 @@ unsafe fn page_same_filled_avx512(page: &[u8; PAGE_SIZE]) -> Option<u64> {
     }
 
     Some(val)
-}
+}}
 
 /// Fill a page with a u64 word value (kernel memset_l equivalent).
 ///
