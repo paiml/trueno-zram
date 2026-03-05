@@ -105,36 +105,38 @@ fn page_same_filled_scalar(page: &[u8; PAGE_SIZE]) -> Option<u64> {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f")]
 #[inline]
-unsafe fn page_same_filled_avx512(page: &[u8; PAGE_SIZE]) -> Option<u64> { unsafe {
-    // Use unaligned reads since page data may not be 8-byte aligned
-    let ptr = page.as_ptr().cast::<u64>();
-    let val = ptr.read_unaligned();
-    let last_pos = PAGE_SIZE / 8 - 1;
+unsafe fn page_same_filled_avx512(page: &[u8; PAGE_SIZE]) -> Option<u64> {
+    unsafe {
+        // Use unaligned reads since page data may not be 8-byte aligned
+        let ptr = page.as_ptr().cast::<u64>();
+        let val = ptr.read_unaligned();
+        let last_pos = PAGE_SIZE / 8 - 1;
 
-    // Quick check: first vs last word (kernel optimization)
-    if val != ptr.add(last_pos).read_unaligned() {
-        return None;
-    }
-
-    // Broadcast the fill value to all 8 lanes of a 512-bit register
-    let fill = _mm512_set1_epi64(val as i64);
-
-    // Process 64 bytes (8 u64s) at a time
-    // PAGE_SIZE / 64 = 64 iterations instead of 512
-    let ptr = page.as_ptr().cast::<__m512i>();
-
-    for i in 0..(PAGE_SIZE / 64) {
-        let chunk = _mm512_loadu_si512(ptr.add(i));
-        let mask = _mm512_cmpeq_epi64_mask(chunk, fill);
-
-        // All 8 lanes must match (mask = 0xFF = 255)
-        if mask != 0xFF {
+        // Quick check: first vs last word (kernel optimization)
+        if val != ptr.add(last_pos).read_unaligned() {
             return None;
         }
-    }
 
-    Some(val)
-}}
+        // Broadcast the fill value to all 8 lanes of a 512-bit register
+        let fill = _mm512_set1_epi64(val as i64);
+
+        // Process 64 bytes (8 u64s) at a time
+        // PAGE_SIZE / 64 = 64 iterations instead of 512
+        let ptr = page.as_ptr().cast::<__m512i>();
+
+        for i in 0..(PAGE_SIZE / 64) {
+            let chunk = _mm512_loadu_si512(ptr.add(i));
+            let mask = _mm512_cmpeq_epi64_mask(chunk, fill);
+
+            // All 8 lanes must match (mask = 0xFF = 255)
+            if mask != 0xFF {
+                return None;
+            }
+        }
+
+        Some(val)
+    }
+}
 
 /// Fill a page with a u64 word value (kernel memset_l equivalent).
 ///

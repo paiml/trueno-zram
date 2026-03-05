@@ -38,15 +38,17 @@ pub unsafe fn decode_huffman_avx2(
     input: &[u8],
     output: &mut [u8],
     table: &super::huffman::HuffmanTable,
-) -> Result<usize> { unsafe {
-    // For small inputs or tables, fall back to scalar
-    if input.len() < 32 || output.len() < 32 || table.entries.len() > 256 {
-        return decode_huffman_scalar(input, output, table);
-    }
+) -> Result<usize> {
+    unsafe {
+        // For small inputs or tables, fall back to scalar
+        if input.len() < 32 || output.len() < 32 || table.entries.len() > 256 {
+            return decode_huffman_scalar(input, output, table);
+        }
 
-    // AVX2 batch decoding for larger inputs
-    decode_huffman_avx2_batch(input, output, table)
-}}
+        // AVX2 batch decoding for larger inputs
+        decode_huffman_avx2_batch(input, output, table)
+    }
+}
 
 /// Scalar Huffman decoding fallback.
 #[cfg(target_arch = "x86_64")]
@@ -98,15 +100,17 @@ unsafe fn decode_huffman_avx2_batch(
     input: &[u8],
     output: &mut [u8],
     table: &super::huffman::HuffmanTable,
-) -> Result<usize> { unsafe {
-    // For very short tables, use optimized PSHUFB path
-    if table.table_log <= 4 {
-        return decode_huffman_avx2_small_table(input, output, table);
-    }
+) -> Result<usize> {
+    unsafe {
+        // For very short tables, use optimized PSHUFB path
+        if table.table_log <= 4 {
+            return decode_huffman_avx2_small_table(input, output, table);
+        }
 
-    // Otherwise use scalar with AVX2 memory operations
-    decode_huffman_scalar(input, output, table)
-}}
+        // Otherwise use scalar with AVX2 memory operations
+        decode_huffman_scalar(input, output, table)
+    }
+}
 
 /// AVX2 optimized path for small Huffman tables (≤16 entries).
 ///
@@ -117,78 +121,80 @@ unsafe fn decode_huffman_avx2_small_table(
     input: &[u8],
     output: &mut [u8],
     table: &super::huffman::HuffmanTable,
-) -> Result<usize> { unsafe {
-    if table.entries.len() > 16 {
-        return decode_huffman_scalar(input, output, table);
-    }
+) -> Result<usize> {
+    unsafe {
+        if table.entries.len() > 16 {
+            return decode_huffman_scalar(input, output, table);
+        }
 
-    // Build lookup tables for PSHUFB
-    let mut symbols = [0u8; 16];
-    let mut bits = [0u8; 16];
+        // Build lookup tables for PSHUFB
+        let mut symbols = [0u8; 16];
+        let mut bits = [0u8; 16];
 
-    for (i, entry) in table.entries.iter().take(16).enumerate() {
-        symbols[i] = entry.symbol;
-        bits[i] = entry.bits;
-    }
+        for (i, entry) in table.entries.iter().take(16).enumerate() {
+            symbols[i] = entry.symbol;
+            bits[i] = entry.bits;
+        }
 
-    let symbol_lut = _mm_loadu_si128(symbols.as_ptr().cast::<__m128i>());
-    let _bits_lut = _mm_loadu_si128(bits.as_ptr().cast::<__m128i>());
+        let symbol_lut = _mm_loadu_si128(symbols.as_ptr().cast::<__m128i>());
+        let _bits_lut = _mm_loadu_si128(bits.as_ptr().cast::<__m128i>());
 
-    let mut bit_pos = 0usize;
-    let mut out_pos = 0usize;
-    let total_bits = input.len() * 8;
-    let mask = (1u8 << table.table_log) - 1;
+        let mut bit_pos = 0usize;
+        let mut out_pos = 0usize;
+        let total_bits = input.len() * 8;
+        let mask = (1u8 << table.table_log) - 1;
 
-    // Process 16 symbols at a time when possible
-    while bit_pos + 64 <= total_bits && out_pos + 16 <= output.len() {
-        // Load 16 indices
-        let mut indices = [0u8; 16];
-        for i in 0..16 {
+        // Process 16 symbols at a time when possible
+        while bit_pos + 64 <= total_bits && out_pos + 16 <= output.len() {
+            // Load 16 indices
+            let mut indices = [0u8; 16];
+            for i in 0..16 {
+                let byte_pos = bit_pos / 8;
+                let bit_offset = bit_pos % 8;
+
+                if byte_pos < input.len() {
+                    let mut val = input[byte_pos] >> bit_offset;
+                    if bit_offset + table.table_log as usize > 8 && byte_pos + 1 < input.len() {
+                        val |= input[byte_pos + 1] << (8 - bit_offset);
+                    }
+                    indices[i] = val & mask;
+                }
+
+                // Estimate bits consumed (actual varies per symbol)
+                bit_pos += table.table_log as usize;
+            }
+
+            // Use PSHUFB for parallel lookup
+            let idx_vec = _mm_loadu_si128(indices.as_ptr().cast::<__m128i>());
+            let decoded = _mm_shuffle_epi8(symbol_lut, idx_vec);
+
+            // Store results
+            _mm_storeu_si128(output.as_mut_ptr().add(out_pos).cast::<__m128i>(), decoded);
+
+            out_pos += 16;
+        }
+
+        // Handle remaining symbols with scalar
+        while bit_pos + (table.table_log as usize) <= total_bits && out_pos < output.len() {
             let byte_pos = bit_pos / 8;
             let bit_offset = bit_pos % 8;
 
-            if byte_pos < input.len() {
-                let mut val = input[byte_pos] >> bit_offset;
-                if bit_offset + table.table_log as usize > 8 && byte_pos + 1 < input.len() {
-                    val |= input[byte_pos + 1] << (8 - bit_offset);
+            let mut bits_val = 0u64;
+            for i in 0..8 {
+                if byte_pos + i < input.len() {
+                    bits_val |= u64::from(input[byte_pos + i]) << (i * 8);
                 }
-                indices[i] = val & mask;
             }
 
-            // Estimate bits consumed (actual varies per symbol)
-            bit_pos += table.table_log as usize;
+            let (symbol, num_bits) = table.decode(bits_val >> bit_offset, 0);
+            output[out_pos] = symbol;
+            out_pos += 1;
+            bit_pos += num_bits as usize;
         }
 
-        // Use PSHUFB for parallel lookup
-        let idx_vec = _mm_loadu_si128(indices.as_ptr().cast::<__m128i>());
-        let decoded = _mm_shuffle_epi8(symbol_lut, idx_vec);
-
-        // Store results
-        _mm_storeu_si128(output.as_mut_ptr().add(out_pos).cast::<__m128i>(), decoded);
-
-        out_pos += 16;
+        Ok(out_pos)
     }
-
-    // Handle remaining symbols with scalar
-    while bit_pos + (table.table_log as usize) <= total_bits && out_pos < output.len() {
-        let byte_pos = bit_pos / 8;
-        let bit_offset = bit_pos % 8;
-
-        let mut bits_val = 0u64;
-        for i in 0..8 {
-            if byte_pos + i < input.len() {
-                bits_val |= u64::from(input[byte_pos + i]) << (i * 8);
-            }
-        }
-
-        let (symbol, num_bits) = table.decode(bits_val >> bit_offset, 0);
-        output[out_pos] = symbol;
-        out_pos += 1;
-        bit_pos += num_bits as usize;
-    }
-
-    Ok(out_pos)
-}}
+}
 
 /// AVX2-accelerated FSE decoding.
 ///
@@ -213,11 +219,13 @@ pub unsafe fn decode_fse_avx2(
     input: &[u8],
     output: &mut [u8],
     table: &super::fse::FseTable,
-) -> Result<usize> { unsafe {
-    // FSE decoding is inherently sequential due to state dependencies
-    // AVX2 provides limited benefit here, so we use a hybrid approach
-    decode_fse_hybrid(input, output, table)
-}}
+) -> Result<usize> {
+    unsafe {
+        // FSE decoding is inherently sequential due to state dependencies
+        // AVX2 provides limited benefit here, so we use a hybrid approach
+        decode_fse_hybrid(input, output, table)
+    }
+}
 
 /// Hybrid FSE decoding with AVX2 memory operations.
 #[cfg(target_arch = "x86_64")]

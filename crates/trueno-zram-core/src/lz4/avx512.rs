@@ -43,9 +43,9 @@ pub unsafe fn compress_avx512(input: &[u8; PAGE_SIZE]) -> Result<Vec<u8>> {
 /// - ~40% faster than scalar on large matches
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512bw")]
-pub unsafe fn decompress_avx512(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> Result<usize> { unsafe {
-    decompress_avx512_impl(input, output)
-}}
+pub unsafe fn decompress_avx512(input: &[u8], output: &mut [u8; PAGE_SIZE]) -> Result<usize> {
+    unsafe { decompress_avx512_impl(input, output) }
+}
 
 /// AVX-512 decompression implementation.
 ///
