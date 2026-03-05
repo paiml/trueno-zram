@@ -1,20 +1,14 @@
-# Nextest configuration for trueno-zram
-# https://nexte.st/docs/configuration/
+# cargo-nextest CI profile
+# Deployed from paiml/infra — do not edit manually.
+# Spec: docs/specifications/unified-ci-pipeline.md
 
-[store]
-dir = "target/nextest"
-
-# Default profile
-[profile.default]
+[profile.ci]
 retries = 0
-test-threads = "num-cpus"
-slow-timeout = { period = "60s", terminate-after = 2 }
+fail-fast = true
+slow-warning = "60s"
+status-level = "fail"
 
-# Coverage profile - faster settings
-[profile.coverage]
-retries = 0
-test-threads = "num-cpus"
-slow-timeout = { period = "30s", terminate-after = 1 }
-status-level = "skip"
-final-status-level = "fail"
-failure-output = "immediate"
+[profile.ci.junit]
+path = "target/nextest/ci/junit.xml"
+store-success-output = false
+store-failure-output = true
