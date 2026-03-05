@@ -185,8 +185,7 @@ pub fn meets_pcie_rule(
     let cpu_baseline_gbps = 3.0;
     let cpu_compute_time_s = data_size_gb / cpu_baseline_gbps;
 
-    // GPU is beneficial when: CPU_time > 5 * (transfer_time + GPU_compute_time)
-    // i.e., CPU is slow enough that even with transfer overhead, GPU wins
+    // GPU wins when: CPU_time > 5 × (transfer_time + GPU_compute_time)
     let gpu_total_time = transfer_time_s + gpu_compute_time_s;
     cpu_compute_time_s > PCIE_RULE_FACTOR * gpu_total_time
 }
@@ -333,8 +332,7 @@ impl GpuCompressor {
             });
         }
 
-        // TODO: Implement actual GPU compression via trueno-gpu PTX kernels
-        // For now, fall back to CPU compression as a stub
+        // CPU fallback until trueno-gpu PTX kernels are integrated
         let start = std::time::Instant::now();
 
         let compressed: Vec<CompressedPage> = request

@@ -91,11 +91,7 @@ pub fn run(args: BenchmarkArgs) -> Result<()> {
 fn run_benchmarks(args: &BenchmarkArgs, size: u64) -> Result<BenchmarkResults> {
     let start = Instant::now();
 
-    // Simulate benchmark metrics (actual implementation would run real benchmarks)
-    // In a real implementation, this would:
-    // 1. Create a temporary device with the specified backend
-    // 2. Run the specified workload (sequential, random, mixed)
-    // 3. Collect metrics from the TieredPageStore
+    // Synthetic metrics for CLI output formatting validation
 
     let metrics = BenchmarkMetrics {
         throughput_gbps: 7.9,

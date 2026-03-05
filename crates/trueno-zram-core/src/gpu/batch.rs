@@ -732,13 +732,13 @@ impl GpuBatchCompressor {
     }
 
     // =========================================================================
-    // GPU DECOMPRESSION (F082-Safe - Sovereign AI 2TB LLM Restore)
+    // GPU DECOMPRESSION (F082-Safe — Sovereign AI 2TB LLM Restore)
     // =========================================================================
     //
-    // This is the KEY innovation for the hybrid CPU+GPU architecture:
-    // - Compression: CPU at 24 GB/s (avoids F082 hash table bug)
-    // - Decompression: GPU at 16 GB/s (F082-safe, no hash tables)
-    // - Combined throughput: ~40 GB/s for 2TB LLM checkpoint restore
+    // Hybrid CPU+GPU architecture:
+    //   Compress:   CPU at 24 GB/s (hash-table path bypasses F082)
+    //   Decompress: GPU at 16 GB/s (F082-safe, no hash tables)
+    //   Combined:   ~40 GB/s for 2TB LLM checkpoint restore
     //
     // G.119 target: 2TB restore in <60s requires ~34 GB/s sustained
     // =========================================================================

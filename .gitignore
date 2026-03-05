@@ -48,3 +48,4 @@ benchmark-results/*.svg
 .pmat/context.db
 .pmat/context.db-shm
 .pmat/context.db-wal
+docs/

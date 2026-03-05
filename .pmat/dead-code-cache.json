@@ -1,0 +1,142 @@
+{
+  "tree_hash": "0bea61370cd181927f21499ecf8fe559349b1c7f",
+  "pmat_version": "3.6.1",
+  "timestamp": "2026-03-05T19:37:02.901189277Z",
+  "report": {
+    "files_with_dead_code": [
+      {
+        "file_path": "bins/trueno-ublk/src/perf/mod.rs",
+        "dead_items": [
+          {
+            "name": "affinity",
+            "kind": "Suppressed",
+            "line": 37,
+            "column": 1,
+            "message": "mod `affinity` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          }
+        ],
+        "file_dead_percentage": 2.2598870056497176
+      },
+      {
+        "file_path": "bins/trueno-ublk/src/main.rs",
+        "dead_items": [
+          {
+            "name": "backend",
+            "kind": "Suppressed",
+            "line": 25,
+            "column": 1,
+            "message": "mod `backend` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          }
+        ],
+        "file_dead_percentage": 6.25
+      },
+      {
+        "file_path": "crates/trueno-zram-core/src/lz4/decompress.rs",
+        "dead_items": [
+          {
+            "name": "read_u32",
+            "kind": "Suppressed",
+            "line": 17,
+            "column": 1,
+            "message": "fn `read_u32` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          }
+        ],
+        "file_dead_percentage": 0.7155635062611807
+      },
+      {
+        "file_path": "bins/trueno-ublk/src/ublk/daemon.rs",
+        "dead_items": [
+          {
+            "name": "get_data_buf",
+            "kind": "Suppressed",
+            "line": 788,
+            "column": 1,
+            "message": "fn `get_data_buf` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          }
+        ],
+        "file_dead_percentage": 0.16522098306484925
+      },
+      {
+        "file_path": "crates/trueno-zram-core/src/gpu/batch.rs",
+        "dead_items": [
+          {
+            "name": "GpuBatchCompressor",
+            "kind": "Suppressed",
+            "line": 44,
+            "column": 1,
+            "message": "struct `GpuBatchCompressor` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          },
+          {
+            "name": "compress_batch_gpu",
+            "kind": "Suppressed",
+            "line": 396,
+            "column": 1,
+            "message": "fn `compress_batch_gpu` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          },
+          {
+            "name": "encode_lz4_zero_page",
+            "kind": "Suppressed",
+            "line": 1015,
+            "column": 1,
+            "message": "fn `encode_lz4_zero_page` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          }
+        ],
+        "file_dead_percentage": 0.5808325266214909
+      },
+      {
+        "file_path": "bins/trueno-ublk/src/daemon.rs",
+        "dead_items": [
+          {
+            "name": "Backend",
+            "kind": "Suppressed",
+            "line": 442,
+            "column": 1,
+            "message": "enum `Backend` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          },
+          {
+            "name": "compress_simd_parallel",
+            "kind": "Suppressed",
+            "line": 790,
+            "column": 1,
+            "message": "fn `compress_simd_parallel` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          },
+          {
+            "name": "compress_simd_sequential",
+            "kind": "Suppressed",
+            "line": 844,
+            "column": 1,
+            "message": "fn `compress_simd_sequential` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          },
+          {
+            "name": "estimate_entropy_fast",
+            "kind": "Suppressed",
+            "line": 1717,
+            "column": 1,
+            "message": "fn `estimate_entropy_fast` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          }
+        ],
+        "file_dead_percentage": 0.4707266843189173
+      },
+      {
+        "file_path": "crates/trueno-zram-generator/src/fstab.rs",
+        "dead_items": [
+          {
+            "name": "generate_fstab_entry",
+            "kind": "Suppressed",
+            "line": 8,
+            "column": 1,
+            "message": "fn `generate_fstab_entry` has #[allow(dead_code)] suppression (explicit dead code admission)"
+          }
+        ],
+        "file_dead_percentage": 11.76470588235294
+      }
+    ],
+    "total_dead_items": 12,
+    "dead_code_percentage": 0.0516328901510262,
+    "total_lines": 46482,
+    "dead_lines": 24,
+    "dead_by_type": {
+      "suppressed": 12
+    }
+  }
+}
