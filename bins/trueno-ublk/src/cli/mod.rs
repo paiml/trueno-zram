@@ -282,7 +282,7 @@ pub struct CreateArgs {
     /// Used when --backend=tiered for high-entropy pages (H(X) > 7.5).
     /// High-entropy data skips compression and goes directly to NVMe.
     /// Directory will be created if it doesn't exist.
-    /// Example: /mnt/nvme-raid0/trueno-cold
+    /// Example: /var/lib/trueno/cold
     #[arg(long)]
     pub cold_tier: Option<String>,
 
