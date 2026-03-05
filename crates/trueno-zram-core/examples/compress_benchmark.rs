@@ -43,7 +43,7 @@ fn main() {
                         println!(
                             "{:>8} {:>10} {:>10.2} GB/s {:>10.2} GB/s {:>9.2}x {:>10?}",
                             count,
-                            format!("{:?}", algo).chars().take(10).collect::<String>(),
+                            format!("{algo:?}").chars().take(10).collect::<String>(),
                             compress_gbps,
                             decompress_gbps,
                             result.compression_ratio(),

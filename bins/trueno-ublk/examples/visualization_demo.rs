@@ -2,11 +2,11 @@
 //!
 //! Demonstrates trueno-ublk's renacer visualization integration.
 //!
-//! Run with: cargo run --example visualization_demo -p trueno-ublk
+//! Run with: `cargo run --example visualization_demo -p trueno-ublk`
 
 use std::collections::HashMap;
 
-/// Simulated metrics for demonstration (actual metrics come from TruenoCollector)
+/// Simulated metrics for demonstration (actual metrics come from `TruenoCollector`)
 fn simulate_metrics() -> HashMap<String, f64> {
     let mut metrics = HashMap::new();
 
@@ -34,6 +34,7 @@ fn simulate_metrics() -> HashMap<String, f64> {
 }
 
 fn print_bar(label: &str, value: f64, max: f64, width: usize) {
+    #[allow(clippy::cast_sign_loss)]
     let filled = ((value / max) * width as f64) as usize;
     let bar: String = "█".repeat(filled) + &"░".repeat(width - filled);
     println!("  {:<20} [{bar}] {:.1}%", label, value * 100.0);

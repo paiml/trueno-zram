@@ -1,4 +1,4 @@
-//! Minimal test using GpuBatchCompressor directly
+//! Minimal test using `GpuBatchCompressor` directly
 
 #[cfg(feature = "cuda")]
 fn main() {
@@ -35,9 +35,9 @@ fn main() {
                     }
                 }
                 _ => {
-                    let mut rng = (i as u64).wrapping_mul(0x5DEECE66D);
+                    let mut rng = (i as u64).wrapping_mul(0x0005_DEEC_E66D);
                     for byte in &mut page {
-                        rng = rng.wrapping_mul(0x5DEECE66D).wrapping_add(0xB);
+                        rng = rng.wrapping_mul(0x0005_DEEC_E66D).wrapping_add(0xB);
                         *byte = (rng >> 33) as u8;
                     }
                 }

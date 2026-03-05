@@ -83,7 +83,7 @@ workspace = true
 unsafe_code = "warn"
 unsafe_op_in_unsafe_fn = "warn"
 unreachable_pub = "warn"
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(feature, values("cuda"))'] }
 rust_2018_idioms = { level = "warn", priority = -1 }
 
 [workspace.lints.clippy]

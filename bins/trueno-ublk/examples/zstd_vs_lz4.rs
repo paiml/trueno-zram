@@ -2,7 +2,7 @@
 //!
 //! Demonstrates why ZSTD level 1 is recommended over LZ4 on AVX-512 systems.
 //!
-//! Run with: cargo run --example zstd_vs_lz4 -p trueno-ublk --release
+//! Run with: `cargo run --example zstd_vs_lz4 -p trueno-ublk --release`
 
 use std::time::Instant;
 use trueno_zram_core::{Algorithm, CompressorBuilder, PAGE_SIZE};
@@ -11,7 +11,6 @@ use trueno_zram_core::{Algorithm, CompressorBuilder, PAGE_SIZE};
 fn generate_test_data(entropy_level: &str) -> [u8; PAGE_SIZE] {
     let mut data = [0u8; PAGE_SIZE];
     match entropy_level {
-        "zeros" => {} // Already zeros
         "text" => {
             // Simulated text data (low entropy ~4.5 bits)
             let pattern = b"The quick brown fox jumps over the lazy dog. ";
@@ -32,7 +31,7 @@ fn generate_test_data(entropy_level: &str) -> [u8; PAGE_SIZE] {
         }
         "random" => {
             // High entropy data (~7.9 bits)
-            let mut x: u64 = 88172645463325252;
+            let mut x: u64 = 88_172_645_463_325_252;
             for chunk in data.chunks_mut(8) {
                 x ^= x << 13;
                 x ^= x >> 7;
@@ -80,8 +79,7 @@ fn benchmark_algorithm(
     let ratio = PAGE_SIZE as f64 / compressed_size as f64;
 
     println!(
-        "  {:<12} {:>8.2} GiB/s  {:>8.2} GiB/s  {:>6.1}x",
-        name, compress_throughput, decompress_throughput, ratio
+        "  {name:<12} {compress_throughput:>8.2} GiB/s  {decompress_throughput:>8.2} GiB/s  {ratio:>6.1}x"
     );
 
     (compress_throughput, decompress_throughput, ratio)
@@ -112,14 +110,14 @@ fn main() {
     ];
 
     println!("Benchmark Configuration:");
-    println!("  Page size:   {} bytes", PAGE_SIZE);
-    println!("  Iterations:  {}", iterations);
+    println!("  Page size:   {PAGE_SIZE} bytes");
+    println!("  Iterations:  {iterations}");
     println!();
 
     for (entropy_level, description) in workloads {
         let data = generate_test_data(entropy_level);
 
-        println!("{}", description);
+        println!("{description}");
         println!("{:<14} {:>14} {:>14} {:>8}", "Algorithm", "Compress", "Decompress", "Ratio");
         println!("{:-<56}", "");
 
@@ -133,8 +131,7 @@ fn main() {
 
         println!();
         println!(
-            "  ZSTD-1 speedup: {:.1}x compress, {:.1}x decompress",
-            compress_speedup, decompress_speedup
+            "  ZSTD-1 speedup: {compress_speedup:.1}x compress, {decompress_speedup:.1}x decompress"
         );
         println!();
     }

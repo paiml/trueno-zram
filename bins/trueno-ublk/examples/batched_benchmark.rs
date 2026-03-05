@@ -1,6 +1,6 @@
 //! PMAT Benchmark: Per-Page vs Batched Compression
 //!
-//! Compares PageStore (per-page) vs BatchedPageStore (batched) compression performance.
+//! Compares `PageStore` (per-page) vs `BatchedPageStore` (batched) compression performance.
 //! Target: >10 GB/s sequential write throughput with batched compression.
 //!
 //! Run with:
@@ -19,6 +19,7 @@ use trueno_zram_core::{Algorithm, PAGE_SIZE};
 // Import from the trueno-ublk crate
 use trueno_ublk::daemon::{BatchConfig, BatchedPageStore, PageStore};
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════════╗");
     println!("║     PMAT Benchmark: Per-Page vs Batched Compression              ║");
@@ -26,8 +27,8 @@ fn main() {
     println!("╚══════════════════════════════════════════════════════════════════╝\n");
 
     // System info
-    let num_cpus = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1);
-    println!("CPU Cores: {}", num_cpus);
+    let num_cpus = std::thread::available_parallelism().map(std::num::NonZero::get).unwrap_or(1);
+    println!("CPU Cores: {num_cpus}");
 
     #[cfg(feature = "cuda")]
     {
@@ -309,9 +310,9 @@ fn generate_mixed_pages(count: usize) -> Vec<[u8; PAGE_SIZE]> {
                 }
                 _ => {
                     // Semi-random (less compressible) - 20%
-                    let mut rng = (i as u64).wrapping_mul(6364136223846793005);
+                    let mut rng = (i as u64).wrapping_mul(6_364_136_223_846_793_005);
                     for byte in &mut page {
-                        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                        rng = rng.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
                         *byte = (rng >> 33) as u8;
                     }
                 }

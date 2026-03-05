@@ -7,7 +7,7 @@
 //! - 33% GPU @ ~12 GB/s
 //! - Combined: ~36 GB/s (exceeds G.119 target)
 //!
-//! Run with: cargo run --example g119_parallel_benchmark --features cuda --release
+//! Run with: `cargo run --example g119_parallel_benchmark --features cuda --release`
 
 #[cfg(feature = "cuda")]
 fn main() {
@@ -56,9 +56,9 @@ fn main() {
                         }
                     }
                     _ => {
-                        let mut rng = (i as u64).wrapping_mul(0x5DEECE66D);
+                        let mut rng = (i as u64).wrapping_mul(0x0005_DEEC_E66D);
                         for byte in &mut page {
-                            rng = rng.wrapping_mul(0x5DEECE66D).wrapping_add(0xB);
+                            rng = rng.wrapping_mul(0x0005_DEEC_E66D).wrapping_add(0xB);
                             *byte = (rng >> 33) as u8;
                         }
                     }

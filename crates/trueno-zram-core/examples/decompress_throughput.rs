@@ -21,9 +21,9 @@ fn main() {
                     }
                 }
                 _ => {
-                    let mut rng = (i as u64).wrapping_mul(0x5DEECE66D);
+                    let mut rng = (i as u64).wrapping_mul(0x0005_DEEC_E66D);
                     for b in &mut page {
-                        rng = rng.wrapping_mul(0x5DEECE66D).wrapping_add(0xB);
+                        rng = rng.wrapping_mul(0x0005_DEEC_E66D).wrapping_add(0xB);
                         *b = (rng >> 33) as u8;
                     }
                 }
@@ -35,7 +35,7 @@ fn main() {
     // Compress all pages
     let compressed: Vec<Vec<u8>> = pages.iter().map(|p| compress(p).unwrap()).collect();
 
-    let total_compressed: usize = compressed.iter().map(|c| c.len()).sum();
+    let total_compressed: usize = compressed.iter().map(Vec::len).sum();
     println!(
         "Compressed {} pages: {} → {} bytes ({:.2}x ratio)\n",
         NUM_PAGES,
@@ -66,9 +66,9 @@ fn main() {
 
     println!("Results:");
     println!("  {} pages in {:.1} ms", NUM_PAGES, elapsed.as_secs_f64() * 1000.0);
-    println!("  Throughput: {:.2} GB/s (single-threaded)", gbps);
-    println!("  Pages/sec: {:.0}", pages_per_sec);
-    println!("  ns/page: {:.0}", ns_per_page);
+    println!("  Throughput: {gbps:.2} GB/s (single-threaded)");
+    println!("  Pages/sec: {pages_per_sec:.0}");
+    println!("  ns/page: {ns_per_page:.0}");
 
     println!("\nProjections:");
     println!("  With 24 threads (perfect scaling): {:.1} GB/s", gbps * 24.0);

@@ -24,9 +24,9 @@ fn main() {
                     }
                 }
                 _ => {
-                    let mut rng = (i as u64).wrapping_mul(0x5DEECE66D);
+                    let mut rng = (i as u64).wrapping_mul(0x0005_DEEC_E66D);
                     for b in &mut page {
-                        rng = rng.wrapping_mul(0x5DEECE66D).wrapping_add(0xB);
+                        rng = rng.wrapping_mul(0x0005_DEEC_E66D).wrapping_add(0xB);
                         *b = (rng >> 33) as u8;
                     }
                 }
@@ -85,5 +85,5 @@ fn main() {
     });
     let elapsed = start.elapsed();
     let gbps = (NUM_PAGES * PAGE_SIZE) as f64 / elapsed.as_secs_f64() / 1e9;
-    println!("Parallel memcpy: {:.2} GB/s (this is ~memory bandwidth limit)", gbps);
+    println!("Parallel memcpy: {gbps:.2} GB/s (this is ~memory bandwidth limit)");
 }

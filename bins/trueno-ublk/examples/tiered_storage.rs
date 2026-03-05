@@ -2,7 +2,7 @@
 //!
 //! Demonstrates the kernel-cooperative tiered storage architecture.
 //!
-//! Run with: cargo run --example tiered_storage -p trueno-ublk
+//! Run with: `cargo run --example tiered_storage -p trueno-ublk`
 
 /// Simulated tier statistics
 struct TierStats {
@@ -71,6 +71,7 @@ fn route_page(entropy: f64) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     println!("trueno-ublk Tiered Storage Demo (v3.17.0)");
     println!("=========================================\n");
@@ -93,7 +94,7 @@ fn main() {
     // Simulate different data types
     let test_cases: Vec<(&str, Vec<u8>, &str)> = vec![
         ("Zero pages", vec![0u8; 4096], "Same-fill detection (∞ ratio)"),
-        ("Pattern data", (0..4096).map(|i| (i % 4) as u8).collect(), "Same-fill or kernel ZRAM"),
+        ("Pattern data", (0..4096u16).map(|i| (i % 4) as u8).collect(), "Same-fill or kernel ZRAM"),
         (
             "Text/code",
             {
@@ -109,14 +110,14 @@ fn main() {
         ),
         (
             "Mixed data",
-            (0..4096).map(|i| ((i * 17 + 31) % 256) as u8).collect(),
+            (0..4096u16).map(|i| ((i * 17 + 31) % 256) as u8).collect(),
             "SIMD ZSTD (better ratio)",
         ),
         (
             "Random/encrypted",
             {
                 let mut data = vec![0u8; 4096];
-                let mut x: u64 = 0xDEADBEEF;
+                let mut x: u64 = 0xDEAD_BEEF;
                 for chunk in data.chunks_mut(8) {
                     x ^= x << 13;
                     x ^= x >> 7;
@@ -140,7 +141,7 @@ fn main() {
         let entropy = calculate_entropy(data);
         let route = route_page(entropy);
 
-        println!("{:<20} {:>8.2} b {:>15} {:>20}", name, entropy, route, rationale);
+        println!("{name:<20} {entropy:>8.2} b {route:>15} {rationale:>20}");
 
         // Update stats
         stats.total_bytes += 4096;

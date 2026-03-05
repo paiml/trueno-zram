@@ -3,7 +3,7 @@
 //! Demonstrates how trueno-ublk tracks compression statistics and
 //! compares different algorithms.
 //!
-//! Run with: cargo run --example compression_stats -p trueno-ublk
+//! Run with: `cargo run --example compression_stats -p trueno-ublk`
 
 use trueno_ublk::BlockDevice;
 use trueno_zram_core::{Algorithm, CompressorBuilder, PAGE_SIZE};
@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
 
     // Test with different algorithms
     for algorithm in [Algorithm::Lz4, Algorithm::Zstd { level: 3 }] {
-        println!("Algorithm: {:?}", algorithm);
+        println!("Algorithm: {algorithm:?}");
         println!("{:-<60}", "");
 
         let compressor = CompressorBuilder::new().algorithm(algorithm).build()?;
@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
         // Write all test patterns
         for (i, (name, data)) in test_data.iter().enumerate() {
             device.write((i * PAGE_SIZE) as u64, data)?;
-            println!("  Wrote: {}", name);
+            println!("  Wrote: {name}");
         }
 
         // Get statistics

@@ -3,7 +3,7 @@
 //! Demonstrates how trueno-ublk routes data to different compression
 //! backends based on entropy analysis.
 //!
-//! Run with: cargo run --example entropy_routing -p trueno-ublk
+//! Run with: `cargo run --example entropy_routing -p trueno-ublk`
 
 use trueno_ublk::BlockDevice;
 use trueno_zram_core::{Algorithm, CompressorBuilder, PAGE_SIZE};
@@ -59,7 +59,7 @@ fn main() -> anyhow::Result<()> {
             let mut data = vec![0u8; PAGE_SIZE];
             let mut x: u32 = 12345;
             for byte in &mut data {
-                x = x.wrapping_mul(1103515245).wrapping_add(12345);
+                x = x.wrapping_mul(1_103_515_245).wrapping_add(12345);
                 *byte = (x >> 16) as u8;
             }
             data
@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
         // High entropy - nearly random
         ("XorShift random (~7.5 bits)", {
             let mut data = vec![0u8; PAGE_SIZE];
-            let mut x: u64 = 88172645463325252;
+            let mut x: u64 = 88_172_645_463_325_252;
             for chunk in data.chunks_mut(8) {
                 x ^= x << 13;
                 x ^= x >> 7;
@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
             "SIMD"
         };
 
-        println!("{:<30} {:>10.2} bits {:>12}", name, entropy, expected_route);
+        println!("{name:<30} {entropy:>10.2} bits {expected_route:>12}");
 
         device.write((i * PAGE_SIZE) as u64, data)?;
     }

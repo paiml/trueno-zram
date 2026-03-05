@@ -3,7 +3,7 @@
 //! Demonstrates creating a compressed block device, writing data,
 //! and reading it back.
 //!
-//! Run with: cargo run --example block_device -p trueno-ublk
+//! Run with: `cargo run --example block_device -p trueno-ublk`
 
 use trueno_ublk::BlockDevice;
 use trueno_zram_core::{Algorithm, CompressorBuilder, PAGE_SIZE};
