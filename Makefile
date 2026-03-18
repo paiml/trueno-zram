@@ -130,23 +130,19 @@ fmt-check:
 # Added benchmark.rs (0% coverage - only runs via examples)
 COVERAGE_EXCLUDE := --ignore-filename-regex='cli|zram/device\.rs|zram/ops\.rs|perf/tenx/|perf/numa|perf/affinity|backend\.rs|stats\.rs|bins/trueno-ublk/src/device\.rs|bins/trueno-ublk/src/daemon\.rs|cleanup\.rs|benchmark\.rs'
 
-# Fast coverage - target: <5 minutes (uses nextest for parallel execution)
-# Cold run ~5min, warm run <2min (after initial compilation)
+# Fast coverage - target: <5 minutes
+# CB-127: Use 'cargo llvm-cov test' instead of nextest (profraw explosion)
 coverage:
 	@echo "📊 Running fast coverage analysis..."
 	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "📦 Installing cargo-llvm-cov..." && cargo install cargo-llvm-cov --locked)
-	@which cargo-nextest > /dev/null 2>&1 || (echo "📦 Installing cargo-nextest..." && cargo install cargo-nextest --locked)
 	@mkdir -p target/coverage
-	@echo "🧪 Running tests with instrumentation (parallel via nextest)..."
-	@env PROPTEST_CASES=3 QUICKCHECK_TESTS=3 cargo llvm-cov nextest \
-		--profile coverage \
-		--no-tests=warn \
+	@echo "🧪 Running tests with instrumentation..."
+	@env PROPTEST_CASES=3 QUICKCHECK_TESTS=3 cargo llvm-cov test \
 		--lib \
 		-p trueno-zram-core \
 		-p trueno-zram-adaptive \
 		--html --output-dir target/coverage/html \
-		$(COVERAGE_EXCLUDE) \
-		-E 'not test(/benchmark|stress|fuzz|property/)'
+		$(COVERAGE_EXCLUDE)
 	@echo ""
 	@cargo llvm-cov report --summary-only $(COVERAGE_EXCLUDE)
 	@echo "💡 HTML report: target/coverage/html/index.html"
@@ -154,14 +150,11 @@ coverage:
 # Full coverage - all packages (slower, ~10min)
 coverage-full:
 	@echo "📊 Running full coverage analysis..."
-	@env PROPTEST_CASES=5 QUICKCHECK_TESTS=5 cargo llvm-cov nextest \
-		--profile coverage \
-		--no-tests=warn \
+	@env PROPTEST_CASES=5 QUICKCHECK_TESTS=5 cargo llvm-cov test \
 		--workspace \
 		--lib \
 		--html --output-dir target/coverage/html \
-		$(COVERAGE_EXCLUDE) \
-		-E 'not test(/benchmark|stress|fuzz/)'
+		$(COVERAGE_EXCLUDE)
 	@cargo llvm-cov report --summary-only $(COVERAGE_EXCLUDE)
 	@echo "💡 HTML report: target/coverage/html/index.html"
 
