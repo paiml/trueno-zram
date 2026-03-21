@@ -4,6 +4,8 @@
 
 <h1 align="center">trueno-zram</h1>
 
+**SIMD-accelerated LZ4/ZSTD compression with ublk block device for transparent memory compression.**
+
 ## Table of Contents
 
 - [Installation](#installation)
