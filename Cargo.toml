@@ -43,6 +43,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 tokio = { version = "1.44", features = ["full"] }
 
 [package]
+exclude = ["tests/", "benches/", "docs/", ".github/", "book/", ".pmat/"]
 name = "trueno-zram"
 description = "SIMD-accelerated LZ4/ZSTD compression engine for Linux zram devices"
 version.workspace = true
