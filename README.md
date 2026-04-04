@@ -248,6 +248,10 @@ Areas of interest:
 
 Minimum Supported Rust Version: **1.82**
 
+## Cookbook
+
+See [trueno-zram-cookbook](https://github.com/paiml/trueno-zram-cookbook) for examples and recipes.
+
 ## License
 
 MIT OR Apache-2.0
